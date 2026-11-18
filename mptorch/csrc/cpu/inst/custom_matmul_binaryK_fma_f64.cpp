@@ -1,11 +1,9 @@
-// Explicit instantiation of the CPU GEMM kernel for binaryK formats with a
-// fused mac (one rounding per multiply-add) in the binary64 carrier: the
-// kernels behind custom_matmul_binaryK_fma and
-// custom_matmul_binaryK_fma_mixed for float64 operands. The binary32 twin
-// is custom_matmul_binaryK_fma.cpp. A separate translation unit so the
-// binary64 kernels add no compile time to the binary32 object, and so a
-// build with MPTORCH_NO_FP64=1 can leave them out by leaving the four
-// *_f64.cpp files out (setup.py).
+// Explicit instantiations of the CPU GEMM kernel for custom_matmul_binaryK_fma
+// and custom_matmul_binaryK_fma_mixed. They accumulate under
+// AccumulateAlgorithm::NAIVE (one running sum) in the binary64 carrier (float64
+// operands). The entry points are in ../custom_matmul_entry.cpp, and
+// ../custom_matmul_kernel.h explains how the instantiations are divided among
+// the files in this directory.
 
 #include "../custom_matmul_kernel.h"
 

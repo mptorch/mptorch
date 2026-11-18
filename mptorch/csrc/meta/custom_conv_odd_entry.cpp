@@ -1,8 +1,10 @@
 // The Meta kernels of the conv ops whose carrier step rounds to odd, in the
 // order of their CPU entry points in cpu/custom_conv_odd_entry.cpp. Each CPU
-// entry point forwards to a body in common/carrier_odd_conv_host.h; each Meta
-// kernel here is that body with the driver replaced by its meta_* twin from
-// common/meta_host.h. meta_ops.cpp registers them.
+// entry point forwards to a body in common/carrier_odd_conv_host.h, and each
+// Meta kernel here is that body with the driver replaced by its meta_* twin
+// from common/meta_host.h.
+// tests/test_entry_copies.py checks that they stay copies. meta_ops.cpp
+// registers them.
 
 #include "../common/carrier_odd_accumulate.h"
 #include "../common/carrier_odd_mixed.h"

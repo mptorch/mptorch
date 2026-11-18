@@ -1,55 +1,65 @@
 #pragma once
 
-// The carrier step rounded to odd on an Apple GPU (phase Z): carrier_odd.h's
-// three primitives in binary32, for Metal only. carrier_odd.h includes this
-// header in place of its host and CUDA primitives when __METAL_VERSION__ is
-// defined, and nothing else includes it, so no host or CUDA object sees it.
+// The carrier step rounded to odd (RO) on an Apple GPU: carrier_odd.h's
+// three primitives, odd::fma, odd::add and odd::mul, in binary32, for Metal
+// only. carrier_odd.h includes this header in place of its host and CUDA
+// primitives when __METAL_VERSION__ is defined, and nothing else includes
+// it, so no host or CUDA object sees it.
 //
-// The host computes binary32 RO in binary64 and CUDA with a pair of directed
-// operations; Metal has neither, and its float unit flushes binary32
-// subnormals to zero, operands and results, in every operation and compare.
-// The flush is decided on the exact result, before rounding:
-// metal::fma(2^-63 (1 - 2^-24), 2^-63, 0), whose nearest value is 2^-126,
-// comes back 0 (dev/benchmarks/mps_backend.py odd-probe). So the primitives
-// are error-free transforms in binary32 on operands a word test has admitted,
-// with every other input rescaled on the word into that range first:
+// The host computes binary32 RO in binary64, and CUDA with a pair of
+// operations in the two directed rounding modes. Metal has neither, and its
+// float unit flushes binary32 subnormals to zero, operands and results, in
+// every operation and compare. The flush is decided on the exact result,
+// before rounding: metal::fma(2^-63 (1 - 2^-24), 2^-63, 0), whose nearest
+// binary32 value is 2^-126, returns 0 (dev/benchmarks/mps_backend.py
+// odd-probe). So each primitive is built from error-free transforms in
+// binary32 (sequences of float operations whose rounding errors are
+// recovered exactly), run only on operands that a test on their bits has
+// admitted; every other input is first rescaled on its bits into that
+// range. A primitive has three parts:
 //
-//   core   fma: TwoProd (p = a*b, e = fma(a, b, -p)), 2Sum(p, c), 2Sum(e1, e),
-//          Fast2Sum(s1, zn), then the odd fix of S by tau = T + zt. add: 2Sum,
-//          then the fix. mul: TwoProd, then the fix. The host's binary64
-//          fma_fast, transposed.
-//   gate   on the words, before the core: a nonzero product (a and b
-//          nonzero) with |p| < 2^-78, which also catches a p the flush made
-//          zero, a subnormal factor's included; |p| >= 2^125, an infinite or
-//          NaN one included; 0 < |c| < 2^-100 or |c| >= 2^125; for add, a
-//          nonzero operand below 2^-103 or one at least 2^125. Inside these bounds TwoProd's error
-//          is a multiple of 2^(E_p - 47) >= 2^-125 and each 2Sum's of the
-//          smaller operand's last place, >= 2^-123 (2^-126 for add, which
-//          has no slack), so every intermediate is zero or at least 2^-126,
-//          exact values included, and none overflows: the flush cannot reach
-//          them.
-//   cold   everything else, rescaled by a power of two on the words so the
-//          core's bounds hold, run through a core of its own, and scaled back on
-//          the word: exactly where the product and c are within 60 binades,
-//          a +-2^-100 stand-in for a term too small to reach the other's
-//          last place (it decides only the residual's sign, which is all
-//          that term could change), the descale onto the 2^-149 grid with
-//          the dropped bits ORed into the last one (round-to-odd composes),
-//          and +-Omega past the top. Zero products, zero terms and
-//          non-finite operands are answered first, from the words.
+//   core   fma: TwoProd (p = a*b, e = fma(a, b, -p)), 2Sum(p, c), 2Sum(e1,
+//          e), Fast2Sum(s1, zn), then the odd fix of S by tau = T + zt
+//          (fix below). add: 2Sum, then the fix. mul: TwoProd, then the
+//          fix. This is the host's binary64 fma_fast, written in binary32.
+//   gate   a test on the bits, before the core, that sends an input to the
+//          cold path when: the product of nonzero a and b has |p| < 2^-78
+//          (which also catches a p the flush made zero, including the
+//          product of a subnormal factor) or |p| >= 2^125 (an infinite or
+//          NaN p included; for mul, only an infinite or NaN p); 0 < |c| <
+//          2^-100 or |c| >= 2^125; and, for add, an operand is nonzero and
+//          below 2^-103, or at least 2^125. Inside these bounds TwoProd's
+//          error is a multiple of 2^(E_p - 47) >= 2^-125, and each 2Sum's a
+//          multiple of the smaller operand's last place, >= 2^-123 (2^-126
+//          for add, which leaves no slack). So every intermediate value,
+//          including every exact one, is zero or at least 2^-126 in
+//          magnitude, and none overflows: the flush cannot reach them.
+//   cold   every other input. Zero products, zero terms and non-finite
+//          operands are answered first, from the bits. The rest are
+//          rescaled by a power of two on the bits so that the core's bounds
+//          hold, run through a core of their own, and scaled back on the
+//          bits. The rescaling is exact where the product and c are within
+//          60 binades of each other; past that, the smaller term is replaced
+//          by +-2^-100, a stand-in too small to reach the other term's last
+//          place, which decides only the sign of the residual, the one
+//          thing that term could change. Scaling back moves the result onto
+//          the 2^-149 grid with the dropped bits ORed into the last one
+//          (round to odd composes this way), and gives +-Omega (the largest
+//          finite value) past the top of the range.
 //
-// What every primitive returns is carrier_odd.h's table, word for word with
-// the host's binary32 primitives (NaN payloads aside), which
-// tests/test_carrier_rounding.py and mps_backend.py odd-sweep hold them to.
+// Every primitive returns the results carrier_odd.h specifies, word for word
+// with the host's binary32 primitives (NaN payloads aside), which
+// tests/test_carrier_rounding.py and mps_backend.py's odd-sweep check.
 //
 // Also here, for the odd macs' operations that no format rounds next (the
-// sums over an IdentityAdder, KAHAN's identity differences, a fold with no
-// outer format): add_rn and sub_rn, the flush-proof nearest operations
-// (bit_helper.h's metal_sub_rn), and cast_product, a multiplier's cast of a
-// product already formed, which SplitMacOdd and OddProduct use instead of
-// handing the multiplier the odd product times 1. Each is in this header
-// rather than in bit_helper.h, which every MPS kernel includes, so that no
-// existing kernel's source changes.
+// sums over an IdentityAdder, KAHAN's differences that no format rounds, a
+// fold with no outer format): add_rn and sub_rn, round-to-nearest operations
+// that the flush cannot reach (through bit_helper.h's metal_sub_rn); and
+// cast_product, a multiplier's cast of a product already formed, which
+// SplitMacOdd and OddProduct call instead of handing the multiplier the odd
+// product times 1. These are in this header rather than in bit_helper.h,
+// which every MPS kernel includes, so that no other kernel's source
+// changes.
 
 #include "gemm_policy.h"
 
@@ -65,7 +75,7 @@ namespace mptorch::gemm
     constant uint32_t MANT_BITS = 0x007FFFFFu;
     constant uint32_t INF_WORD = 0x7F800000u;
     constant uint32_t OMEGA_WORD = 0x7F7FFFFFu;
-    // The magnitude words of the gate's bounds: 2^e is (e + 127) << 23.
+    // The magnitude words of the gate's bounds (2^e is (e + 127) << 23).
     constant uint32_t TINY_PRODUCT = 49u << 23; // 2^-78
     constant uint32_t TINY_TERM = 27u << 23;    // 2^-100
     constant uint32_t TINY_ADD = 24u << 23;     // 2^-103
@@ -75,27 +85,30 @@ namespace mptorch::gemm
     inline float float_of(uint32_t w) { return as_type<float>(w); }
     inline bool is_subnormal_magnitude(uint32_t m) { return m != 0 && m < 0x00800000u; }
 
-    // The gate's test of one magnitude word m: outside [lo, hi), with one
-    // unsigned compare. A zero term, which the cores take as it is, is tested
-    // as lo.
+    // The gate's test of one magnitude word m: whether it is outside
+    // [lo, hi), in one unsigned compare. A zero term, which the cores take
+    // as it is, is passed in as lo.
     inline bool in_gap(uint32_t m, uint32_t lo, uint32_t hi) { return m - lo >= hi - lo; }
 
     // The magnitude the gate tests for a product a * b, given |a|, |b| and
-    // the GPU's |RN(a * b)| as words: that, except that a zero factor makes
-    // the product an exact zero (or IEEE's NaN, with an infinity), which the
-    // cores take as they are, so it passes. A subnormal factor of a nonzero
-    // one needs no test of its own: the GPU flushes it, operand and product
-    // alike, even where the exact product is normal (2^-130 * 2^100 is 0;
-    // measured with odd-probe's kernels on an M3 Pro, and held by
-    // tests/test_mps.py's test_the_odd_step_does_not_flush), so the product
-    // is a zero of nonzero factors, which fails.
+    // the GPU's |RN(a * b)| as words. It is |RN(a * b)|, except that a zero
+    // factor makes the product an exact zero (or IEEE's NaN, with an
+    // infinity), which the cores take as it is, so it passes. A subnormal
+    // factor next to a nonzero one needs no test of its own: the GPU flushes
+    // it, as an operand and in the product, even where the exact product is
+    // normal (2^-130 * 2^100 is 0, measured with odd-probe's kernels on an M3
+    // Pro, and checked by tests/test_mps.py's
+    // test_the_odd_step_does_not_flush). So the product is a zero of nonzero
+    // factors, which fails the gate.
     inline uint32_t product_magnitude(uint32_t A, uint32_t B, uint32_t P)
     {
       return metal::min(A, B) == 0 ? TINY_PRODUCT : P;
     }
 
-    // The odd fix (carrier_odd.h's header comment), reading tau's sign and
-    // zeroness from its word: a compare would see a flushed tau.
+    // The odd fix (carrier_odd.h's header describes it): s is made odd when
+    // tau, the rounding error, is nonzero, stepping toward zero first if tau
+    // has the opposite sign. tau's sign and zeroness are read from its word,
+    // since a compare would see a flushed tau as zero.
     inline float fix(float s, float tau)
     {
       const uint32_t w = word(s), t = word(tau);
@@ -104,7 +117,7 @@ namespace mptorch::gemm
       return float_of((w - opp) | inx);
     }
 
-    // 2Sum: s + t = a + b exactly, for any order of a and b.
+    // 2Sum: s + t = a + b exactly, whatever the order of a and b.
     inline void two_sum(float a, float b, thread float &s, thread float &t)
     {
       s = a + b;
@@ -112,15 +125,16 @@ namespace mptorch::gemm
       t = (a - (s - bb)) + (b - bb);
     }
 
-    // |a| >= |b| (or a = 0): s + t = a + b exactly.
+    // Fast2Sum, for |a| >= |b| (or a = 0): s + t = a + b exactly.
     inline void fast_two_sum(float a, float b, thread float &s, thread float &t)
     {
       s = a + b;
       t = b - (s - a);
     }
 
-    // The cores, for operands inside the gate's bounds. An exact zero takes
-    // s1's IEEE sign, as the host's fma_fast does (fma(-0, 5, -0) is -0).
+    // The cores, for operands inside the gate's bounds. An exact zero result
+    // takes s1's IEEE sign, as the host's fma_fast does (fma(-0, 5, -0) is
+    // -0).
     inline float fma_core(float a, float b, float c)
     {
       const float uh = a * b;
@@ -146,8 +160,8 @@ namespace mptorch::gemm
       return fix(uh, metal::fma(a, b, -uh));
     }
 
-    // A finite nonzero magnitude word as sig * 2^(e - 23), sig in
-    // [2^23, 2^24): a subnormal is normalized.
+    // A finite nonzero magnitude word, written as sig * 2^(e - 23) with sig in
+    // [2^23, 2^24); a subnormal is normalized.
     inline void split(uint32_t m, thread uint32_t &sig, thread int &e)
     {
       const uint32_t field = m >> 23;
@@ -164,21 +178,21 @@ namespace mptorch::gemm
       }
     }
 
-    // sign * sig * 2^(e - 23) for e in binary32's normal range.
+    // The value sign * sig * 2^(e - 23), for e in binary32's normal range.
     inline float build(uint32_t sign, uint32_t sig, int e)
     {
       return float_of(sign | (uint32_t(e + 127) << 23) | (sig & MANT_BITS));
     }
 
-    // A term at binade d relative to the larger one: itself, scaled exactly,
-    // within 60 binades; past that a stand-in of its sign, 2^-100, which no
-    // last place of a term in [1, 4) can see.
+    // A term d binades from the larger one: itself, scaled exactly, when it
+    // is within 60 binades; past that, a stand-in of its sign, 2^-100, which
+    // no last place of a term in [1, 4) can see.
     inline float scaled_term(uint32_t sign, uint32_t sig, int d)
     {
       return d < -60 ? build(sign, 0x00800000u, -100) : build(sign, sig, d);
     }
 
-    // RO of y * 2^S, where y = RO(x * 2^-S) came out of a core run on
+    // RO of y * 2^S, where y = RO(x * 2^-S) is what a core returned for the
     // rescaled operands: zero (an exact cancellation) or a normal value.
     inline float descale(float y, int S)
     {
@@ -190,10 +204,10 @@ namespace mptorch::gemm
         return float_of(sign | OMEGA_WORD); // RO's overflow: Omega, never infinity
       if (field >= 1)
         return float_of(sign | (uint32_t(field) << 23) | (m & MANT_BITS));
-      // Onto the subnormal grid: y's 24 bits shifted right by 1 - field,
-      // the dropped ones (y's own odd bit among them) ORed into the last.
-      // A shift of 1 leaves at most 2^23 - 1, so it never carries into
-      // 2^-126: an inexact value is never an even word.
+      // Onto the subnormal grid: y's 24 significand bits shifted right by
+      // 1 - field, with the dropped bits (y's own odd bit among them) ORed
+      // into the last one kept. A shift of 1 leaves at most 2^23 - 1, so it
+      // never carries into 2^-126: an inexact value is never an even word.
       const uint32_t sig = (m & MANT_BITS) | 0x00800000u;
       const int shift = 1 - field;
       if (shift >= 25)
@@ -202,11 +216,11 @@ namespace mptorch::gemm
       return float_of(sign | (sig >> uint32_t(shift)) | (dropped != 0 ? 1u : 0u));
     }
 
-    // The cold paths, each a whole primitive for the inputs its gate sends
-    // there, with a core of its own. A cold path that rescaled the operands
-    // and rejoined the fast path's core instead (one core per primitive)
-    // made the split and KAHAN GEMMs 1.1-1.3x slower at 1024^3 on an M3 Pro
-    // (2026-11-15: their K-loops are unrolled), and declaring the cold paths
+    // The cold paths, each a whole primitive, with a core of its own, for
+    // the inputs its gate sends there. Cold paths that rescaled the operands
+    // and then rejoined the fast path's core (one core per primitive) made
+    // the split and KAHAN GEMMs 1.1-1.3x slower at 1024^3 on an M3 Pro
+    // (2026-11-15; their K-loops are unrolled), and declaring the cold paths
     // noinline made the fused GEMM 1.07x faster than inlining them.
     MPTORCH_ODD_COLD float fma_cold(float a, float b, float c)
     {
@@ -223,7 +237,7 @@ namespace mptorch::gemm
       }
       if (A == 0 || B == 0)
       {
-        // A zero product: the sum is c, exactly, a subnormal one too; two
+        // A zero product: the sum is c, exactly, even a subnormal c; two
         // zero terms give -0 only from -0 + -0.
         if (C != 0)
           return c;
@@ -245,8 +259,9 @@ namespace mptorch::gemm
         const int d = ec - E;
         if (d > 60)
         {
-          // The product is far below c's last place: c in [1, 2), and a
-          // product of its sign that is exact and as negligible.
+          // The product is far below c's last place: c is scaled into
+          // [1, 2), and the product replaced by a product of its sign that
+          // is exact and just as negligible.
           c1 = build(wc & SIGN_BIT, sc, 0);
           a1 = build(sab, 0x00800000u, -50);
           b1 = build(0u, 0x00800000u, -50);
@@ -327,16 +342,17 @@ namespace mptorch::gemm
       return mul_core(a, b);
     }
 
-    // The nearest operations no format rounds next, flush-proof: x + y and
-    // x - y as IEEE binary32 gives them, subnormals included. The negation
-    // is on the word.
+    // The round-to-nearest operations that no format rounds next, written so
+    // that the flush cannot reach them: x + y and x - y as IEEE binary32
+    // gives them, subnormals included. add_rn negates y on its word.
     inline float sub_rn(float x, float y) { return metal_sub_rn(x, y); }
     inline float add_rn(float x, float y) { return metal_sub_rn(x, float_of(word(y) ^ SIGN_BIT)); }
 
-    // A multiplier's cast of a product already formed: operator()'s body
-    // without its `a * b`, which the odd macs would otherwise reach as the
-    // odd product times 1, and a subnormal product times 1 is one the flush
-    // may reach (odd-probe found it folded away; nothing promises that).
+    // A multiplier's cast of a product already formed: the multiplier's
+    // operator() body without its `a * b`. Without it the odd macs would
+    // reach the cast as the odd product times 1, and a subnormal product
+    // times 1 is a product the flush may reach (odd-probe found the
+    // multiplication folded away, but nothing promises that).
     template <class T, RoundMode RM>
     inline T cast_product(const thread BinaryKMultiplierT<T, RM> &m, T x, thread PhiloxEngine &)
     {

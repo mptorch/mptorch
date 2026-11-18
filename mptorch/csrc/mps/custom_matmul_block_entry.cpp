@@ -1,9 +1,9 @@
 // The MPS entry point of the block GEMM, custom_matmul_block
-// (common/gemm_block.h): its schema handed to the driver in
+// (common/gemm_block.h): its schema arguments handed to the driver in
 // common/gemm_block_host.h, as on the CPU (cpu/custom_matmul_block_entry.cpp),
-// after one refusal of its own: MPS has no float64, so a binary64 call has no
-// result tensor to write. mps/gemm.metal decodes the packed operands in its
-// tile loads, through per-threadgroup tables.
+// after one refusal of its own: MPS has no float64, so a binary64 call has
+// no result tensor to write. mps/gemm.metal decodes the packed operands as
+// it loads its tiles, through per-threadgroup tables.
 
 #include "../common/gemm_block_host.h"
 #include "../quant_ops.h"

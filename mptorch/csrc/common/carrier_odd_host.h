@@ -1,20 +1,24 @@
 #pragma once
 
-// The host side of the custom_matmul_*_odd ops (common/carrier_odd.h): one
-// body per op, written once on the backend, which
-// {cpu,cuda}/custom_matmul_odd_entry.cpp name.
-// Each is its twin's entry point with the packed Args wrapped in OddArgs:
-// the schema, the checks and the driver are the twin's, so a call differs
-// from the twin's only in the kernel it runs. The driver refuses every
-// algorithm but NAIVE (check_naive_only), as for the twins.
+// The host side of the four single-format odd GEMM ops
+// (custom_matmul_{binaryK,superfp}{,_fma}_odd; carrier_odd.h): one body per
+// op, a template over the backend, called by
+// {cpu,cuda,mps}/custom_matmul_odd_entry.cpp. Each body is its twin's entry
+// point with the packed Args wrapped in an OddArgs: the schema, the checks
+// and the driver are the twin's, so a call differs from the twin's only in
+// the kernel it runs. The driver refuses every algorithm but NAIVE
+// (check_naive_only), as it does for the twins. This header also holds the
+// refusals of the builds that leave odd kernels out, and the checks of the
+// test-only _carrier_odd op.
 
 #include "carrier_odd.h"
 #include "gemm_host.h"
 
 namespace mptorch::gemm
 {
-  // A fused step that no format rounds after is the plain fused op's: the
-  // odd step exists to be rounded again.
+  // Refuses fma_quant=false. A fused step that no format rounds afterwards
+  // is the plain fused op's step: a carrier step rounded to odd is useful
+  // only when a format then rounds it.
   inline void check_fma_quant(bool fma_quant, const char *op_name)
   {
     TORCH_CHECK(fma_quant, op_name,
@@ -24,9 +28,9 @@ namespace mptorch::gemm
 
 #if defined(MPTORCH_NO_ODD)
   // A build with MPTORCH_NO_ODD=1 (setup.py) compiles no odd kernel. Every odd
-  // op stays registered and raises here, naming the flag, from its entry
+  // op stays registered, and raises here, naming the flag, from its entry
   // point and from its Meta kernel, before anything instantiates a driver, so
-  // the units the flag leaves out are never referenced.
+  // nothing refers to the units that the flag leaves out.
   [[noreturn]] inline void odd_unavailable(const char *op_name)
   {
     TORCH_CHECK(false, op_name,
@@ -130,8 +134,9 @@ namespace mptorch::gemm
 #endif
   }
 
-  // _carrier_odd's checks: three tensors of one float32 or float64 dtype,
-  // device and shape (c is ignored by add and mul, but must still match).
+  // The checks of the test-only _carrier_odd op: three tensors with the same
+  // dtype (float32 or float64), device and shape (add and mul ignore c, but
+  // it must still match).
   inline void check_carrier_odd(const at::Tensor &a, const at::Tensor &b, const at::Tensor &c,
                                 int64_t op)
   {
@@ -149,12 +154,11 @@ namespace mptorch::gemm
 
 #if !defined(MPTORCH_ODD_ACCUMULATED)
   // A build without MPTORCH_ODD_ACCUMULATED=1 (setup.py) compiles no odd
-  // kernel under KAHAN, BLOCK or TREE (common/carrier_odd_accumulate.h). The
-  // *_accumulated_odd ops and the odd conv ops' calls past NAIVE raise here,
-  // naming the flag, from their entry points and Meta kernels, before
-  // anything instantiates a driver on their Args, so the units the flag
-  // leaves out are never referenced. Appended after everything else in this
-  // header, which the Meta units include, so that no line above it moves.
+  // kernel under KAHAN, BLOCK or TREE (carrier_odd_accumulate.h). The
+  // *_accumulated_odd ops, and the odd conv ops when called with an
+  // algorithm other than NAIVE, raise here, naming the flag, from their entry
+  // points and Meta kernels, before anything instantiates a driver on their
+  // Args, so nothing refers to the units that the flag leaves out.
   [[noreturn]] inline void odd_accumulated_unavailable(const char *op_name)
   {
     TORCH_CHECK(false, op_name,

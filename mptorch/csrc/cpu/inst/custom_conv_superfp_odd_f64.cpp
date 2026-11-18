@@ -1,13 +1,13 @@
-#include "../custom_matmul_odd_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_superfp_odd and custom_conv_superfp_mixed_odd. They accumulate
+// under AccumulateAlgorithm::NAIVE (one running sum) in the binary64 carrier
+// (float64 operands), and round each carrier step to odd
+// (carrier_rounding=RoundMode.RO). The entry points are in
+// ../custom_conv_odd_entry.cpp, and ../custom_matmul_kernel.h explains how the
+// instantiations are divided among the files in this directory.
 
-// The conv ops over superfp formats, split mac, carrier step rounded to odd, in
-// binary64: the kernels behind custom_conv_superfp_odd and
-// custom_conv_superfp_mixed_odd (carrier_rounding=RoundMode.RO) for float64
-// operands. The kernel template is the NAIVE ops' own; only the Args it is
-// instantiated with are new, and no unit that existed before these ops includes
-// the headers they come from, so their objects are unchanged. Its binary32 twin
-// is custom_conv_superfp_odd.cpp. The entry points are in
-// custom_conv_odd_entry.cpp.
+#include "../custom_matmul_odd_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

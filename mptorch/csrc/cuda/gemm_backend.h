@@ -1,17 +1,19 @@
 #pragma once
 
-// The CUDA backend as common/gemm_host.h's driver sees it: a launch context
-// and one `launch` per op. Nothing here needs nvcc, so the .cpp that owns the
-// tensors (custom_matmul_entry.cpp) includes it; the `launch_as` bodies are
-// in custom_matmul_kernel.cuh and are instantiated by the eight
-// custom_matmul_*.cu files.
+// The CUDA backend as the shared drivers (common/gemm_host.h and its
+// siblings) see it: a launch context, and one `launch` overload per kind of
+// Args, which picks the carrier and the accumulate algorithm and calls a
+// kernel template. Nothing here needs nvcc, so the entry files that own the
+// tensors (cuda/custom_*_entry.cpp, compiled by g++) include it. The kernel
+// templates are only declared here: cuda/custom_matmul_kernel.cuh defines
+// them and the units in cuda/inst/ instantiate them.
 //
 // The split exists for build time. Under nvcc a translation unit that
 // includes ATen's tensor headers pays about 25 s of fixed front-end cost,
 // against about 3 s for one that includes only the policy headers and the
-// CUDA fp16 headers. The only things the GEMM .cu files ever needed from ATen
-// were at::Tensor in a signature and getCurrentCUDAStream() in a launch, and
-// both now happen on the g++ side of this header.
+// CUDA fp16 headers. All the GEMM .cu files ever needed from ATen was
+// at::Tensor in a signature and getCurrentCUDAStream() in a launch, and both
+// are now on the g++ side of this header.
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
@@ -27,33 +29,34 @@ namespace mptorch::gemm_cuda
 
   struct CudaBackend
   {
-    // What the kernel needs beyond the shape. The Philox state is present
-    // even when use_rng is false (as an empty state) so the launch signature
-    // does not branch on it; only RoundMode::SR reads it.
+    // What the kernel needs beyond the shape. The Philox state is there even
+    // when use_rng is false (as an empty state), so that the launch signature
+    // does not depend on it; only RoundMode::SR reads it.
     struct LaunchContext
     {
       at::PhiloxCudaState rng{};
       cudaStream_t stream = nullptr;
     };
 
-    // gemm_backend.cpp: draws (seed, offset) from ATen's default CUDA
-    // generator and picks up the current stream.
+    // Defined in cuda/gemm_backend.cpp: takes the current stream and, under
+    // SR, reserves draws_per_thread random words per thread from ATen's
+    // default CUDA generator.
     static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
 
-    // Defined in custom_matmul_kernel.cuh. Each custom_matmul_*.cu
-    // instantiates it for the two ops it owns in binary32 (T = float), and
-    // its custom_matmul_*_f64.cu twin for the same two ops in binary64
-    // (T = double), so every kernel specialization lives in exactly one
-    // object and the binary64 kernels can be left out of a build.
+    // Runs the kernel in carrier T (float or double) for one Args type.
+    // Defined in cuda/custom_matmul_kernel.cuh and explicitly instantiated in
+    // cuda/inst/, once per Args type and carrier, so every kernel is compiled
+    // into exactly one object and the binary64 kernels can be left out of a
+    // build.
     template <class T, class Args>
     static void launch_as(const mptorch::gemm::GemmShape &s, const Args &args,
                           const LaunchContext &ctx);
 
-    // The carrier is chosen here, on the host, once per call: a float64 GEMM
-    // runs the binary64 kernels, and every other dtype runs the binary32
-    // ones, whose loads convert on the device. A build with MPTORCH_NO_FP64
-    // has no binary64 objects to call, and gemm_dtype_of has already refused
-    // float64 operands by the time this runs.
+    // Picks the carrier on the host, once per call: a float64 GEMM runs the
+    // binary64 kernel, and every other dtype the binary32 one, whose loads
+    // convert the operands on the device. Under MPTORCH_NO_FP64 the binary64
+    // instantiations do not exist, and gemm_dtype_of has already refused a
+    // float64 operand with an error that names the flag.
     template <class Args>
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
                        const LaunchContext &ctx)
@@ -66,16 +69,13 @@ namespace mptorch::gemm_cuda
     }
 
     // KAHAN, BLOCK and TREE (common/gemm_accumulate.h). The algorithm is a
-    // template parameter of the launch, as the round mode is of the policies,
-    // and for the same reason: each is its own accumulate step, and a switch
-    // between them inside the K-loop would keep all of them live in it. It
-    // is resolved here, on the host, once per call, after the carrier.
-    // Defined in the kernel header next to launch_as and instantiated by
-    // the six custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cu
-    // files, one per family and algorithm, so that the eight NAIVE files
-    // compile what they always compiled, and in binary64 by their six
-    // *_f64.cu twins; the cross-family ops' are in
-    // custom_matmul_cross_{kahan,block,tree}{,_f64}.cu.
+    // template parameter of the launch, as the round mode is of the
+    // policies, and for the same reason: each algorithm has its own
+    // accumulate step, and a switch between them inside the K-loop would
+    // keep the code of all of them in the loop. It is chosen here, on the
+    // host, once per call, after the carrier. Defined in the kernel header
+    // next to launch_as and instantiated by the
+    // cuda/inst/custom_matmul_*_{kahan,block,tree}* units.
     template <class T, AccumulateAlgorithm ALG, class Base>
     static void launch_accumulated_as(const mptorch::gemm::GemmShape &s,
                                       const mptorch::gemm::AccumulateArgs<Base> &args,
@@ -93,13 +93,14 @@ namespace mptorch::gemm_cuda
       case AccumulateAlgorithm::BLOCK:
         return launch_accumulated_as<T, AccumulateAlgorithm::BLOCK>(s, args, ctx);
       case AccumulateAlgorithm::TREE:
-        // A fused mac has no tree (no product term): check_accumulate_algorithm
-        // has refused it, and no such kernel is instantiated to call.
+        // TREE sums products, and a fused mac has no separate product to sum:
+        // check_accumulate_algorithm has refused it, and no such kernel is
+        // instantiated.
         if constexpr (mptorch::gemm::AccumulateArgs<Base>::has_product)
           return launch_accumulated_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
         return;
       case AccumulateAlgorithm::NAIVE:
-        return; // refused by run_custom_matmul_accumulated: NAIVE is the twin op's
+        return; // run_custom_matmul_accumulated has refused it: NAIVE is the twin op's
       }
     }
 
@@ -115,13 +116,11 @@ namespace mptorch::gemm_cuda
     }
 
     // The conv ops (common/gemm_gather.h): the same kernel over a Gathered
-    // policy, built from `Inner`, the Args of the GEMM op a conv op runs the
-    // arithmetic of (a single-format op's, its AccumulateArgs, or a palette
-    // op's). ALG is NAIVE except for an AccumulateArgs. Defined in the kernel
-    // header next to launch_as and instantiated by the fourteen
-    // custom_conv_*.cu files (the cross-family ops' four included), so
-    // that no file that compiled a kernel before the conv ops existed
-    // compiles anything new, and in binary64 by their *_f64.cu twins.
+    // policy built from `Inner`, the Args of the GEMM op whose arithmetic the
+    // conv op runs (a single-format op's Args, its AccumulateArgs, or a
+    // palette op's Args). ALG is NAIVE unless Inner is an AccumulateArgs.
+    // Defined in the kernel header next to launch_as and instantiated by the
+    // cuda/inst/custom_conv_* units, the cross-family ones included.
     template <class T, AccumulateAlgorithm ALG, class Inner>
     static void launch_conv_as(const mptorch::gemm::GemmShape &s,
                                const mptorch::gemm::ConvArgs<Inner> &args, const LaunchContext &ctx);
@@ -143,7 +142,7 @@ namespace mptorch::gemm_cuda
             return launch_conv_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
           return;
         case AccumulateAlgorithm::NAIVE:
-          return; // a NAIVE conv call runs on the twin's own Args
+          return; // a NAIVE conv call is launched with plain Args, not these
         }
       }
       else
@@ -165,9 +164,8 @@ namespace mptorch::gemm_cuda
 
     // The block GEMM (common/gemm_block.h): the same kernel over a Blocked
     // policy built from `Inner`, the Args of the mac it runs (BlockSplitArgs,
-    // BinaryKFusedArgs or an AccumulateArgs of either). Defined in the kernel
-    // header and instantiated by the four custom_matmul_block*.cu files,
-    // and in binary64 by their *_f64.cu twins.
+    // BinaryKFusedArgs, or an AccumulateArgs of either). Defined in the kernel
+    // header and instantiated by the cuda/inst/custom_matmul_block* units.
     template <class T, AccumulateAlgorithm ALG, class Inner>
     static void launch_block_as(const mptorch::gemm::GemmShape &s,
                                 const mptorch::gemm::BlockGemmArgs<Inner> &args, const LaunchContext &ctx);
@@ -189,7 +187,7 @@ namespace mptorch::gemm_cuda
             return launch_block_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
           return;
         case AccumulateAlgorithm::NAIVE:
-          return; // a NAIVE call runs on the mac's own Args
+          return; // a NAIVE call is launched with the mac's plain Args
         }
       }
       else

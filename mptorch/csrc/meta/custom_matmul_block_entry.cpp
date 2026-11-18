@@ -1,7 +1,8 @@
 // The Meta kernel of the block GEMM, whose CPU entry point is in
 // cpu/custom_matmul_block_entry.cpp. Its body is the CPU entry point's with
 // the driver replaced by its meta_* twin from common/meta_host.h.
-// meta_ops.cpp registers it.
+// tests/test_entry_copies.py checks that it stays a copy. meta_ops.cpp
+// registers it.
 
 #include "../common/meta_host.h"
 #include "meta_ops.h"

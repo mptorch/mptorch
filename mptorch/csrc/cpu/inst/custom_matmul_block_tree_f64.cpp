@@ -1,10 +1,11 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's block-format form, which
+// decodes its operands from packed block-format codes, for custom_matmul_block.
+// They accumulate under AccumulateAlgorithm::TREE (pairwise sums within each
+// block of products) in the binary64 carrier. The entry points are in
+// ../custom_matmul_block_entry.cpp, and ../custom_matmul_kernel.h explains how
+// the instantiations are divided among the files in this directory.
 
-// The binary64 twin of custom_matmul_block_tree.cpp: its kernels in the
-// binary64 carrier, for float64 operands and for calls that name
-// carrier=torch.float64. A file of its own, like the NAIVE *_f64.cpp files,
-// so that MPTORCH_NO_FP64=1 leaves these kernels out by leaving the file out,
-// and no other translation unit grows.
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

@@ -1,8 +1,9 @@
-// The CUDA entry points of the elementwise block ops: the tensors, the stream
-// and the generator draw, and nothing nvcc has to see (block_kernel.h says
-// why). A .cpp inside csrc/cuda/, so a CPU-only build skips it along with the
-// .cu it drives. The checks and shapes are common/block_host.h's, shared
-// with the CPU entry points in cpu/block_kernel.cpp.
+// The CUDA entry points of the elementwise block ops: everything that handles
+// tensors, the stream and the generator draw, so that nvcc sees none of it
+// (cuda/block_kernel.h says why). This file is a .cpp inside csrc/cuda/, so a
+// CPU-only build skips it along with the .cu files it launches. The checks
+// and shapes are common/block_host.h's, shared with the CPU entry points in
+// cpu/block_kernel.cpp.
 
 #include "../common/stochastic_host.h"
 #include "../common/block_host.h"
@@ -19,8 +20,8 @@ using namespace mptorch::block;
 
 namespace
 {
-  // The 1D kernel's divisors (common/block_kernels.h), when every segment
-  // and row index fits in 31 bits.
+  // Sets the 1D kernel's fast divisors (common/block_kernels.h) when every
+  // segment and row index fits in 31 bits.
   template <class T>
   void set_divisors(BlockPackJob &j, const BlockFormatParamsT<T> &p)
   {
@@ -33,11 +34,11 @@ namespace
     }
   }
 
-  // (seed, offset) from ATen's default CUDA generator under RoundMode::SR,
-  // reserving one Philox block per subsequence: an element draws word i & 3
-  // of block `offset` of subsequence i >> 2 in binary32, and words 2 (i & 1)
-  // and the next of subsequence i >> 1 in binary64, as the elementwise
-  // quantizers do (utils.cuh's quant_rng_engine_inputs).
+  // Takes (seed, offset) from ATen's default CUDA generator under
+  // RoundMode::SR, reserving one Philox block per subsequence: in binary32 an
+  // element takes word i & 3 of block `offset` of subsequence i >> 2, and in
+  // binary64 words 2 (i & 1) and the next one of subsequence i >> 1, as the
+  // elementwise quantizers do (cuda/utils.cuh's quant_rng_engine_inputs).
   at::PhiloxCudaState draw_rng(RoundMode rm)
   {
     if (rm != RoundMode::SR)
@@ -48,9 +49,9 @@ namespace
     return gen->philox_cuda_state(1);
   }
 
-  // Calls `f` with a value of the carrier dtype `dt` rounds in: double for
-  // float64 (block_dtype has refused it in a build without binary64
-  // kernels), float otherwise.
+  // Calls `f` with a value of the type of the carrier that the dtype `dt`
+  // rounds in: double for float64 (in a build without binary64 kernels,
+  // block_dtype has already refused float64), and float otherwise.
   template <class F>
   void with_carrier(mptorch::GemmDtype dt, F &&f)
   {
@@ -68,7 +69,8 @@ namespace
     const BlockExtents e = block_extents(x, op);
     const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
     Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
-    // SR_B and SR_C run as SR with the variant in the element's prng_bits
+    // SR_B and SR_C run as SR, with the variant recorded in the element
+    // format's prng_bits.
     mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                               round_mode, op);
     if (x.numel() == 0)
@@ -94,7 +96,8 @@ std::tuple<Tensor, Tensor> block_pack_cuda(Tensor x, c10::IntArrayRef fmt, doubl
   const BlockExtents e = block_extents(x, op);
   const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
   Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
-  // SR_B and SR_C run as SR with the variant in the element's prng_bits
+  // SR_B and SR_C run as SR, with the variant recorded in the element
+  // format's prng_bits.
   mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                             round_mode, op);
   std::tuple<Tensor, Tensor> out;

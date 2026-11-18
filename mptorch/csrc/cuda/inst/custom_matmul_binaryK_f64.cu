@@ -1,15 +1,11 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel for custom_matmul_binaryK and
+// custom_matmul_binaryK_mixed. They accumulate under AccumulateAlgorithm::NAIVE
+// (one running sum) in the binary64 carrier (float64 operands). The entry
+// points are in ../custom_matmul_entry.cpp, and ../custom_matmul_kernel.cuh
+// explains how the instantiations are divided among the files in this
+// directory.
 
-// binaryK formats, split mac, in binary64: the float64 kernels of
-// custom_matmul_binaryK and its mixed-format twin, whose binary32 kernels are
-// custom_matmul_binaryK.cu.
-//
-// A separate file rather than two more lines in that one, so that
-// MPTORCH_NO_FP64=1 can leave the binary64 kernels out of the build by leaving
-// the four *_f64.cu files out, and so that no other translation unit grows.
-// Like its twin it includes no ATen tensor headers, which is what keeps its
-// fixed nvcc cost near 3 s rather than about 25 s; the two explicit
-// instantiations below are all it contains.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

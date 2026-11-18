@@ -1,10 +1,12 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_superfp_fma and custom_conv_superfp_fma_mixed. They accumulate
+// under AccumulateAlgorithm::NAIVE (one running sum) in the binary64 carrier
+// (float64 operands). The entry points are in ../custom_conv_entry.cpp, and
+// ../custom_matmul_kernel.cuh explains how the instantiations are divided among
+// the files in this directory.
 
-// The binary64 twin of custom_conv_superfp_fma.cu: its kernels in the
-// binary64 carrier, for float64 operands and for calls that name
-// carrier=torch.float64. A file of its own, like the NAIVE *_f64.cu files, so
-// that MPTORCH_NO_FP64=1 leaves these kernels out by leaving the file out,
-// and no other translation unit grows.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

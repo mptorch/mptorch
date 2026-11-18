@@ -1,17 +1,22 @@
-// The eight CUDA GEMM entry points: everything TORCH_LIBRARY binds for the
-// GEMM ops, and nothing nvcc has to see.
+// The CUDA entry points of the eight NAIVE GEMM ops: four single-format ops
+// (binaryK and superfp, each with a split or a fused mac) and their four
+// palette twins, in which each output element has its own format, picked
+// from a list (the palette). cuda/cuda_ops.cpp registers them for the CUDA
+// dispatch key.
 //
-// Each entry point is only the two things that differ between the ops:
-// packing the flat schema arguments into an Args struct (common/gemm_args.h)
-// and naming the backend. The input checks, the shape derivation, the output
-// allocation, the prec_idx validation, the dtype tag and the RNG draw are the
-// one driver in common/gemm_host.h, shared with the CPU backend. Keeping
-// at::Tensor here rather than in the .cu files is what lets those compile in
-// about 3 s each instead of about 25 s (see cuda/gemm_backend.h).
+// An entry point does only the two things that differ between the ops: it
+// packs its flat schema arguments into an Args struct (common/gemm_args.h)
+// and names the backend. The shared driver in common/gemm_host.h does the
+// rest: the input checks, the shape derivation, the output allocation, the
+// early return for an empty result, the prec_idx validation, the dtype tag
+// and the RNG draw. The bodies are the same text as their CPU, MPS and Meta
+// copies, which tests/test_entry_copies.py checks. Keeping at::Tensor here
+// rather than in the .cu files is what lets those compile in about 3 s each
+// instead of about 25 s (cuda/gemm_backend.h).
 //
-// This file is a .cpp inside csrc/cuda/ on purpose: setup.py globs those only
-// when the CUDA build is on, so a CPU-only build skips it exactly as it skips
-// the .cu files.
+// This file is a .cpp inside csrc/cuda/ on purpose: setup.py compiles the
+// files there only when the CUDA build is on, so a CPU-only build skips it
+// as it skips the .cu files.
 
 #include "../common/gemm_host.h"
 #include "../quant_ops.h"
@@ -42,13 +47,14 @@ Tensor binaryK_matmul_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Per-output-element mixed-format binaryK GEMM: the same SplitMac arithmetic
-// as binaryK_matmul_cuda, but the multiply and accumulate formats of each
-// output element C[i, j] are picked from a palette of up to MAX_GEMM_FORMATS
-// entries by prec_idx[i, j] (gemm_policy.h's FormatPalette). mul_K/mul_P/
-// mul_bias and acc_K/acc_P/acc_bias are per-entry lists of one common
-// length; round_mode, saturation, sign and prng_bits are shared across the
-// palette, since only the format widths vary per element.
+// The palette twin of binaryK_matmul_cuda: the same split-mac arithmetic,
+// but each output element C[i, j] takes its multiply and accumulate formats
+// from a palette of up to MAX_GEMM_FORMATS entries, picked by prec_idx[i, j]
+// (gemm_policy.h's FormatPalette). mul_K, mul_P and mul_bias, and acc_K,
+// acc_P and acc_bias, give one value per palette entry, all lists of one
+// length; the round mode, the saturation and subnormals modes, the signs
+// and the prng_bits are shared by every entry, since only the format widths
+// vary per element.
 Tensor binaryK_matmul_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
@@ -88,12 +94,12 @@ Tensor binaryK_matmul_fma_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Per-output-element mixed-format binaryK FMA GEMM: the same FusedMac
-// arithmetic as binaryK_matmul_fma_cuda (one rounding per K-step), with each
-// output element's FMA format taken from the palette. fma_quant=false is
-// rejected: FusedMac<IdentityAdder> carries no format, so a palette of it
-// would make prec_idx a no-op. custom_matmul_binaryK_fma is the unquantized
-// fused step.
+// The palette twin of binaryK_matmul_fma_cuda: the same fused-mac
+// arithmetic (one rounding per step), with each output element's fused
+// format taken from the palette. fma_quant=false is refused before the
+// palette is built: an unrounded fused step has no format, so prec_idx would
+// select nothing. custom_matmul_binaryK_fma is the GEMM with unrounded fused
+// steps.
 Tensor binaryK_matmul_fma_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
@@ -134,7 +140,10 @@ Tensor superfp_matmul_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// The superfp analogue of binaryK_matmul_mixed_cuda; see its comment.
+// The superfp twin of binaryK_matmul_mixed_cuda: each output element's
+// formats come from the palette, the four width lists (man_bits, exp_bits,
+// normal_binades and bias, for each of the two formats) share one length,
+// and everything else is shared by every entry.
 Tensor superfp_matmul_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
@@ -174,7 +183,9 @@ Tensor superfp_matmul_fma_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// The superfp analogue of binaryK_matmul_fma_mixed_cuda; see its comment.
+// The superfp twin of binaryK_matmul_fma_mixed_cuda: each output element's
+// fused format comes from the palette, and fma_quant=false is refused for
+// the same reason: an unrounded fused step has no format to vary.
 Tensor superfp_matmul_fma_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,

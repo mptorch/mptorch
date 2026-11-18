@@ -1,11 +1,11 @@
-// narrow_float64 on the CPU: rounds a float64 tensor once onto float32,
-// float16 or bfloat16, with common/narrow_binary64.h's integer rounding of
-// the word applied to every element on ATen's thread pool, as the
-// elementwise quantizers are (utils.h). This exists because torch's own
-// float64 to bfloat16 conversion, and on some platforms its float64 to
-// float16 one, goes through float32 and so rounds twice
-// (common/narrow_binary64.h); one rounding from the binary64 word is what a
-// result computed in binary64 for a narrower tensor needs.
+// narrow_float64 on the CPU: rounds a float64 tensor once to float32,
+// float16 or bfloat16, applying common/narrow_binary64.h's integer rounding
+// of the word to every element on ATen's thread pool, as the elementwise
+// quantizers do (cpu/utils.h). It exists because torch's own float64 to
+// bfloat16 conversion, and on some platforms its float64 to float16 one,
+// goes through float32 and so rounds twice (common/narrow_binary64.h),
+// whereas a result computed in binary64 for a narrower tensor needs one
+// rounding from the binary64 value.
 
 #include "../common/narrow_binary64.h"
 #include "../common/narrow_host.h"
@@ -19,10 +19,10 @@ namespace
 {
 
   // o[i] = narrow(a[i]) for i in [0, size), where Word is the target
-  // dtype's storage word (uint16_t or uint32_t) and ExpBits/ManBits its
-  // field widths. The double is read as its 64-bit word through memcpy,
-  // which the compiler turns into a plain load, since the rounding is
-  // integer arithmetic on the word.
+  // dtype's storage word (uint16_t or uint32_t) and ExpBits and ManBits are
+  // its field widths. The rounding is integer arithmetic on the word, so the
+  // double is read as its 64-bit word through memcpy, which the compiler
+  // turns into a plain load.
   template <class Word, int ExpBits, int ManBits>
   void narrow_run(const double *a, Word *o, int64_t size)
   {
@@ -40,10 +40,10 @@ namespace
 
 } // namespace
 
-// The CPU kernel behind mptorch::narrow_float64: a new tensor of a's shape
-// in `dtype` (float32, float16 or bfloat16), each element rounded once to
-// nearest even from the float64 value. narrow_float64_tensors checks the
-// dtypes and makes the input contiguous.
+// The CPU kernel of mptorch::narrow_float64: a new tensor of a's shape in
+// `dtype` (float32, float16 or bfloat16), each element rounded once, to
+// nearest even, from the float64 value. narrow_float64_tensors
+// (common/narrow_host.h) checks the dtypes and makes the input contiguous.
 Tensor narrow_float64_cpu(Tensor a, c10::ScalarType dtype)
 {
   auto [a_c, o] = mptorch::narrow_float64_tensors(a, dtype);
@@ -59,7 +59,7 @@ Tensor narrow_float64_cpu(Tensor a, c10::ScalarType dtype)
   case c10::ScalarType::BFloat16:
     narrow_run<uint16_t, 8, 7>(p, static_cast<uint16_t *>(o.data_ptr()), size);
     break;
-  default: // float32, the one dtype left after narrow_float64_tensors' check
+  default: // float32, the only dtype narrow_float64_tensors' check leaves
     narrow_run<uint32_t, 8, 23>(p, static_cast<uint32_t *>(o.data_ptr()), size);
     break;
   }

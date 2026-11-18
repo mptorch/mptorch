@@ -1,19 +1,11 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel for custom_matmul_superfp and
+// custom_matmul_superfp_mixed. They accumulate under AccumulateAlgorithm::NAIVE
+// (one running sum) in the binary32 carrier (float32, float16 and bfloat16
+// operands). The entry points are in ../custom_matmul_entry.cpp, and
+// ../custom_matmul_kernel.cuh explains how the instantiations are divided among
+// the files in this directory.
 
-// superfp formats, split mac, in binary32: the float32, float16 and bfloat16
-// kernels of custom_matmul_superfp and its mixed-format twin.
-// custom_matmul_superfp_f64.cu holds the same two ops' binary64 kernels.
-//
-// This file is one of eight, one per (format family x mac mode x carrier), and
-// the two explicit instantiations below are all it contains. The GEMM kernels
-// compile in a file that includes no ATen tensor headers because nvcc's fixed
-// cost for those is about 25 s per translation unit against about 3 s without;
-// the tensors stay in custom_matmul_entry.cpp, and what crosses into here is a
-// raw-pointer GemmShape plus an Args struct. Holding one family's single-format
-// and mixed-format ops together instantiates that family's ~150-instruction
-// cast template once, and every kernel specialization is compiled into exactly
-// one object. setup.py globs this directory, so the split needs no build-script
-// entry.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

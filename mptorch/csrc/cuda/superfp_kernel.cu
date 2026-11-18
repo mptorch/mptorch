@@ -15,15 +15,14 @@ namespace
 {
 
     // The superfp twin of binaryK_kernel.cu's BinaryKQuantizer: the
-    // per-thread quantizer of one launch, taken by the kernel by value so it
-    // rides in the constant bank. `p` is a SuperfpParams built once on the
-    // host by make_superfp_params (region cutoffs, rounding masks, clipping
-    // range), so the casts called here are the precomputed-parameter
-    // overloads; the (man_bits, exp_bits, normal_binades, bias, ...)
-    // spellings would re-derive all of that on every element. T is the
-    // carrier the cast rounds in, double for a float64 tensor and float for
-    // every other dtype, and the rounding mode is a template parameter so
-    // each instantiation carries exactly one cast body.
+    // per-thread quantizer of one launch, which the kernel takes by value so
+    // that it is placed in the constant bank. `p` is a SuperfpParams built
+    // once on the host by make_superfp_params (the region boundaries, the
+    // rounding masks and the clipping range), so no element derives those
+    // constants again. T is the carrier the cast rounds in, double for a
+    // float64 tensor and float for every other dtype, and the rounding mode
+    // is a template parameter so that each instantiation holds exactly one
+    // cast body.
     template <typename scalar_t, RoundMode RM>
     struct SuperfpQuantizer
     {
@@ -73,10 +72,10 @@ namespace
         }
     };
 
-    // The six deterministic modes: build the params once, then launch the
-    // quant_kernel_all instantiation of the requested mode. The grid covers
-    // max(vector count, remainder count) threads because the kernel serves
-    // the vector body and the scalar tail from the same thread index.
+    // The six deterministic modes: build the parameters once, then launch
+    // the requested mode's instantiation of quant_kernel_all. The grid covers
+    // max(vector count, remainder count) threads because the kernel uses the
+    // same thread index for the vector body and for the scalar tail.
     template <typename scalar_t>
     void superfp_kernel_impl(const scalar_t *a, scalar_t *o, int64_t size,
                              int man_bits, int exp_bits, int normal_binades, int bias,
@@ -124,7 +123,7 @@ namespace
     }
 
     // RoundMode::SR: one launch of quant_kernel_all_sr with a (seed, offset)
-    // pair drawn from ATen's generator; the kernel derives each element's
+    // pair taken from ATen's generator; the kernel derives each element's
     // random word from that pair and the element's own index.
     template <typename scalar_t>
     void superfp_kernel_sr_impl(const scalar_t *a,
@@ -149,21 +148,21 @@ namespace
         quant_kernel_all_sr<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer, rng_args);
     }
 
-    // The body of both entry points, as binaryK_quantize_into is (binaryK_kernel.cu):
-    // `o` is `a` itself for the in-place op.
+    // The body of both entry points, like binaryK_quantize_into
+    // (cuda/binaryK_kernel.cu): `o` is `a` itself for the in-place op.
     void superfp_quantize_into(const Tensor &a, Tensor &o, int64_t man_bits, int64_t exp_bits,
                                int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed,
                                int64_t round_mode, int64_t saturation_mode)
     {
-        // SR_B and SR_C run as SR with the variant in prng_bits
-        // (common/stochastic_host.h)
+        // SR_B and SR_C run as SR, with the variant recorded in prng_bits
+        // (common/stochastic_host.h).
         {
             int variant;
             round_mode = mptorch::sr_canonical(round_mode, variant);
             if (variant >= 0)
                 prng_bits = mptorch::sr_encode(prng_bits, variant, "superfp_quant");
         }
-        const int64_t size = a.numel(); // int would truncate past 2^31 elements
+        const int64_t size = a.numel(); // an int would overflow past 2^31 elements
         if (size == 0)
             return;
         RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
@@ -200,8 +199,8 @@ Tensor superfp_quantize_cuda(
     Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
     int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
-    // The input is made contiguous, and 16-byte aligned for the kernel's
-    // vector loads, for the reasons given in binaryK_quantize_cuda.
+    // The input is made contiguous, and aligned to 16 bytes for the kernel's
+    // vector loads, for the reasons binaryK_quantize_cuda gives.
     auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     superfp_quantize_into(a_c, o, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,

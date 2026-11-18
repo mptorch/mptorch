@@ -1,17 +1,19 @@
 #pragma once
 
-// The host side of the six cross-family ops (common/gemm_cross.h): their
-// schemas packed into a CrossSplitArgs. They go through the shared drivers otherwise: run_custom_matmul
-// for the NAIVE pair, run_custom_matmul_accumulated for the *_accumulated
-// twins and run_custom_conv_single for the conv pair.
+// The host side of the six cross-family ops (gemm_cross.h): the packers that
+// turn their schemas into a CrossSplitArgs. Otherwise the ops go through the
+// shared drivers: run_custom_matmul for the NAIVE pair,
+// run_custom_matmul_accumulated for the *_accumulated twins and
+// run_custom_conv_single for the conv pair.
 //
-// A header of its own, which only {cpu,cuda}/custom_matmul_cross_entry.cpp
-// include, so that the entry points of every other op compile to what they
-// compiled before.
+// Only these files include this header: the cross-family entry files,
+// {cpu,cuda,mps}/custom_matmul_cross_entry.cpp; carrier_odd_gemm_host.h, for
+// the odd cross-family ops; and meta_host.h. So the entry points of every
+// other op compile exactly as they would without it.
 //
-// The schemas are the single-family split op's with the accumulate format
-// spelled in its own family, and without accumulate_quant (the sum is always
-// rounded; common/gemm_cross.h says why):
+// The schemas are the single-family split op's, with the accumulate format
+// given in its own family and without accumulate_quant, since the sum is
+// always rounded (gemm_cross.h says why):
 //
 //   custom_matmul_binaryK_superfp(a, b, trans_a, trans_b,
 //       mul_K, mul_P, mul_bias, mul_is_signed,
@@ -27,8 +29,9 @@
 //       mul_prng_bits, acc_prng_bits)
 //
 // An *_accumulated twin appends a block size and an outer format in the
-// accumulate's family, as the single-family twins do; a conv op is the
-// *_accumulated schema with the geometry in place of the transpose flags.
+// accumulate format's family, as the single-family twins do; a conv op takes
+// the *_accumulated schema with the geometry in place of the transpose
+// flags.
 
 #include "gemm_conv_host.h"
 #include "gemm_cross.h"

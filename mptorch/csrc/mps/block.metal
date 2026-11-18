@@ -1,59 +1,65 @@
-// The elementwise block-format ops: block_pack, block_quant and block_quant_
-// (mpt_block_pack for 1D blocks, mpt_block_pack_tile for 2D tiles) and
-// block_unpack (mpt_block_unpack), over the one decode
-// and encode every block kernel shares (common/block_decode.h), so that a
-// result is the CPU kernels' (cpu/block_pack_tiles.h, block_pack_tiles_fos.h)
-// word for word, stochastic rounding and the Four Over Six rules included.
+// The elementwise block-format ops on an Apple GPU: block_pack, block_quant
+// and block_quant_ (the kernels mpt_block_pack, which gives a tile one
+// thread, and mpt_block_pack_tile, which gives it a threadgroup) and
+// block_unpack (mpt_block_unpack). They run the decode and encode that every
+// block kernel shares (common/block_decode.h), so that a result is the CPU
+// kernels' (cpu/block_pack_tiles.h, cpu/block_pack_tiles_fos.h) word for
+// word, stochastic rounding and the Four Over Six rules included.
 //
-// Compiled once per instantiation, after prelude.metal and a few lines the
-// backend writes (block_entry.cpp) that define
+// A kernel is compiled once per instantiation, after prelude.metal and a few
+// lines the backend writes (block_entry.cpp's run_pack and block_unpack_mps)
+// that define
 //
 //   mpt_storage_t     float, half or bfloat: the dtype of the tensor packed
 //                     or quantized, or of the result unpacked
-//   MPT_UNPACK        1 for mpt_block_unpack's library, 0 for mpt_block_pack's
+//   MPT_UNPACK        1 for mpt_block_unpack's library, 0 for the pack
+//                     kernels'
 //   MPT_ROUND_MODE    the RoundMode (pack only)
 //   MPT_QUANT         1 for block_quant (decoded values out), 0 for
 //                     block_pack (codes and scales out)
-//   MPT_FOS           1 under a Four Over Six rule
+//   MPT_FOS           1 under a Four Over Six scale rule
 //   MPT_TILE          1 for mpt_block_pack_tile's library, 0 for
 //                     mpt_block_pack's (pack only)
 //   mpt_block_cast()  the casts the pack runs (block_decode.h's BlockCastT),
 //                     built from the descriptor's widths as literals, so that
-//                     their constants fold as the GEMM's and the quantizers'
-//                     do (gemm.metal says why that matters)
+//                     their constants are known at compile time, as the
+//                     GEMM's and the quantizers' are (gemm.metal says why
+//                     that matters)
 //
-// The operand's layout, BlockFormatParams, is bound as a buffer: it holds
-// the tensor's extents next to the format, which change with every shape.
+// The layout, BlockFormatParams, is bound as a buffer: it holds the
+// tensor's extents next to the format, and those change with every shape.
 //
-// The pack of a tile, a tile being block_rows rows of one block, is an amax
-// pass over the tile's words, its scale, under Four Over Six an error pass
-// that quantizes the tile under both candidate scales and keeps the second
-// if its error, counted in integers, is strictly the smaller, and then an
-// encode pass, which reads element i before it writes it and touches no
-// other, so the in-place quantizer is sound with x bound as o. A row's codes
-// go into its block's bytes through a bit accumulator, low bits first, and a
-// block's tail past the tensor's last column is zero codes, as the CPU's
-// zeroed buffer leaves it. Either kernel packs any tile: mpt_block_pack
-// gives a tile one thread, as the CPU gives it one task, and
-// mpt_block_pack_tile gives it a threadgroup, which shares out the passes
-// and reduces the amax and the errors across its threads. One thread runs
-// its tile in series, 16,384 elements for a 128 x 128 tile, which under Four
-// Over Six made the GPU slower than the CPU; the host picks the kernel from
-// the tile's size and the number of tiles (block_entry.cpp's run_pack).
-// Element (b, r, c)'s SR draw is word i & 3 of Philox
-// block i >> 2 of the CPU generator's seed, i = (b * rows + r) * cols + c:
-// the CPU's layout (common/block_kernels.h).
+// A tile is block_rows rows of one block. Packing a tile takes three passes
+// over it: an amax pass over the tile's words, which gives its scale; under
+// Four Over Six, an error pass, which quantizes the tile under both
+// candidate scales and keeps the second if its error, counted in integers,
+// is strictly the smaller; and an encode pass. The encode pass reads element
+// i before it writes it and touches no other element, so the in-place
+// quantizer is sound with x bound as o. A row's codes go into its block's
+// bytes through a bit accumulator, low bits first, and the part of a block
+// past the tensor's last column holds zero codes, as the CPU's zeroed buffer
+// does. Either pack kernel packs any tile: mpt_block_pack gives a tile one
+// thread, as the CPU gives it one task, and mpt_block_pack_tile gives it a
+// threadgroup, which shares out the passes and reduces the amax and the
+// errors across its threads. One thread runs its tile in series, 16,384
+// elements for a 128 x 128 tile, and under Four Over Six that made the GPU
+// slower than the CPU; so the host picks the kernel from the tile's size and
+// the number of tiles (block_entry.cpp's run_pack). Under SR, element
+// (b, r, c) draws word i & 3 of Philox block i >> 2 of the CPU generator's
+// seed, where i = (b * rows + r) * cols + c: the CPU's layout
+// (common/block_kernels.h).
 //
 // The decode's float operations go through block_decode.h's
 // MPTORCH_BLOCK_MUL, _DIV and _SUB, which on Metal are bit_helper.h's
-// word-exact spellings, so that the GPU's flush of binary32 subnormals
-// reaches none of them: a tile whose amax is a subnormal, an E8M0 scale of
-// 2^-127, a tensor scale that makes a scale's factor subnormal all pack and
-// decode as on the CPU.
+// spellings that are exact on the bits, so that the GPU's flush of binary32
+// subnormals reaches none of them: a tile whose amax is a subnormal, an
+// E8M0 scale of 2^-127, and a tensor scale that makes a scale's factor
+// subnormal all pack and decode as on the CPU.
 
 #if MPT_UNPACK
 
-// One thread per element: x along the row, y the row of [batch * rows].
+// One thread per element: x indexes the row's elements, y the row of
+// [batch * rows].
 kernel void mpt_block_unpack(device const uint8_t *data [[buffer(0)]],
                              device const uint8_t *scales [[buffer(1)]],
                              device mpt_storage_t *o [[buffer(2)]],
@@ -81,8 +87,9 @@ kernel void mpt_block_unpack(device const uint8_t *data [[buffer(0)]],
 namespace mptorch_mps
 {
 
-// Element i's SR word, from the Philox block that holds it; `drawn` is the
-// block `draws` holds, which consecutive elements of a row share.
+// Element i's SR word, from the Philox block that holds it. `draws` is the
+// last block drawn and `drawn` its index; consecutive elements of a row
+// share a block, so it is drawn again only when i moves into the next one.
 inline uint32_t block_draw(uint64_t seed, int64_t i, thread PhiloxBlock &draws, thread int64_t &drawn)
 {
     if ((i >> 2) != drawn)
@@ -94,7 +101,7 @@ inline uint32_t block_draw(uint64_t seed, int64_t i, thread PhiloxBlock &draws, 
 }
 
 // Where tile t of the call is: its batch, its row tile and block, and its
-// rows [r0, r1) and columns [c0, c1) clipped to the tensor's.
+// rows [r0, r1) and columns [c0, c1), clipped to the tensor's.
 struct PackTile
 {
     int64_t b, rt, blk, r0, r1, c0, c1;
@@ -117,10 +124,11 @@ inline PackTile pack_tile(uint64_t t, thread const mptorch::block::BlockFormatPa
 }
 
 // Each pass below covers one run of a tile's row, its columns c0 + [j0, j1):
-// the whole block on one thread, or a threadgroup's share of it.
+// the whole block on one thread, or a thread's share of it in a threadgroup.
 
-// The largest magnitude, compared as words (a non-negative float's order is
-// its word's), with the NaNs left out and noted.
+// The largest magnitude in the run, compared as words (the order of
+// non-negative floats is the order of their words), with NaNs left out but
+// recorded in `nan`.
 inline void amax_run(device const mpt_storage_t *x, constant BlockPackLaunch &L, thread const PackTile &k,
                      int64_t r, int j0, int j1, thread uint32_t &amax, thread bool &nan)
 {
@@ -136,8 +144,9 @@ inline void amax_run(device const mpt_storage_t *x, constant BlockPackLaunch &L,
     }
 }
 
-// Four Over Six's errors for the run under both candidate scales, with the
-// draws encode_run will give its elements, added to err_six and err_low.
+// Four Over Six's errors for the run under both candidate scales, computed
+// with the draws encode_run will give its elements, and added to err_six
+// and err_low.
 template <RoundMode RM>
 inline void error_run(device const mpt_storage_t *x, constant BlockPackLaunch &L,
                       thread const mptorch::block::BlockFormatParams &p,
@@ -168,11 +177,12 @@ inline void error_run(device const mpt_storage_t *x, constant BlockPackLaunch &L
 }
 
 // The run's codes under scale s, or under MPT_QUANT their decoded values.
-// Reads element i before it writes it and touches no other, so the in-place
-// quantizer is sound with x bound as o. The codes go into the block's bytes
-// through a bit accumulator, low bits first, from the byte where code j0
-// starts (j0 * elem_bits is a multiple of 8), and columns past the tensor's
-// last are zero codes, as the CPU's zeroed buffer leaves them.
+// It reads element i before it writes it and touches no other element, so
+// the in-place quantizer is sound with x bound as o. The codes go into the
+// block's bytes through a bit accumulator, low bits first, starting at the
+// byte where code j0 starts (j0 * elem_bits is a multiple of 8), and the
+// columns past the tensor's last are zero codes, as the CPU's zeroed buffer
+// leaves them.
 template <RoundMode RM>
 inline void encode_run(device const mpt_storage_t *x, device mpt_storage_t *o, device uint8_t *data,
                        constant BlockPackLaunch &L, thread const mptorch::block::BlockFormatParams &p,
@@ -227,9 +237,9 @@ inline void encode_run(device const mpt_storage_t *x, device mpt_storage_t *o, d
 namespace mptorch_mps
 {
 
-// A partial error of Four Over Six merged over the simdgroup, by the rule's
-// measure. A simdgroup shuffle moves 32-bit words, so the 64-bit sum moves as
-// two.
+// A partial Four Over Six error merged over the simdgroup, by the rule's
+// measure. A simdgroup shuffle moves 32-bit words, so the 64-bit sum moves
+// as two.
 inline uint64_t simd_merge_error(uint64_t e, int32_t rule, uint width)
 {
     for (uint off = width / 2; off > 0; off >>= 1)
@@ -244,21 +254,22 @@ inline uint64_t simd_merge_error(uint64_t e, int32_t rule, uint width)
 
 } // namespace mptorch_mps
 
-// A tile by a threadgroup: tile t is threadgroup t, of the 32 to
-// BLOCK_TILE_THREADS threads the host sizes it to (64 elements a thread).
+// A tile by a threadgroup: tile t is threadgroup t, of between 32 and
+// BLOCK_TILE_THREADS threads, as the host sizes it (64 elements a thread).
 // The passes are the one-thread kernel's, over runs of `run` columns of the
-// tile's rows, run k taken by thread k mod the threadgroup's size. The amax
-// is reduced by simdgroup and then through threadgroup memory, so every
-// thread holds the tile's and computes the same scale, which makes the
-// branch below uniform. Under Four Over Six the errors are reduced the same
-// way; they are integers, so the order cannot matter and the choice is the
-// one-thread kernel's and the CPU's. A run is four columns, or the codes
-// that fill whole bytes if that is more (eight 5-bit codes), so each thread
-// writes whole bytes of the block, and a run's SR draws come from one or two
-// Philox blocks. Every thread reaches every barrier: the threadgroup is
-// whole and no thread returns early. The barriers also make the in-place
-// quantizer sound: every read of the amax and error passes is done before
-// any thread writes.
+// tile's rows, with run k taken by thread k modulo the threadgroup's size.
+// The amax is reduced within each simdgroup and then across them through
+// threadgroup memory, so every thread holds the tile's amax and computes
+// the same scale, which makes the branch below uniform. Under Four Over Six
+// the errors are reduced the same way; they are integers, so the order of
+// the reduction cannot change them, and the choice is the one-thread
+// kernel's and the CPU's. A run is four columns, or the number of codes that
+// fill whole bytes if that is more (eight 5-bit codes), so each thread writes
+// whole bytes of the block, and a run's SR draws come from one or two Philox
+// blocks. Every thread reaches every barrier: the threadgroup is whole and
+// no thread returns early. The barriers also make the in-place quantizer
+// sound: every read of the amax and error passes is done before any thread
+// writes.
 [[max_total_threads_per_threadgroup(mptorch_mps::BLOCK_TILE_THREADS)]]
 kernel void mpt_block_pack_tile(device const mpt_storage_t *x [[buffer(0)]],
                                 device mpt_storage_t *o [[buffer(1)]],
@@ -282,8 +293,8 @@ kernel void mpt_block_pack_tile(device const mpt_storage_t *x [[buffer(0)]],
     const BlockCastT<float> c = mpt_block_cast();
     const mptorch_mps::PackTile k = mptorch_mps::pack_tile(t, p, L);
 
-    // Columns per run: four, or the codes that fill whole bytes (8 / gcd of
-    // the width and 8), within the block.
+    // Columns per run: four, or the number of codes that fill whole bytes
+    // (8 / gcd(elem_bits, 8)) if that is more, at most the block's size.
     const int unit = 8 / metal::min(p.elem_bits & -p.elem_bits, 8);
     const int run = metal::min(metal::max(unit, 4), p.block_size);
     const int log2_runs = p.log2_block_size - int(metal::ctz(uint(run)));
@@ -385,9 +396,10 @@ kernel void mpt_block_pack(device const mpt_storage_t *x [[buffer(0)]],
     TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
 
 #if MPT_FOS
-    // The tile under both candidate scales, and the second if its error is
-    // strictly the smaller. The encode pass below casts again under the
-    // scale chosen, with the same draws, which gives the codes kept here.
+    // The tile under both candidate scales, keeping the second if its error
+    // is strictly the smaller. The encode pass below casts again under the
+    // scale chosen, with the same draws, which gives the codes the error
+    // pass counted.
     const TileScale<float> low = four_over_six_low<float>(block_float<float>(amax), s, p, c);
     if (low.code != s.code)
     {

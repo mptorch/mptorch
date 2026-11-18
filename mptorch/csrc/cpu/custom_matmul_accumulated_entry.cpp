@@ -1,10 +1,12 @@
-// The CPU entry points of the four accumulated GEMM ops: the single-format
-// ops under KAHAN, BLOCK or TREE (common/gemm_accumulate.h).
+// The CPU entry points of the four *_accumulated GEMM ops: the single-format
+// GEMMs under KAHAN, BLOCK or TREE (common/gemm_accumulate.h).
 //
-// A file of its own, next to custom_matmul_entry.cpp, so that the eight
-// entry points there are the text they were. Each function here is its twin's
-// packer plus the accumulation arguments' (pack_*_outer), handed to the one
-// driver in common/gemm_host.h on an AccumulateArgs.
+// They have a file of their own, beside custom_matmul_entry.cpp, so that the
+// NAIVE entry points there keep their text and their object. Each function
+// packs its NAIVE twin's arguments with the twin's packer and the
+// accumulation arguments (the block size and the outer format) with
+// pack_*_outer, and hands both to run_custom_matmul_accumulated
+// (common/gemm_host.h).
 
 #include "../common/gemm_host.h"
 #include "../quant_ops.h"

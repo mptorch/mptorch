@@ -1,22 +1,22 @@
 // The MPS entry points of the elementwise block ops: block_pack,
-// block_unpack, block_quant and block_quant_ (common/block_decode.h has the
-// format; mptorch/quant/block.py the Python side). The block GEMM's is
-// custom_matmul_block_entry.cpp.
+// block_unpack, block_quant and block_quant_ (common/block_decode.h defines
+// the format, mptorch/quant/ops/block.py is the Python side). The block
+// GEMM's entry point is in custom_matmul_block_entry.cpp.
 //
-// Each observes what its CPU twin (cpu/block_kernel.cpp) does, in the same
-// order and with the same checks (common/block_host.h), so an MPS call
-// raises what a CPU call raises: the descriptor is validated for binary32,
-// the outputs are allocated, an empty tensor returns before the SR seed is
-// drawn, and the seed is drawn from the CPU generator as the CPU kernel
-// draws it. MPS has no float64 tensors, so block_unpack refuses a float64
-// result by name.
+// Each does what its CPU twin (cpu/block_kernel.cpp) does, in the same order
+// and with the same checks (common/block_host.h), so an MPS call raises what
+// a CPU call raises: the descriptor is validated for binary32, the outputs
+// are allocated, an empty tensor returns before the SR seed is drawn, and
+// the seed is drawn from the CPU generator as the CPU kernel draws it. MPS
+// has no float64 tensors, so block_unpack refuses a float64 result by name.
 //
-// The kernels are block.metal's, compiled per instantiation: the storage
-// dtype, the rounding mode, whether the call quantizes or packs, whether the
-// scale rule is Four Over Six, and the casts the pack runs, written out as
-// literals by block_cast_source below so that their constants fold. The
-// layout (BlockFormatParams, which holds the extents as well as the format)
-// is bound as a buffer, byte for byte as the host builds it; gemm.metal
+// The kernels are block.metal's, compiled per instantiation. The
+// instantiation's lines name the storage dtype, the rounding mode, whether
+// the call quantizes or packs, whether the scale rule is Four Over Six, and
+// the casts the pack runs, which block_cast_source below writes out as
+// literals so that their constants are known at compile time. The layout
+// (BlockFormatParams, which holds the extents as well as the format) is
+// bound as a buffer, byte for byte as the host builds it; gemm.metal
 // asserts its size and offsets on the GPU side.
 
 #include "../common/stochastic_host.h"
@@ -38,7 +38,7 @@ using namespace mptorch::block;
 namespace
 {
 
-  // A binary32 value as a Metal literal that is exactly it: its word.
+  // A binary32 value as a Metal literal that is exactly that value: its word.
   std::string word_literal(float v)
   {
     uint32_t w;
@@ -52,9 +52,9 @@ namespace
   std::string i(int64_t v) { return std::to_string(v); }
 
   // The Metal definition of `mpt_block_cast()`: block_decode.h's
-  // make_block_cast, with each cast built on the device by the function
-  // the host builds it with, from the descriptor's widths, and the scale
-  // rule's three constants copied from the host's, word for word.
+  // make_block_cast, with each cast built on the device by the same
+  // function the host builds it with, from the descriptor's widths, and the
+  // scale rule's three constants copied from the host's, word for word.
   std::string block_cast_source(const Fmt &f, double elem_max)
   {
     static_assert(sizeof(BlockCastT<float>) == 324, "write every BlockCastT field in block_cast_source");
@@ -95,11 +95,11 @@ namespace
     return s + "    return c;\n}\n";
   }
 
-  // The BlockFormatParams binding: the host's struct, byte for byte.
+  // BlockFormatParams is bound as the host's struct, byte for byte.
   static_assert(sizeof(BlockFormatParams) == 184, "BlockFormatParams must have one layout on the host and the GPU");
 
-  // The CPU's draw, for the CPU's draw order: an SR call draws one seed,
-  // and only once it has elements to round.
+  // The SR seed, drawn as the CPU draws it and at the same point: one seed
+  // per SR call, and only once the call has elements to round.
   uint64_t seed_for(int64_t round_mode)
   {
     return static_cast<RoundMode>(round_mode) == RoundMode::SR ? draw_cpu_seed() : 0;
@@ -112,11 +112,11 @@ namespace
                                        "tensor");
   }
 
-  // Launches the pack over x's tiles: codes into data and scales (`o`
-  // null), or decoded values into o, which is x itself in place. Each tile
-  // gets one thread (mpt_block_pack) when the call has at least 256 tiles
-  // per element of a tile, and one threadgroup otherwise
-  // (mpt_block_pack_tile, 64 elements a thread, from one simdgroup to
+  // Launches the pack over x's tiles: codes into data and scales (when `o`
+  // is null), or decoded values into o, which is x itself in place. Each
+  // tile gets one thread (mpt_block_pack) when the call has at least 256
+  // tiles per element of a tile, and one threadgroup otherwise
+  // (mpt_block_pack_tile, 64 elements a thread, from one simdgroup up to
   // BLOCK_TILE_THREADS threads). One thread runs its tile in series, so the
   // GPU needs many tiles to hide the latency; given them, it is the cheaper
   // kernel, with no barrier and no idle thread. On an M3 Pro, over 256^2 to
@@ -159,8 +159,8 @@ namespace
         "\n#define MPT_FOS " +
         (is_four_over_six(static_cast<int32_t>(f[static_cast<int>(BlockFmtField::SCALE_ROUNDING)])) ? "1" : "0") +
         "\n#define MPT_TILE " + (grouped ? "1" : "0") + "\n" + block_cast_source(f, elem_max);
-    // The buffers block.metal does not use on this path are bound to x, as
-    // are a scale-free format's empty scales.
+    // The buffers block.metal does not read on this path are bound to x, as
+    // is the scales buffer of a format without scales.
     const Tensor &scales_or_x = !quant && scales->numel() != 0 ? *scales : x;
     const std::vector<mptorch_mps::KernelArg> args{x, quant ? *o : x, quant ? x : *data, scales_or_x,
                                                    mptorch_mps::KernelArg::params(p),
@@ -183,7 +183,7 @@ namespace
     const BlockExtents e = block_extents(x, op);
     block_dtype(x.scalar_type(), op);
     Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
-    // SR_B and SR_C run as SR with the variant in the element's prng_bits
+    // SR_B and SR_C run as SR, with the variant in the element's prng_bits.
     mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                               round_mode, op);
     if (x.numel() == 0)
@@ -202,7 +202,7 @@ std::tuple<Tensor, Tensor> block_pack_mps(Tensor x, c10::IntArrayRef fmt, double
   const BlockExtents e = block_extents(x, op);
   block_dtype(x.scalar_type(), op);
   Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
-  // SR_B and SR_C run as SR with the variant in the element's prng_bits
+  // SR_B and SR_C run as SR, with the variant in the element's prng_bits.
   mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                             round_mode, op);
   const BlockFormatParams p = block_params<float>(f, elem_max, scale_max, tensor_scale, e.cols, e.rows);
@@ -235,8 +235,8 @@ Tensor block_unpack_mps(Tensor data, Tensor scales, int64_t cols, c10::IntArrayR
   const std::string tail = std::string("using mpt_storage_t = ") + mptorch_mps::metal_storage_type(dtype, op) +
                            ";\n#define MPT_UNPACK 1\n";
   constexpr uint32_t threads = 256;
-  // An unquantized scale-free format still binds a scales buffer; its
-  // tensor may be empty, and then the data stands in for it (never read).
+  // A format without scales still binds a scales buffer; when its tensor is
+  // empty, the data is bound in its place (and never read).
   mptorch_mps::launch_groups(mptorch_mps::KernelSource::BlockUnpack, tail,
                              {d, s.numel() != 0 ? s : d, o, mptorch_mps::KernelArg::params(p),
                               mptorch_mps::KernelArg::params(L)},
@@ -247,7 +247,7 @@ Tensor block_unpack_mps(Tensor data, Tensor scales, int64_t cols, c10::IntArrayR
 Tensor block_quantize_mps(Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale,
                           int64_t round_mode)
 {
-  // A result laid out as x is, as on the CPU.
+  // The result is laid out as x is, as on the CPU.
   Tensor o = at::empty_like(x);
   quantize_into(x, o, fmt, elem_max, scale_max, tensor_scale, round_mode, "block_quant");
   return o;

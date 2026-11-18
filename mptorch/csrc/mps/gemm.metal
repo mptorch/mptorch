@@ -1,123 +1,138 @@
-// The GEMM kernel, for every GEMM-shaped op: the eight NAIVE GEMMs, their
-// *_accumulated twins (KAHAN, BLOCK and TREE), the cross-family ones, the
-// conv ops and the block GEMM. One thread per output element, which runs
-// that element's whole K-reduction through the Accumulator the CPU and CUDA
-// kernels use (common/gemm_policy.h, common/gemm_accumulate.h), in the same
-// order, with
-// the same casts and, under RoundMode::SR, the same Philox stream: keyed on
-// the element's global linear index into [batch, M, N] and seeded from the
-// CPU generator's draw (mps/gemm_backend.cpp), which is what makes a result
-// bit-identical to the CPU op's.
+// The GEMM kernel, which runs every GEMM-shaped op on an Apple GPU: the
+// eight NAIVE GEMMs, their *_accumulated twins (KAHAN, BLOCK and TREE), the
+// cross-family GEMMs, the conv ops, the block GEMM and, compiled after
+// odd.metal, the odd ops. Each thread computes one element of C: it runs
+// that element's whole sum over K through the same Accumulator policy the
+// CPU and CUDA kernels use (common/gemm_policy.h, common/gemm_accumulate.h),
+// in the same order and with the same casts. Under RoundMode::SR it also
+// draws from the same Philox stream, keyed on the element's linear index
+// into [batch, M, N] and seeded from the CPU generator
+// (MpsBackend::make_context), so the result is bit-identical to the CPU op's.
 //
-// Compiled once per instantiation, after prelude.metal and a few lines the
-// backend writes (gemm_backend.cpp's launch_source) that define
+// The kernel is compiled once per instantiation. Its source is prelude.metal,
+// then a few lines the backend writes (the "tail": gemm_backend.cpp's
+// tail_head and args_source), then this file. The tail defines
 //
-//   mpt_storage_t     float, half or bfloat: C's dtype, and the operands'
-//                     but for the block GEMM's, which are codes
-//   MPT_ROUND_MODE    the RoundMode, as the template argument it is on the
-//                     other backends (gemm_dtype.h's dispatch_round_mode)
-//   mpt_args()        the op's Args (common/gemm_args.h), as literals: for a
+//   mpt_storage_t     float, half or bfloat: the dtype of C, and of the
+//                     operands except in the block GEMM, whose operands are
+//                     uint8 codes
+//   MPT_ROUND_MODE    the RoundMode, a compile-time constant here as it is a
+//                     template argument on the other backends
+//                     (dispatch_round_mode)
+//   mpt_args()        a function returning the op's Args struct
+//                     (common/gemm_args.h) with every field a literal; for a
 //                     conv op or the block GEMM, the Args of the mac it runs
 //
-// and, for the ops past the eight NAIVE GEMMs, the variant:
+// and, for an op beyond the eight NAIVE GEMMs, its variant:
 //
-//   MPT_ACCUMULATE    KAHAN, BLOCK or TREE: mpt_args() is an AccumulateArgs
-//                     (common/gemm_accumulate.h) and the policy it builds
-//                     takes the positional contract below
+//   MPT_ACCUMULATE    KAHAN, BLOCK or TREE: mpt_args() returns an
+//                     AccumulateArgs (common/gemm_accumulate.h), and the
+//                     policy it builds takes the positional contract below
 //   MPT_GATHERED 1    a conv op (common/gemm_gather.h): the operand tiles are
 //                     gathered from the convolution's tensors through the
 //                     ConvGeom bound at buffer 5, and MPT_CONV_PASS names the
-//                     pass, so that the gathers' switches on it fold
-//   MPT_BLOCKED 1     the block GEMM (common/gemm_block.h): A and B are packed
-//                     codes, decoded through per-threadgroup tables built
-//                     from the BlockFormatParams bound at buffers 5 and 6,
-//                     with the scales at 7 and 8
+//                     pass, so that the compiler removes the gathers'
+//                     switches on it
+//   MPT_BLOCKED 1     the block GEMM (common/gemm_block.h): A and B are
+//                     packed codes, decoded through per-threadgroup tables
+//                     built from the BlockFormatParams bound at buffers 5 and
+//                     6; the scales are at buffers 7 and 8, and their batch
+//                     strides at 9
 //
-// The geometry and the block layouts are buffers, not literals, unlike the
-// formats: they change with every layer, pass and shape, and a literal would
-// be a compile per geometry. A format is fixed per layer.
+// The formats are literals, while the geometry and the block layouts are
+// buffers: a layer's formats are fixed, but its geometry changes with every
+// pass and shape, and a literal geometry would cost a compile per shape.
 // The policies are built here, on the device, from mpt_args() and by the
 // same with_accumulator the host backends call. Because the Args are
-// literals, every format constant folds into the kernel: the casts' masks,
-// their range bounds and their fast-path gates are immediates, and a branch
-// on a gate is gone rather than predicted. Reading the same policy from a
-// buffer measured 1.7-1.8x slower (dev/benchmarks/mps_backend.py). Folding
-// is also what keeps the constants exact: the compiler folds in IEEE
-// arithmetic, where the GPU flushes a subnormal result (bit_helper.h's
-// make_normal_range_params computes its one subnormal constant on the word,
-// so it would not depend on this even unfolded).
+// literals, every format constant is known at compile time: the casts'
+// masks, range bounds and fast-path gates become immediates, and a branch
+// on a gate is removed rather than predicted. Reading the same Args from a
+// buffer measured 1.7-1.8x slower (dev/benchmarks/mps_backend.py).
+// Computing the constants at compile time also keeps them exact: the
+// compiler evaluates them in IEEE arithmetic, whereas the GPU flushes a
+// subnormal result to zero. (make_normal_range_params computes its one
+// subnormal constant with integer operations on the bits, so it would be
+// exact even if it ran on the GPU.)
 //
-// The mixed ops pick each element's formats with the Args' with_slot rather
-// than with_palette: the element's slot widths are selected from the
-// literal lists, and one Mac is built from them. A palette of built Macs,
-// selected from, is what the CPU and CUDA kernels take, and here it cost
-// 1.5-2.9x the single-format kernel on the same formats. A split binaryK
-// mac's cost grew by the same step with each slot, whatever the map (one
-// uniform format, rows, columns, random), which is a policy re-selected at
-// its every use rather than held in registers. Built from selected widths, it is computed once,
-// and a mixed op costs 1.2-1.8x its single-format twin at 1024^3, about
-// what reading the constants as run-time values rather than immediates
-// costs.
+// A mixed (palette) op builds each element's policy with the Args' with_slot
+// rather than with_palette: with_slot selects the element's slot widths from
+// the literal lists and builds one Mac from them. The CPU and CUDA kernels
+// instead take a palette of Macs already built and select one per element;
+// here that cost 1.5-2.9x the single-format kernel on the same formats. A
+// split binaryK mac's cost grew by the same step with each slot, whatever
+// the map (one uniform format, rows, columns, random), which is what a
+// policy reselected at every use, rather than held in registers, costs.
+// Built from the selected widths, the policy is computed once, and a mixed
+// op costs 1.2-1.8x its single-format twin at 1024^3, about what reading
+// the constants as run-time values rather than immediates costs.
 //
 // The tile. A threadgroup of GEMM_TILE x GEMM_TILE threads (launch_params.h)
-// computes that block of C, and walks K GEMM_TILE steps at a time: each
+// computes that block of C and walks K GEMM_TILE steps at a time: each
 // thread copies one element of op(A)'s tile and one of op(B)'s into
-// threadgroup memory, and each then reads its row of the first and its
-// column of the second from there. Each element of A and B is loaded from
-// device memory once per threadgroup instead of once per thread, which took
-// an unquantized sum at 1024^3 from 7.6 to 3.5 ms; a quantized one is bound
-// by its casts, so the gain there is smaller (binaryK fma 8.6 -> 6.9 ms, a
-// split superfp mac about none). 16 x 16 matches or beats every other shape
-// tried (8x32, 16x32, 32x32, K steps of 16 and 32), and is the CUDA kernel's
-// block too. A tile whose K-steps are all inside K runs a loop of fixed
-// length, which the compiler unrolls, and the last tile a loop of what is
-// left; the fixed loop is worth 2x on the unquantized sum. Stochastic
-// rounding is the exception: its step carries a Philox block and two casts,
-// and a second copy of that body costs more in instruction fetch than the
-// unrolling saves, so SR runs the one loop of variable length for every tile
-// (60 ms at 1024^3 for a split binaryK mac, where two loops took 86).
+// threadgroup memory, and then each reads its row of the first and its
+// column of the second from there. Each element of A and B is thus loaded
+// from device memory once per threadgroup instead of once per thread, which
+// took an unquantized sum at 1024^3 from 7.6 to 3.5 ms. A quantized sum is
+// limited by its casts, so the gain there is smaller (a fused binaryK mac
+// 8.6 -> 6.9 ms, a split superfp mac about none). 16 x 16 matches or beats
+// every other shape tried (8x32, 16x32, 32x32, K steps of 16 and 32), and is
+// the CUDA kernel's block too. A tile whose K steps all lie inside K runs a
+// loop of fixed length, which the compiler unrolls, and the last tile runs a
+// loop over the steps that are left; the fixed loop is worth 2x on the
+// unquantized sum. Stochastic rounding is the exception: its step computes
+// a Philox block and two casts, and a second copy of that body costs more in
+// instruction fetch than unrolling saves, so under SR every tile runs the
+// one loop of variable length (60 ms at 1024^3 for a split binaryK mac,
+// where the two loops took 86).
 //
 // KAHAN, BLOCK and TREE take the positional contract of
-// common/gemm_accumulate.h: each step is told its place in the 16-step slab
-// (pos = k & 15, the tile's own depth), and end_slab(k_end, K) is called
-// after each tile, at k_end = k0 + 16 or K. No step past K is run, as on the
-// other backends (a zero product is not free for KAHAN, and a draw spent on
-// one would part the GPU from the CPU's order under SR), so the last tile is
-// the loop of variable length here too, and SR is the one loop throughout.
-// Under SR the two loops measured the same as the one, within 3% for every
-// algorithm and mac at 1024^3 (KAHAN 224 / 227 ms, BLOCK 89 / 89, TREE 99 /
-// 100 for a split binaryK mac), so the one stays, as for NAIVE.
+// common/gemm_accumulate.h: each step is told its position in the 16-step
+// slab (pos = k & 15, which is the step's depth in the tile), and
+// end_slab(k_end, K) is called after each tile, with k_end = k0 + 16 or K.
+// No step past K runs, as on the other backends: a zero product is not free
+// for KAHAN, which would apply its pending compensation, and under SR it
+// would spend a draw and put the GPU out of step with the CPU's order. So
+// the last tile runs the loop of variable length here too, and SR runs it
+// for every tile. Under SR a fixed loop plus a remainder loop measured the
+// same as the one loop, within 3% for every algorithm and mac at 1024^3
+// (KAHAN 224 / 227 ms, BLOCK 89 / 89, TREE 99 / 100 for a split binaryK
+// mac), so SR keeps the one loop, as it does for NAIVE.
 //
-// The conv ops' tiles are the GEMM's tiles of an operand that is never
-// built: a thread's element of op(A) is its own output row's at K index
-// k0 + l.x, and of op(B) its own output column's at k0 + l.y (the dense
-// stager's assignment when nothing is transposed), each read from the
-// convolution's tensors at the offset gemm_gather.h computes, or a zero
-// where it falls in the padding. The thread's row and column parts of
-// those offsets are computed once, before the K-loop. The result is stored
-// at the result tensor's own column, which in the input gradient's class
-// GEMMs is not the GEMM's; the palette maps are read there too. The block
-// GEMM's tiles are decoded the same way, through the tables, two reads and
-// a multiply an element (gemm_block.h's block_load_table), with a's and b's
-// rows and columns those of a [M, K] and an [N, K] operand.
+// A conv op's tiles are the GEMM's tiles of operands that are never built:
+// a thread's element of op(A) is its own output row's at K index k0 + l.x,
+// and its element of op(B) is its own output column's at k0 + l.y (the
+// dense stager's assignment when nothing is transposed). Each is read from
+// the convolution's tensors at the offset gemm_gather.h computes, or is a
+// zero where it falls in the padding. The parts of those offsets that
+// depend only on the thread's row and column are computed once, before the
+// loop over K. The result is stored at the result tensor's own column, which
+// in the input gradient's per-class GEMMs is not the GEMM's column, and a
+// palette's precision map is read there too. The block GEMM's tiles are
+// filled in the same places, by decoding through the tables: two reads and
+// a multiply per element (block_load_table), with A's and B's rows and
+// columns those of an [M, K] and an [N, K] operand.
 //
 // What the GPU's arithmetic cannot match. The Apple GPU flushes binary32
 // subnormals to zero, operands and results, in every Metal math mode. The
-// casts themselves are immune (they round on the word, and bit_helper.h
-// spells the few operations they apply to the value so the flush cannot
-// reach them), but the arithmetic between them is not: a product a*b, a
-// running sum, or a fused a*b + c whose exact value is below 2^-126 in
-// magnitude, or whose operand is, becomes a zero before the format sees it. Under RZ such a value rounds
-// to zero on the CPU too, and under RNE and RNA it does whenever the format's
-// smallest value is at least 2^-125, which is every SUBNORMALS format the
-// binary32 carrier holds (a NORMALS or EXTENDED_NORMALS floor can sit at
-// 2^-126, with its rounding boundary below it). Under RU, RD, RO and SR the
-// CPU can round it to the format's smallest value where the GPU gives zero,
-// and an unquantized sum (accumulate_quant=False) can keep a subnormal the
-// GPU drops. tests/test_mps.py pins both halves of that statement. The same
-// holds of the arithmetic KAHAN, BLOCK and TREE add (the compensation, the
-// block sums), and of the block GEMM's products and sums; its decode is
-// exact, since block_decode.h spells its one multiply flush-proof.
+// casts themselves are immune: they round on the bits, and bit_helper.h
+// spells the few operations they apply to the value so that the flush
+// cannot reach them. The arithmetic between the casts is not: a product
+// a*b, a running sum, or a fused a*b + c whose exact value is below 2^-126
+// in magnitude, or whose operand is, becomes zero before the format sees
+// it. Under RZ such a value rounds to zero on the CPU too, and under RNE
+// and RNA it does whenever the format's smallest value is at least 2^-125,
+// which holds for every SUBNORMALS format the binary32 carrier holds (a
+// NORMALS or EXTENDED_NORMALS floor can sit at 2^-126, with its rounding
+// boundary below it). Under RU, RD, RO and SR the CPU can round such a value
+// to the format's smallest value where the GPU gives zero, and an
+// unquantized sum (accumulate_quant=False) can keep a subnormal that the GPU
+// drops. tests/test_mps.py pins both cases. The same holds for the
+// arithmetic KAHAN, BLOCK and TREE add (the compensation, the block sums)
+// and for the block GEMM's products and sums; the block decode itself is
+// exact, since block_decode.h computes its multiply through
+// MPTORCH_BLOCK_MUL, which the flush cannot reach. The odd ops are the
+// exception: their carrier operations are common/carrier_odd_metal.h's,
+// which are exact on the GPU too.
 
 #ifndef MPT_GATHERED
 #define MPT_GATHERED 0
@@ -132,7 +147,8 @@
 #define MPT_OPERAND_T mpt_storage_t
 #endif
 
-// The layouts the host fills (gemm_backend.cpp asserts the same).
+// The layouts of the structs the host binds byte for byte (gemm_backend.cpp
+// asserts the same).
 static_assert(sizeof(mptorch::gemm::ConvGeom) == 336 && __builtin_offsetof(mptorch::gemm::ConvGeom, IN) == 96 &&
                   __builtin_offsetof(mptorch::gemm::ConvGeom, res_N) == 328,
               "ConvGeom must have one layout on the host and the GPU");
@@ -146,7 +162,7 @@ namespace mptorch_mps
 {
 
 // One output element: its coordinates, whether it is inside C (a tile at
-// C's edge has threads past it, which stage their share of the tile and
+// C's edge has threads past the edge, which copy their share of the tile and
 // wait at its barriers but compute nothing), and its linear index into
 // [batch, M, N], which keys its SR stream.
 struct Element
@@ -157,8 +173,9 @@ struct Element
 };
 
 // Whether an Accumulator takes common/gemm_accumulate.h's positional
-// contract: the host backends' is_positional_accumulator_v, which is a
-// C++20 requires-expression, spelled for MSL 3.1.
+// contract, that is, whether it has a `positional` member. On the host
+// backends this is is_positional_accumulator_v, a C++20 requires-expression;
+// MSL 3.1 is C++14, so here it is the older detection idiom.
 template <class...>
 struct Voider
 {
@@ -177,9 +194,9 @@ struct IsPositional<Acc, typename Voider<decltype(Acc::positional)>::type>
     static constexpr constant bool value = true;
 };
 
-// One thread's share of staging an operand's tiles: the same element of
-// every tile along K, which is one element per tile at GEMM_TILE^2 threads
-// and a GEMM_TILE^2 tile.
+// One thread's share of copying an operand's tiles into threadgroup memory:
+// the same position in every tile along K. With GEMM_TILE^2 threads and
+// GEMM_TILE^2 elements in a tile, that is one element per tile.
 struct Staged
 {
     device const mpt_storage_t *src; // this thread's element of the next tile
@@ -189,12 +206,12 @@ struct Staged
     bool live;                       // its row of op(A), or column of op(B), is in the operand
 };
 
-// op(X) is logically [rows, cols], and stored as its transpose when
-// `trans`; the tiles start at (r0, c0) and walk along K, which is op(X)'s
-// columns for A and its rows for B. Adjacent threads take adjacent elements
-// of X's storage, along a row of the tile when X is stored as is and down a
-// column when it is stored transposed, so that a SIMD group's loads are one
-// contiguous run either way.
+// op(X) is logically [rows, cols], and is stored as its transpose when
+// `trans` is set. The tiles start at (r0, c0) and walk along K, which runs
+// along op(X)'s columns for A and along its rows for B. Adjacent threads
+// take adjacent elements of X's storage (along a row of the tile when X is
+// stored as is, down a column when it is stored transposed), so that a SIMD
+// group's loads read one contiguous run either way.
 inline Staged stager(device const mpt_storage_t *X, uint64_t off, bool trans, uint32_t rows,
                      uint32_t cols, uint32_t r0, uint32_t c0, bool k_along_cols, uint2 l)
 {
@@ -202,9 +219,10 @@ inline Staged stager(device const mpt_storage_t *X, uint64_t off, bool trans, ui
     const uint32_t gr = r0 + r, gc = c0 + c;
     Staged s;
     s.src = X + off + (trans ? (uint64_t)gc * rows + gr : (uint64_t)gr * cols + gc);
-    // The next tile is GEMM_TILE further along K: that many elements on in
-    // X's storage when K runs along the dimension X stores contiguously, and
-    // that many rows of the storage on when it runs across it.
+    // The next tile is GEMM_TILE further along K: that many elements further
+    // on in X's storage when K runs along the dimension X stores
+    // contiguously, and that many rows of the storage further on when it runs
+    // across it.
     const bool k_contiguous = k_along_cols != trans;
     s.step = k_contiguous ? GEMM_TILE : (uint64_t)GEMM_TILE * (trans ? rows : cols);
     s.dst = r * GEMM_TILE + c;
@@ -213,18 +231,18 @@ inline Staged stager(device const mpt_storage_t *X, uint64_t off, bool trans, ui
     return s;
 }
 
-// Copies this thread's element of the tile at K-offset k0, converted to the
-// carrier, or a zero where the tile hangs past the operand (never read: the
-// K-loop stops at K, and no thread past C accumulates), and moves on to the
-// next tile's.
+// Copies this thread's element of the tile at K offset k0 into threadgroup
+// memory, converted to the carrier, or a zero where the tile extends past
+// the operand (that zero is never read: the loop over K stops at K, and no
+// thread outside C accumulates), and advances to the next tile's element.
 inline void stage(thread Staged &s, threadgroup float *tile, uint32_t k0, uint32_t K)
 {
     tile[s.dst] = s.live && s.k + k0 < K ? to_carrier(*s.src) : 0.0f;
     s.src += s.step;
 }
 
-// The operand tiles of a dense GEMM: op(A)'s and op(B)'s elements staged by
-// the two Staged above.
+// The operand tiles of a dense GEMM: op(A)'s and op(B)'s elements, copied
+// by the two Staged above.
 struct DenseLoad
 {
     Staged a, b;
@@ -238,9 +256,10 @@ struct DenseLoad
 
 #if MPT_GATHERED
 // The operand tiles of a conv pass (common/gemm_gather.h): this thread's
-// element of op(A) is (its row, k0 + lx) and of op(B) (k0 + ly, its
-// column), at the offsets the geometry gives, op(B)'s a zero in the
-// padding. `a_row` and `col` are its row's and column's parts of them.
+// element of op(A) is (its row, k0 + lx) and its element of op(B) is
+// (k0 + ly, its column), read at the offsets the geometry gives; op(B)'s is
+// a zero in the padding. `a_row` and `col` are the parts of those offsets
+// that depend only on the thread's row and column.
 struct GatherLoad
 {
     device const mpt_storage_t *A;
@@ -267,9 +286,10 @@ struct GatherLoad
 
 #if MPT_BLOCKED
 // The operand tiles of the block GEMM (common/gemm_block.h): this thread's
-// element of A, logically [M, K], is (its row, k0 + lx), and of B, [N, K],
-// (its column, k0 + ly), each decoded from its packed operand through the
-// threadgroup's tables. The operands carry their own orientation (p.trans).
+// element of A, logically [M, K], is (its row, k0 + lx), and its element of
+// B, logically [N, K], is (its column, k0 + ly), each decoded from its
+// packed operand through the threadgroup's tables. Each operand records its
+// own orientation (p.trans).
 struct BlockLoad
 {
     device const uint8_t *A;
@@ -349,10 +369,10 @@ inline void gemm_tile(Acc acc, Element e, constant GemmLaunch &g, thread Load &l
         store_carrier(C, store_at, acc.finalize());
 }
 
-// gemm_tile with everything but the policy bound, for the Args' factories
-// to call with the policy they build. A struct rather than a lambda because
-// the library is MSL 3.1 (metal_runtime.mm), and Metal has lambdas only
-// from 3.2.
+// gemm_tile with every argument but the policy bound, which the Args'
+// factories call with the policy they build. It is a struct rather than a
+// lambda because the library is compiled as MSL 3.1 (metal_runtime.mm's
+// compile), which has no lambdas; Metal has them only from 3.2.
 template <class Load>
 struct TileRunner
 {
@@ -372,11 +392,11 @@ struct TileRunner
     }
 };
 
-// Builds the element's policy from the op's Args and runs its tile:
-// with_slot from the precision map at `map_at` on a mixed op, the
-// accumulated factory under MPT_ACCUMULATE, and with_accumulator otherwise.
-// A template only so that `if constexpr` discards the branch the Args type
-// has no member for.
+// Builds the element's policy from the op's Args and runs its tile: on a
+// mixed op with with_slot, from the element's entry of the precision map
+// (at `map_at`), and otherwise with with_accumulator, given the algorithm
+// under MPT_ACCUMULATE. It is a template only so that `if constexpr`
+// discards the branch that calls a member the Args type lacks.
 template <class Args, class Load>
 inline void gemm(const thread Args &args, constant GemmLaunch &g, thread Load &load, Element e,
                  uint64_t store_at, uint64_t map_at, device mpt_storage_t *C,
@@ -433,8 +453,9 @@ kernel void mpt_gemm(device const MPT_OPERAND_T *A [[buffer(0)]],
     e.inside = e.i < g.M && e.j < g.N;
     e.out = ((uint64_t)e.bt * g.M + e.i) * g.N + e.j;
 #if MPT_GATHERED
-    // The geometry in thread memory, where gemm_gather.h's functions take
-    // it, with the pass a constant of the kernel.
+    // A copy of the geometry in thread memory, where gemm_gather.h's
+    // functions take it, with the pass replaced by the compile-time
+    // constant MPT_CONV_PASS.
     mptorch::gemm::ConvGeom cg = geom;
     cg.pass = MPT_CONV_PASS;
     int64_t b;
@@ -457,7 +478,7 @@ kernel void mpt_gemm(device const MPT_OPERAND_T *A [[buffer(0)]],
                             (uint64_t)mptorch::gemm::conv_result_row(grp, g.M, e.i) * g.idx_row_stride +
                             (uint64_t)res_col * g.idx_col_stride;
 #elif MPT_BLOCKED
-    // Each operand's decode tables, one entry of each a thread.
+    // Each operand's decode tables; each thread fills one entry of each.
     static_assert(GEMM_TILE * GEMM_TILE == mptorch::gemm::BLOCK_TABLE, "one table entry per thread");
     threadgroup float tables[4 * mptorch::gemm::BLOCK_TABLE];
     mptorch_mps::BlockLoad load;

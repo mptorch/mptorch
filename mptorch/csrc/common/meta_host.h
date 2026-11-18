@@ -4,45 +4,48 @@
 // FakeTensorMode, torch.export and torch.compile run in an op's place to
 // learn its result's shape, dtype and strides without computing it. Only
 // the files under meta/ include this header, so no object of the real ops
-// changes.
+// changes when it does.
 //
-// A meta kernel accepts what the CPU op accepts and raises what it raises,
-// with the CPU op's messages and in its order; what it leaves out needs
-// values or pointers, and still runs when the real op does:
+// A Meta kernel accepts what the CPU op accepts and raises what it raises,
+// with the CPU op's messages and in its order. What it leaves out is what
+// needs values, pointers or a particular backend, all of which still runs
+// when the real op does:
 //
 //   - the copies, data_ptr, the RNG draw (a meta SR call leaves every
 //     generator as it was) and the launch;
-//   - the palette ops' prec_idx bounds, which read its values;
-//   - CUDA's 16-byte refusal of an in-place quantizer's misaligned view, and
-//     its size cap on _carrier_odd;
-//   - the MPS stubs' refusals (the odd ops, _carrier_odd).
+//   - the palette ops' bounds check on prec_idx, which reads its values;
+//   - CUDA's refusal of an in-place quantizer's view that does not start on
+//     a 16-byte boundary, and its size limit on _carrier_odd;
+//   - the MPS entry points' refusals of what MPS cannot run (a binary64
+//     block op, _stochastic_cast) and the MPS kernels' 32-bit size limits.
 //
 // FakeTensorMode hands a Meta kernel its FakeTensors, which throw on a
 // mutable data_ptr, and torch.compile and torch.export give them symbolic
 // sizes, on which sizes(), size(i) and numel() throw too. So the real
 // drivers (gemm_host.h, gemm_conv_host.h, gemm_block_host.h) cannot run
-// here, and neither can their int64 shape helpers. What follows are the
-// drivers' twins, taking the drivers' parameter lists (so a meta entry body
-// is the CPU entry's body with the driver's name swapped, as on MPS), and
-// SymInt twins of the shape helpers, each its original's checks in its
-// order with its messages. The checks that read only ranks, dtypes and
-// integers are the real ones: check_matmul_inputs, check_accumulate_algorithm,
+// here, and neither can their int64 shape helpers. What follows are twins
+// of the drivers, taking the drivers' parameter lists (so a Meta kernel's
+// body is the CPU entry point's with the driver's name swapped, which
+// tests/test_entry_copies.py checks), and SymInt twins of the shape
+// helpers, each making its original's checks in its order with its
+// messages. The checks that read only ranks, dtypes and integers are the
+// real ones: check_matmul_inputs, check_accumulate_algorithm,
 // check_naive_only, the pack_* packers (with check_palette_lengths),
 // check_fma_quant, gemm_dtype_of, checked_block_fmt and block_dtype.
 //
 // A change to a real driver's checks needs the same change here, and
-// tests/test_fake_kernels.py holds the two to the same messages.
+// tests/test_fake_kernels.py checks that the two raise the same messages.
 //
-// The symbolic spelling. A refusal is a TORCH_SYM_CHECK: on a backed size
-// (every size torch.compile and torch.export give a tensor) it guards, as a
-// plain comparison would, and on an unbacked one it defers to a runtime
-// assert instead of failing to trace. The empty-result test is
-// TORCH_GUARD_OR_FALSE, so an unbacked size is taken to be nonempty. A
-// SymBool combines with & and |. Every / and % comes after the checks that
-// make its operands non-negative, where C++'s truncating division and the
-// symbolic floor division agree. Inside a Meta kernel every tensor's
-// device() is meta, so the device checks pass there; FakeTensorMode raises
-// its own error for operands on two fake devices.
+// How the checks are written on symbolic sizes. A refusal is a
+// TORCH_SYM_CHECK: on a backed size (every size torch.compile and
+// torch.export give a tensor) it guards, as a plain comparison would, and
+// on an unbacked one it defers to a runtime assert instead of failing to
+// trace. The empty-result test is TORCH_GUARD_OR_FALSE, so an unbacked size
+// is taken to be nonempty. SymBools combine with & and |. Every / and %
+// comes after the checks that make its operands non-negative, where C++'s
+// truncating division and the symbolic floor division agree. Inside a Meta
+// kernel every tensor's device() is meta, so the device checks pass there;
+// FakeTensorMode raises its own error for operands on two fake devices.
 
 #include "block_host.h"
 #include "carrier_odd_host.h"
@@ -74,15 +77,15 @@ namespace mptorch::meta
     return at::empty_symint(c10::SymIntArrayRef(sizes), options);
   }
 
-  // The drivers' empty early-return: a result with no elements is returned
-  // before the palette map and the dtype are checked.
+  // The drivers' early return for an empty result: a result with no
+  // elements is returned before the palette map and the dtype are checked.
   inline bool sym_is_empty(const SymInt &batch, const SymInt &M, const SymInt &N)
   {
     return TORCH_GUARD_OR_FALSE(batch.sym_eq(0) | M.sym_eq(0) | N.sym_eq(0));
   }
 
-  // [batch,] M, N, as the drivers allocate it (gemm_host.h's
-  // matmul_output_sizes).
+  // The result's sizes, [batch,] M, N, as the drivers allocate it
+  // (gemm_host.h's matmul_output_sizes).
   inline SymSizes sym_output_sizes(const SymInt &batch, const SymInt &M, const SymInt &N,
                                    bool batched)
   {
@@ -101,7 +104,7 @@ namespace mptorch::meta
     bool batched = false;
   };
 
-  // matmul_output_shape (gemm_host.h).
+  // The twin of matmul_output_shape (gemm_host.h).
   inline SymMatmulShape sym_matmul_output_shape(const Tensor &a, const Tensor &b, bool trans_a,
                                                 bool trans_b, const char *op_name)
   {
@@ -130,8 +133,8 @@ namespace mptorch::meta
     return s;
   }
 
-  // resolve_prec_idx's shape checks (gemm_host.h), without the bounds check
-  // on its entries, which reads them.
+  // The shape checks of resolve_prec_idx (gemm_host.h), without the bounds
+  // check on its entries, which reads them.
   inline void sym_prec_idx_shape(const Tensor &prec_idx, const SymInt &batch, const SymInt &M,
                                  const SymInt &N, const char *op_name)
   {
@@ -147,7 +150,7 @@ namespace mptorch::meta
                     ", N=", N, "), got [", r, ", ", c, "]");
   }
 
-  // run_custom_matmul (gemm_host.h).
+  // The twin of run_custom_matmul (gemm_host.h).
   template <class Args>
   Tensor meta_custom_matmul(const char *op_name, const Args &args, const Tensor &a,
                             const Tensor &b, bool trans_a, bool trans_b,
@@ -165,7 +168,7 @@ namespace mptorch::meta
     return c;
   }
 
-  // run_custom_matmul_mixed (gemm_host.h).
+  // The twin of run_custom_matmul_mixed (gemm_host.h).
   template <class ArgsFactory, class Precheck = g::NoPrecheck>
   Tensor meta_custom_matmul_mixed(const char *op_name, ArgsFactory &&make_args, const Tensor &a,
                                   const Tensor &b, const Tensor &prec_idx, bool trans_a,
@@ -187,7 +190,7 @@ namespace mptorch::meta
     return c;
   }
 
-  // run_custom_matmul_accumulated (gemm_host.h).
+  // The twin of run_custom_matmul_accumulated (gemm_host.h).
   template <class Base, class Widths, class Common>
   Tensor meta_custom_matmul_accumulated(const char *op_name, const Base &base,
                                         const g::AccumulateTail<Widths, Common> &tail,
@@ -222,8 +225,8 @@ namespace mptorch::meta
     SymSizes out_sizes;
   };
 
-  // conv_shape (gemm_conv_host.h): its checks and the extents of the pass's
-  // GEMM, without the kernels' ConvGeom.
+  // The twin of conv_shape (gemm_conv_host.h): its checks and the extents of
+  // the pass's GEMM, without the kernels' ConvGeom.
   inline SymConvShape sym_conv_shape(const Tensor &a, const Tensor &b, int64_t conv_pass,
                                      c10::IntArrayRef out_size, c10::IntArrayRef stride,
                                      c10::IntArrayRef padding, c10::IntArrayRef dilation,
@@ -358,7 +361,7 @@ namespace mptorch::meta
     return cs;
   }
 
-  // run_custom_conv (gemm_conv_host.h).
+  // The twin of run_custom_conv (gemm_conv_host.h).
   template <class Inner>
   Tensor meta_custom_conv(const char *op_name, const Inner &inner, const Tensor &a, const Tensor &b,
                           const Tensor *prec_idx, int64_t conv_pass, c10::IntArrayRef out_size,
@@ -379,7 +382,7 @@ namespace mptorch::meta
     return c;
   }
 
-  // run_custom_conv_single (gemm_conv_host.h).
+  // The twin of run_custom_conv_single (gemm_conv_host.h).
   template <class Base, class Widths, class Common>
   Tensor meta_custom_conv_single(const char *op_name, const Base &base,
                                  const g::AccumulateTail<Widths, Common> &tail, const Tensor &a,
@@ -412,7 +415,7 @@ namespace mptorch::meta
                             dilation, groups, round_mode);
   }
 
-  // run_custom_conv_mixed (gemm_conv_host.h).
+  // The twin of run_custom_conv_mixed (gemm_conv_host.h).
   template <class ArgsFactory, class Precheck = g::NoPrecheck>
   Tensor meta_custom_conv_mixed(const char *op_name, ArgsFactory &&make_args, const Tensor &a,
                                 const Tensor &b, const Tensor &prec_idx, int64_t conv_pass,
@@ -436,7 +439,7 @@ namespace mptorch::meta
   // Block formats
   // ----------------------------------------------------------------------
 
-  // block_extents (block_host.h).
+  // The twin of block_extents (block_host.h).
   struct SymBlockExtents
   {
     SymInt batch = 1, rows = 0, cols = 0;
@@ -456,7 +459,7 @@ namespace mptorch::meta
     return e;
   }
 
-  // block_sizes (block_host.h).
+  // The twin of block_sizes (block_host.h).
   inline SymSizes sym_block_sizes(const SymBlockExtents &e, const SymInt &d1, const SymInt &d2)
   {
     if (e.batched)
@@ -464,8 +467,8 @@ namespace mptorch::meta
     return {d1, d2};
   }
 
-  // The extents make_block_format_params (block_decode.h) derives from a
-  // checked format and a [rows, cols] operand.
+  // The extents that make_block_format_params (block_decode.h) derives from
+  // a checked format and a [rows, cols] operand.
   struct SymBlockLayout
   {
     SymInt n_blocks, row_bytes, row_tiles, scale_cols;
@@ -489,7 +492,7 @@ namespace mptorch::meta
     return l;
   }
 
-  // block_pack (cpu/block_kernel.cpp).
+  // The twin of block_pack (cpu/block_kernel.cpp).
   inline std::tuple<Tensor, Tensor> meta_block_pack(const Tensor &x, c10::IntArrayRef fmt,
                                                     double elem_max, double scale_max,
                                                     double tensor_scale, int64_t round_mode)
@@ -508,8 +511,8 @@ namespace mptorch::meta
     return {data, scales};
   }
 
-  // quantize_into's checks (cpu/block_kernel.cpp), shared by block_quant
-  // and block_quant_.
+  // The checks of quantize_into (cpu/block_kernel.cpp), which block_quant
+  // and block_quant_ share.
   inline void meta_block_quantize_checks(const Tensor &x, c10::IntArrayRef fmt, double elem_max,
                                          double scale_max, double tensor_scale, int64_t round_mode,
                                          const char *op)
@@ -522,7 +525,7 @@ namespace mptorch::meta
     mptorch::sr_canonical_fmt(f, static_cast<int>(blk::BlockFmtField::ELEM_PRNG_BITS), round_mode, op);
   }
 
-  // unpack_extents (block_host.h).
+  // The twin of unpack_extents (block_host.h).
   inline SymBlockExtents sym_unpack_extents(const Tensor &data, const Tensor &scales, int64_t cols,
                                             const blk::Fmt &f, const char *op)
   {
@@ -551,7 +554,7 @@ namespace mptorch::meta
     return e;
   }
 
-  // block_unpack (cpu/block_kernel.cpp).
+  // The twin of block_unpack (cpu/block_kernel.cpp).
   inline Tensor meta_block_unpack(const Tensor &data, const Tensor &scales, int64_t cols,
                                   c10::IntArrayRef fmt, double elem_max, double scale_max,
                                   double tensor_scale, at::ScalarType dtype)
@@ -564,8 +567,8 @@ namespace mptorch::meta
     return sym_empty(sym_block_sizes(e, e.rows, e.cols), data.options().dtype(dtype));
   }
 
-  // One packed operand of the block GEMM: block_gemm_operand
-  // (gemm_block_host.h), whose extents it returns.
+  // One packed operand of the block GEMM: the twin of block_gemm_operand
+  // (gemm_block_host.h), returning its extents.
   struct SymBlockOperand
   {
     SymInt rows, cols, batch = 1;
@@ -611,8 +614,9 @@ namespace mptorch::meta
     return o;
   }
 
-  // run_custom_matmul_block_in and run_custom_matmul_block
-  // (gemm_block_host.h); the mac's Args only decide which checks ran before.
+  // The twin of run_custom_matmul_block_in and run_custom_matmul_block
+  // (gemm_block_host.h); the mac's Args decide only which checks ran
+  // before.
   inline Tensor meta_run_custom_matmul_block(const char *op_name, const g::BlockGemmCall &call,
                                              int64_t round_mode)
   {
@@ -655,7 +659,7 @@ namespace mptorch::meta
                      call.a_data.options().dtype(wide ? at::kDouble : at::kFloat));
   }
 
-  // custom_matmul_block_entry (gemm_block_host.h).
+  // The twin of custom_matmul_block_entry (gemm_block_host.h).
   inline Tensor meta_custom_matmul_block_entry(
       const g::BlockGemmCall &call, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P,
       int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode,
@@ -707,7 +711,7 @@ namespace mptorch::meta
   // _carrier_odd
   // ----------------------------------------------------------------------
 
-  // check_carrier_odd (carrier_odd_host.h).
+  // The twin of check_carrier_odd (carrier_odd_host.h).
   inline void sym_check_carrier_odd(const Tensor &a, const Tensor &b, const Tensor &c, int64_t op)
   {
     TORCH_CHECK(op >= 0 && op <= 2, "_carrier_odd: op is 0 (fma), 1 (add) or 2 (mul), got ",
@@ -728,7 +732,8 @@ namespace mptorch::meta
 
 namespace mptorch::meta
 {
-  // run_custom_conv_odd (carrier_odd_conv_host.h). The flag-on branch needs
+  // The twin of run_custom_conv_odd (carrier_odd_conv_host.h). Its branch
+  // for a build with MPTORCH_ODD_ACCUMULATED needs
   // AccumulateFamily<OddArgs<B>> (carrier_odd_accumulate.h), which
   // meta/custom_conv_odd_entry.cpp includes before it instantiates this.
   template <class Base, class Widths, class Common>

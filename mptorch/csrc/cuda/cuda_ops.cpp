@@ -1,12 +1,14 @@
-// Binds the CUDA implementations to the op schemas declared in
-// ../quant_ops.cpp. The functions are declared in ../quant_ops.h and defined
-// in this directory: the three elementwise quantizers and their in-place twins
-// in binaryK_kernel.cu, superfp_kernel.cu and fixedpoint_kernel.cu, the
-// narrowing op in narrow_entry.cpp, and the GEMM, conv, block and
-// cross-family ops in the *_entry.cpp files.
+// The CUDA dispatch-key registrations: binds each op schema that
+// ../quant_ops.cpp declares to its CUDA implementation. The functions are
+// declared in ../quant_ops.h and defined in this directory: the three
+// elementwise quantizers and their in-place twins in binaryK_kernel.cu,
+// superfp_kernel.cu and fixedpoint_kernel.cu, and every other op (the
+// narrowing op, the GEMM, conv and block ops, and the test-only ops) in the
+// *_entry.cpp files.
 //
-// Every op goes through OnOperandDevice (device_guard.h), which runs it on
-// its first CUDA tensor's device: register a new one with MPT_CUDA_IMPL too.
+// Every op is registered through OnOperandDevice (cuda/device_guard.h), which
+// runs it on the device of its first CUDA tensor: register a new op with
+// MPT_CUDA_IMPL too.
 #include "../quant_ops.h"
 #include "device_guard.h"
 #include <torch/library.h>

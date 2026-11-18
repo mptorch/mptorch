@@ -1,13 +1,14 @@
 #pragma once
 
-// The host side of the elementwise block ops, shared by the CPU and CUDA
-// entry points: the descriptor's validation, the dtype, the shapes and the
-// output allocation. The descriptor is validated here, not only in Python,
-// because torch.ops.mptorch.* is a public entry point and every check below
-// guards an invariant the kernels rely on: that every code decodes to a
+// The host side of the elementwise block ops, shared by their CPU, CUDA,
+// MPS and Meta entry points, and of the block GEMM's format checks: the
+// validation of the format descriptor, the dtype, the shapes and the output
+// allocation. The descriptor is validated here, and not only in Python,
+// because torch.ops.mptorch.* can be called directly, and every check below
+// guards an invariant that the kernels rely on: that every code decodes to a
 // normal value of the call's carrier (binary32, or binary64 for a float64
-// tensor or result) assembled on the word, and that a block fills whole
-// bytes. The carrier is the call's, so the same descriptor can pass in
+// tensor or result), assembled on the word, and that a block fills whole
+// bytes. The carrier depends on the call, so the same descriptor can pass in
 // binary64 and fail in binary32.
 
 #include "block_kernels.h"
@@ -24,10 +25,11 @@ namespace mptorch::block
   constexpr int BLOCK_FMT_COUNT = static_cast<int>(BlockFmtField::COUNT);
   using Fmt = std::array<int64_t, BLOCK_FMT_COUNT>;
 
-  // The most elements one scale covers, block_rows * block_size. A Four Over
-  // Six rule adds a tile's errors up in 64 bits, each at most ERROR_UNITS_MAX
-  // and squared under the MSE measure (block_decode.h), so the largest tile's
-  // sum has to fit: 2^48 a term, 2^62 in all.
+  // The largest number of elements one scale may cover, block_rows *
+  // block_size. A Four Over Six rule adds up a tile's errors in 64 bits, each
+  // at most ERROR_UNITS_MAX and squared under the MSE measure
+  // (block_decode.h), so the sum over the largest tile has to fit: 2^48 per
+  // term, 2^62 in all.
   constexpr int64_t MAX_TILE_ELEMS = 16384;
   static_assert(static_cast<uint64_t>(ERROR_UNITS_MAX) * ERROR_UNITS_MAX <=
                     UINT64_MAX / static_cast<uint64_t>(MAX_TILE_ELEMS),
@@ -38,9 +40,10 @@ namespace mptorch::block
     return v >= lo && v <= hi && (v & (v - 1)) == 0;
   }
 
-  // What the checks below read of a carrier: the exponents of its smallest
-  // normal and its largest finite power of two, its stored significand bits,
-  // the widest exponent field a layout may have in it, and its name.
+  // What the checks below need to know about a carrier: the exponents of its
+  // smallest normal value and of its largest finite power of two, its number
+  // of stored significand bits, the widest exponent field a code layout may
+  // have in it, and its name.
   struct CarrierBounds
   {
     int min_exp, max_exp, man_bits, max_exp_bits;
@@ -54,7 +57,8 @@ namespace mptorch::block
                 : CarrierBounds{-126, 127, 23, 8, false, "binary32"};
   }
 
-  // One code layout of the descriptor, as the checks below read it.
+  // One code layout of the descriptor (the element's or the scale's), as the
+  // checks below read it.
   struct Layout
   {
     int64_t family, sg, e, m, bias, sub, nb;
@@ -74,12 +78,13 @@ namespace mptorch::block
     }
   };
 
-  // Whether the fields name a layout the kernels read in a carrier: a family,
-  // a sign bit, widths with at most cb.max_exp_bits exponent bits, a binaryK
-  // SubnormalsMode or a superfp count of normal binades that leaves
-  // supernormal codes, and every value a normal value of the carrier on the
-  // word (the decode assembles it there, and the encode reads its exponent
-  // field), the subnormal step and the smallest supernormal included.
+  // Whether the fields describe a layout that the kernels can read in the
+  // carrier: a valid family and sign bit; widths with at most
+  // cb.max_exp_bits exponent bits; a binaryK SubnormalsMode, or a superfp
+  // count of normal binades that leaves some supernormal codes; and every
+  // value, the subnormal step and the smallest supernormal included, a
+  // normal value of the carrier (the decode assembles values on the word,
+  // and the encode reads their exponent field).
   inline bool layout_ok(const Layout &l, const CarrierBounds &cb)
   {
     if (!(l.family == 0 || l.family == 1) || !(l.sg == 0 || l.sg == 1) || l.e < 1 || l.e > cb.max_exp_bits ||
@@ -101,10 +106,10 @@ namespace mptorch::block
            1 - l.bias - l.m >= cb.min_exp;
   }
 
-  // Whether a double is exactly a value of a layout below its specials: a
-  // positive, finite, normal value of the carrier (for binary32, a float32
-  // value) that survives the encode and decode round trip with a code under
-  // `special_min`.
+  // Whether a double is exactly a value of a layout that is not one of its
+  // NaN or infinity codes: a positive, finite, normal value of the carrier
+  // (for binary32, a float32 value) that survives the round trip through
+  // encode and decode with a code below `special_min`.
   template <class T>
   bool is_layout_value_in(double v, const Layout &l, uint32_t special_min, int min_exp)
   {
@@ -125,9 +130,10 @@ namespace mptorch::block
                    : is_layout_value_in<float>(v, l, special_min, cb.min_exp);
   }
 
-  // The descriptor, checked against every invariant the kernels read it
-  // with in the call's carrier (binary64 when `wide`). `elem_max`,
-  // `scale_max` and `tensor_scale` are the schema's floats.
+  // The descriptor, checked against every invariant with which the kernels
+  // read it in the call's carrier (binary64 when `wide`). `elem_max`,
+  // `scale_max` and `tensor_scale` are the schema's floating-point
+  // arguments.
   inline Fmt checked_block_fmt(c10::IntArrayRef fmt, double elem_max, double scale_max,
                                double tensor_scale, const char *op, bool wide)
   {
@@ -189,8 +195,9 @@ namespace mptorch::block
                     "factor between its two candidates, got scale kind ", kind);
     if (kind == static_cast<int64_t>(ScaleKind::POW2))
     {
-      // the pack multiplies by the reciprocal, 2^-X, which is a value of the
-      // carrier too only down to 2^-max_exp (2^-127 in binary32)
+      // The pack multiplies by the scale's reciprocal, 2^-X, which is also a
+      // normal value of the carrier only down to 2^-max_exp (2^-127 in
+      // binary32).
       TORCH_CHECK(sl.family == static_cast<int64_t>(BlockFamily::BINARYK) && sl.sg == 0 && sl.m == 0 &&
                       sl.e >= 1 && sl.e <= 8 && -sl.bias >= -cb.max_exp &&
                       (int64_t(1) << sl.e) - 2 - sl.bias <= cb.max_exp,
@@ -240,11 +247,12 @@ namespace mptorch::block
     return make_block_cast<T>(f.data(), elem_max);
   }
 
-  // The dtype of a tensor a block op reads or writes, which is also its
-  // carrier's: binary64 for float64, binary32 for the other three (nothing
-  // narrows a float64 tensor into binary32, and a narrower tensor reaches
-  // binary64 through Python, which widens it). A build with MPTORCH_NO_FP64
-  // has no binary64 block kernels and says so.
+  // The dtype of a tensor that a block op reads or writes, which also decides
+  // its carrier: binary64 for float64, and binary32 for the other three. (No
+  // op rounds a float64 tensor in binary32, and a narrower tensor is rounded
+  // in binary64 only after Python has widened it.) A build with
+  // MPTORCH_NO_FP64 has no binary64 block kernels, and raises an error that
+  // says so.
   inline mptorch::GemmDtype block_dtype(at::ScalarType st, const char *op)
   {
     switch (st)
@@ -268,8 +276,9 @@ namespace mptorch::block
     }
   }
 
-  // The [batch, rows, cols] a rank-2 or rank-3 tensor is read as, with the
-  // packed axis last, and whether it has the batch dimension.
+  // The [batch, rows, cols] shape as which a rank-2 or rank-3 tensor is
+  // read, with the packed axis last, and whether it has the batch
+  // dimension.
   struct BlockExtents
   {
     int64_t batch = 1, rows = 0, cols = 0;
@@ -289,7 +298,7 @@ namespace mptorch::block
     return e;
   }
 
-  // Sizes of a [batch,] d1, d2 tensor.
+  // The sizes of a [batch,] d1, d2 tensor.
   inline std::vector<int64_t> block_sizes(const BlockExtents &e, int64_t d1, int64_t d2)
   {
     if (e.batched)
@@ -297,7 +306,8 @@ namespace mptorch::block
     return {d1, d2};
   }
 
-  // A pack or quantize job over x, with x's strides, and o's when given.
+  // A pack or quantize job over x, with x's strides, and o's when o is
+  // given.
   inline BlockPackJob pack_job(const Tensor &x, const BlockExtents &e, mptorch::GemmDtype dt,
                                int64_t round_mode)
   {
@@ -323,8 +333,9 @@ namespace mptorch::block
     j.quant = true;
   }
 
-  // block_unpack's operands: data and scales as block_pack wrote them, for a
-  // packed axis of `cols` elements. Returns the extents and fills `p`.
+  // Checks block_unpack's operands, data and scales as block_pack wrote them,
+  // for a packed axis of `cols` elements. Returns the extents and fills in
+  // `p`.
   template <class T>
   BlockExtents unpack_extents(const Tensor &data, const Tensor &scales, int64_t cols, const Fmt &f,
                               double elem_max, double scale_max, double tensor_scale,

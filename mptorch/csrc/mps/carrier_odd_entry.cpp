@@ -1,7 +1,8 @@
-// _carrier_odd on an Apple GPU (phase Z): common/carrier_odd_metal.h's
-// binary32 primitives applied elementwise by mps/carrier_odd.metal, which
-// tests/test_carrier_rounding.py holds to an exact reference and to the
-// CPU's op word for word. A test op: MPS has no float64, so binary32 only.
+// _carrier_odd on an Apple GPU: common/carrier_odd_metal.h's binary32
+// round-to-odd primitives applied elementwise by mps/carrier_odd.metal.
+// tests/test_carrier_rounding.py compares the results with an exact
+// reference and with the CPU's op, word for word. A test-only op, in
+// binary32 only, since MPS has no float64.
 
 #include "../common/carrier_odd_host.h"
 #include "../quant_ops.h"

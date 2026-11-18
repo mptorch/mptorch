@@ -1,18 +1,35 @@
 #pragma once
 
-// The CPU GEMM kernel and CpuBackend::launch_as, the template that the eight
-// custom_matmul_*.cpp translation units explicitly instantiate: one per
-// (format family x mac mode) in the binary32 carrier, and its *_f64.cpp twin
-// in binary64. Nothing else includes this header. The kernel body is heavy
-// to compile (one instantiation per Accumulator policy per round mode), and
-// with every instantiation in one object that object took about 67 s on its
-// own and was the build's critical path; over eight objects the largest is
-// about 31 s and ninja compiles them side by side. The entry points live in
-// cpu/custom_matmul_entry.cpp, which sees only cpu/gemm_backend.h and so
-// instantiates no kernel. cuda/custom_matmul_kernel.cuh is split the same
-// way. Six more files, custom_matmul_*_{kahan,block,tree}.cpp, instantiate
-// launch_accumulated_as for the accumulate algorithms past NAIVE
-// (common/gemm_accumulate.h), in binary32.
+// The CPU GEMM kernel, matmul_cpu_kernel_impl, and the four CpuBackend
+// templates that run it, all declared in cpu/gemm_backend.h: launch_as for
+// the NAIVE GEMM ops, launch_accumulated_as for the GEMM ops under KAHAN,
+// BLOCK and TREE (common/gemm_accumulate.h), launch_conv_as for the conv ops
+// and launch_block_as for the block GEMM. Only the instantiation units in
+// cpu/inst/ include this header, the odd ones through
+// cpu/custom_matmul_odd_kernel.h. The entry points (cpu/custom_*_entry.cpp)
+// see only the declarations, so they compile no kernel.
+//
+// How the instantiations are divided among the units. Each file in cpu/inst/
+// holds nothing but explicit instantiations of these templates, for a few
+// closely related ops, under one accumulate algorithm and in one carrier.
+// There are three reasons:
+//   - The kernel is expensive to compile, since every policy is instantiated
+//     once per round mode, and separate units compile in parallel. When this
+//     was measured, all of the instantiations in one object took about 67 s
+//     and were the build's critical path; spread over eight objects, the
+//     largest took about 31 s.
+//   - setup.py leaves a group of units out of the build by its file stem:
+//     *_f64 under MPTORCH_NO_FP64=1, *_odd and *_odd_f64 under
+//     MPTORCH_NO_ODD=1, and *_{kahan,block,tree}_odd{,_f64} unless
+//     MPTORCH_ODD_ACCUMULATED=1 is set.
+//   - A new op gets units of its own rather than lines in an existing one, so
+//     that the existing units' objects stay byte-identical.
+// The units of the odd ops (carrier_rounding=RoundMode.RO) include
+// cpu/custom_matmul_odd_kernel.h instead of this header, for the reason that
+// header gives. Those under KAHAN, BLOCK and TREE also include
+// common/carrier_odd_accumulate.h, which defines AccumulateFamily for their
+// Args and without which they do not compile. tests/test_accumulators.py
+// checks both includes in those units.
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
@@ -23,7 +40,7 @@
 #include "gemm_backend.h"
 #include "gemm_rne_tile.h"
 #include <ATen/Parallel.h>
-#include <ATen/TensorIterator.h> // at::internal::GRAIN_SIZE lives here
+#include <ATen/TensorIterator.h> // defines at::internal::GRAIN_SIZE
 #include <algorithm>
 
 namespace mptorch::gemm_cpu
@@ -32,30 +49,30 @@ namespace mptorch::gemm_cpu
 
   // Tile packing. The operands' storage dtype is a runtime tag
   // (mptorch::GemmDtype, common/gemm_dtype.h) rather than a template
-  // parameter of the kernel, so the kernel body is instantiated once per
-  // carrier rather than once per dtype. On the GPU the tag is a switch
-  // inside each load; here a switch in the innermost loop would cost a
-  // branch per multiply-add, so the kernel does what a BLAS does instead:
-  // each 32x32 operand tile is converted into a buffer of the carrier type
-  // once, and the K-loop runs over those buffers with no dtype in sight.
-  // Three further consequences, all wanted: every element converts once per
-  // tile instead of once per K-step of every row (a c10::Half to float
-  // conversion is a function call on the host, not an instruction); both
-  // operands are stride-1 in the innermost loop whatever trans_a and trans_b
-  // say, since the transposition is resolved by the pack's index
-  // arithmetic; and only these small routines are templated on the storage
-  // dtype. The accumulate order is unchanged by the packing (same values,
-  // same sequence of Accumulator::accumulate calls), so results are
-  // bit-identical to an unpacked loop.
+  // parameter, so the kernel body is instantiated once per carrier (the
+  // float type the arithmetic runs in) instead of once per dtype. On the GPU
+  // each load switches on the tag; here a switch in the innermost loop would
+  // cost a branch per multiply-add, so the kernel does what a BLAS does: it
+  // converts each 32 x 32 operand tile into a buffer of the carrier type once
+  // (it "packs" the tile), and the K-loop reads only those buffers. This has
+  // three further effects, all intended. Each element is converted once per
+  // tile rather than once per K-step of every row (on the host a c10::Half
+  // to float conversion is a function call, not an instruction). Both
+  // operands are read with stride 1 in the innermost loop whatever trans_a
+  // and trans_b say, since the pack's index arithmetic applies the
+  // transposition. And only these small routines are templated on the
+  // storage dtype. Packing changes neither the values nor the order of the
+  // Accumulator::accumulate calls, so the results are bit-identical to those
+  // of an unpacked loop.
   //
   // pack_a_impl copies the ti x tk block of op(A) at (i0, k0) into dst, row
   // major with row stride tk; pack_b_impl copies the tk x tj block of op(B)
   // at (k0, j0) into dst with row stride tj; store_tile_impl writes the
   // ti x tj block of C at (i0, j0) from src, converting back to the storage
-  // dtype. `off` is the batch element's base offset into the operand, in
+  // dtype. `off` is the batch element's offset into the operand, in
   // elements: 0 for a 2D call and for an operand broadcast across the batch.
-  // It is added to the base pointer once per tile, not per element. T is
-  // the carrier the tile is packed in (common/gemm_policy.h): float for
+  // It is added to the base pointer once per tile, not once per element. T
+  // is the carrier the tile is packed in (common/gemm_policy.h): float for
   // float32, float16 and bfloat16 operands, double for float64, whose pack
   // is a plain copy.
   template <typename scalar_t, class T>
@@ -90,9 +107,9 @@ namespace mptorch::gemm_cpu
         dst[(i0 + i) * N + (j0 + j)] = static_cast<scalar_t>(src[i * tj + j]);
   }
 
-  // Expands CALL(scalar_t) for the storage dtype named by DT. Used once per
-  // tile per operand and never inside the K-loop, so the switch stays off
-  // the hot path.
+  // Expands CALL(scalar_t) for the storage dtype that DT names. It runs once
+  // per tile per operand and never inside the K-loop, so the switch costs
+  // nothing per multiply-add.
 #define MPTORCH_GEMM_BY_DTYPE(DT, CALL)      \
   switch (DT)                                \
   {                                          \
@@ -107,10 +124,10 @@ namespace mptorch::gemm_cpu
     break;                                   \
   }
 
-  // Dispatch from the runtime dtype tag to the packing templates. The
-  // primary templates are binary32's, over its three storage dtypes; the
-  // double specializations below skip the switch, since binary64 has one
-  // storage dtype and the tag is already known to be Double there.
+  // Pick the packing template for the runtime dtype tag. These primary
+  // templates serve the binary32 carrier, whose operands may be float32,
+  // float16 or bfloat16. The double specializations further down skip the
+  // switch, since the binary64 carrier has one storage dtype, float64.
   template <class T>
   inline void pack_a(const void *A, mptorch::GemmDtype dt, T *dst, int64_t M, int64_t K,
                      bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk, int64_t off)
@@ -138,11 +155,13 @@ namespace mptorch::gemm_cpu
 #undef MPTORCH_STORE_TILE
   }
 
-  // The gathered packs of the conv ops (common/gemm_gather.h): the same
-  // tiles, read through the convolution's geometry. Each decomposes the K
-  // indices and the rows or columns of its tile once, into the arrays below,
-  // and pays only additions and the padding test per element. The tile is
-  // at most GATHER_TILE on a side (the kernel's TK and TJ).
+  // The conv ops' packs (common/gemm_gather.h): the same tiles, read
+  // straight from the convolution's tensors through its geometry, so nothing
+  // is unfolded in memory. Each pack decomposes its tile's K indices and its
+  // rows or columns once, into local arrays, after which an element costs
+  // only additions and, in pack_gather_b_impl, the padding test. A tile is
+  // at most GATHER_TILE on a side, which sizes those arrays; the kernel's TK
+  // and TJ must not exceed it.
   constexpr int64_t GATHER_TILE = 32;
 
   template <typename scalar_t, class T>
@@ -186,9 +205,11 @@ namespace mptorch::gemm_cpu
     }
   }
 
-  // The result tile of a gathered policy: row i0 + i of batch element bId
-  // goes to [bId, i0 + i] of a [batch, M, res_N] result, column j0 + j to its
-  // result column (itself, except in the input gradient's class GEMMs).
+  // Store a gathered policy's result tile: row i0 + i of batch element bId
+  // goes to row [bId, i0 + i] of a [batch, M, res_N] result, and column
+  // j0 + j to the column conv_result_col maps it to, which is j0 + j itself
+  // except in the GEMMs the input gradient runs per residue class of the
+  // stride (common/gemm_gather.h).
   template <typename scalar_t, class T>
   void store_gather_tile_impl(void *C, const T *__restrict__ src, const mptorch::gemm::ConvGeom &g,
                               int64_t bId, int64_t M, int64_t i0, int64_t j0, int64_t ti, int64_t tj)
@@ -238,8 +259,9 @@ namespace mptorch::gemm_cpu
 #undef MPTORCH_GEMM_BY_DTYPE
 
   // The block GEMM's packs (common/gemm_block.h): the same tiles, decoded
-  // from a packed operand, once per tile as every pack converts once per
-  // tile. `off` is the batch element's offset into the data, in bytes.
+  // into the carrier from a block-format operand (uint8 codes and their
+  // scales). Like every pack, each decodes an element once per tile. `off`
+  // is the batch element's offset into the codes, in bytes.
   template <class T>
   void pack_block_a(const void *A, T *__restrict__ dst, const mptorch::gemm::BlockOperandT<T> &o,
                     int64_t bId, int64_t off, int64_t i0, int64_t k0, int64_t ti, int64_t tk)
@@ -281,8 +303,9 @@ namespace mptorch::gemm_cpu
     store_tile_impl<double, double>(C, src, N, i0, j0, ti, tj, off);
   }
 
-  // The conv ops' gathered packs and result tile likewise: without these the
-  // primary templates' switch would read a float64 operand as float.
+  // The same double specializations for the conv ops' packs and result
+  // tile. Without them the primary templates' switch would take its default
+  // arm and read a float64 operand as float.
   template <>
   inline void pack_gather_a<double>(const void *A, mptorch::GemmDtype, double *dst,
                                     const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t i0,
@@ -307,34 +330,35 @@ namespace mptorch::gemm_cpu
     store_gather_tile_impl<double, double>(C, src, g, bId, M, i0, j0, ti, tj);
   }
 
-  // Cache-tiled batched GEMM: C[b] = op(A[b]) @ op(B[b]) for each batch
-  // element b, where op(X) is X.T when the matching trans flag is set. A is
-  // [M, K] ([K, M] when trans_a), B is [K, N] ([N, K] when trans_b), and C
-  // is written densely as [batch, M, N]. stride_a/stride_b are the per-batch
-  // element strides into A and B, where 0 broadcasts that operand across the
-  // batch. A and B are read through their own storage layout; the trans
-  // flags only change the index arithmetic, no transpose is materialized.
+  // The cache-tiled batched GEMM: C[b] = op(A[b]) @ op(B[b]) for each batch
+  // element b, where op(X) is X transposed when the matching trans flag is
+  // set. A is [M, K] ([K, M] under trans_a), B is [K, N] ([N, K] under
+  // trans_b), and C is written densely as [batch, M, N]. stride_a and
+  // stride_b are the element strides from one batch element to the next in
+  // A and B; a stride of 0 broadcasts that operand across the batch. A and B
+  // are read in their own storage layout: the trans flags change only the
+  // index arithmetic, and no transposed copy is made.
   //
-  // The Accumulator owns both the multiply and the accumulate step through
-  // its Mac policy (common/gemm_policy.h), so this kernel only ever calls
-  // seed_rng()/accumulate()/finalize() and never multiplies operands itself.
-  // The per-output-element reduction state (a running sum and, for SR, a
-  // Philox stream) lives in the Accumulator's tile type as dense arrays
-  // rather than in one Accumulator object per element, so what the K-loop
-  // strides through is a plain array of carrier values. use_rng/seed drive
-  // RoundMode::SR: when set, each output element's stream is seeded before
-  // its K-reduction starts, keyed by its global linear index into
+  // The Accumulator policy performs both the multiply and the accumulate
+  // step, through its Mac policy (common/gemm_policy.h), so this kernel only
+  // calls seed_rng(), accumulate() and finalize() and never multiplies
+  // operands itself. Each output element's reduction state (a running sum
+  // and, under SR, a Philox random stream) is kept in the Accumulator's tile
+  // type as dense arrays, not as one Accumulator object per element, so the
+  // K-loop steps through a plain array of carrier values. use_rng and seed
+  // serve RoundMode::SR: each output element's stream is seeded before its
+  // reduction starts, keyed by the element's linear index into
   // [batch, M, N], so the draws it sees depend on neither the tiling nor the
   // thread count.
   //
-  // MIXED selects the spatially-varying-format instantiation, in which each
-  // output element's Mac policy is looked up in a FormatPalette through
-  // prec_idx[b, i, j] (read with the three idx_* element strides). It is a
-  // template parameter rather than a runtime "is there a palette?" test
-  // because the single-format path wants its one Mac held in registers for
-  // the whole call, and a runtime test would turn that into a per-element
-  // pointer load in the innermost loop. The single-format instantiation
-  // takes no palette at all: PaletteArg<false, Mac> is the empty NoPalette.
+  // MIXED selects the palette instantiation, in which each output element
+  // has its own format: its Mac policy is looked up in a FormatPalette
+  // through prec_idx[b, i, j] (read with the three idx_* element strides).
+  // It is a template parameter rather than a runtime test because the
+  // single-format path keeps its one Mac in registers for the whole call,
+  // and a runtime test would turn that into a pointer load per element in
+  // the innermost loop. The single-format instantiation takes no palette:
+  // PaletteArg<false, Mac> is the empty NoPalette.
   template <bool MIXED = false, class Accumulator>
   void matmul_cpu_kernel_impl(const void *A, const void *B, void *C, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N,
@@ -355,68 +379,70 @@ namespace mptorch::gemm_cpu
     const int64_t n_tiles_j = (N + TJ - 1) / TJ;
     const int64_t n_tiles = n_tiles_i * n_tiles_j;
 
-    // The parallel axis is the whole (i0, j0) output tile grid, not just its
-    // rows: splitting on M alone would give ceil(M / TI) tasks, so a typical
-    // QLinear batch (M = 32) would run on one thread however many are
-    // available. Output tiles are disjoint and each element's K-reduction
-    // stays sequential inside one task, so results are independent of the
-    // thread count, RoundMode::SR included, since its stream is keyed by the
-    // output element's global linear index (NaiveTile::seed_rng) rather than
-    // by the tiling. The grain is the number of tiles that add up to one of
-    // ATen's default grains of elementwise work, so a small GEMM is not cut
-    // finer than the thread pool's dispatch cost is worth.
+    // The parallel axis is the whole grid of (i0, j0) output tiles, not only
+    // its rows: splitting on M alone would give ceil(M / TI) tasks, so a
+    // typical QLinear batch (M = 32) would run on one thread however many are
+    // available. Output tiles are disjoint and each element's reduction runs
+    // in order inside one task, so the results do not depend on the thread
+    // count, under RoundMode::SR too, since each stream is keyed by the
+    // output element's linear index (NaiveTile::seed_rng) and not by the
+    // tiling. The grain is the number of tiles that make up one of ATen's
+    // default grains of elementwise work, so a small GEMM is not split finer
+    // than the thread pool's dispatch cost justifies.
     //
     // at::parallel_for rather than a raw `#pragma omp parallel for`: it runs
-    // on ATen's own thread pool, so torch.set_num_threads applies, and it
-    // degrades to serial inside an enclosing parallel region instead of
-    // nesting. Under the AT_PARALLEL_OPENMP backend it still needs setup.py's
-    // -fopenmp, because parallel_for is a header template whose `#pragma omp
-    // parallel` is compiled in this translation unit; without the flag the
-    // loop is silently serial.
+    // on ATen's own thread pool, so torch.set_num_threads applies, and inside
+    // an enclosing parallel region it runs serially instead of nesting. Under
+    // the AT_PARALLEL_OPENMP backend it still needs setup.py's -fopenmp,
+    // because parallel_for is a header template whose `#pragma omp parallel`
+    // is compiled in this translation unit; without the flag the loop is
+    // silently serial.
     const int64_t work_per_tile = TI * TJ * std::max<int64_t>(K, 1);
     const int64_t grain = std::max<int64_t>(1, at::internal::GRAIN_SIZE / work_per_tile);
 
-    // The batch is on the same axis as the tiles rather than a loop around
-    // them: the tasks are (batch element, output tile) pairs, so a batched
-    // call with a small M*N per element (an attention head's 128x128 output
-    // is 16 tiles) still has work for every thread, where a loop of 2D calls
-    // would leave most threads idle on each call. batch = 1 is the plain 2D
-    // decomposition.
+    // The batch shares the parallel axis with the tiles instead of being a
+    // loop around them: each task is a (batch element, output tile) pair, so
+    // a batched call with a small M x N per element (an attention head's
+    // 128 x 128 output is 16 tiles) still has work for every thread, where a
+    // loop of 2D calls would leave most threads idle in each call. batch = 1
+    // is the plain 2D decomposition.
     at::parallel_for(0, batch * n_tiles, grain, [&](int64_t task_begin, int64_t task_end)
     {
-      // One tile's worth of reduction state per worker task, reused across
-      // every tile the task takes rather than rebuilt per tile: TI*TJ running
-      // sums and TI*TJ Philox streams (gemm_policy.h's NaiveTile; the streams
-      // are allocated for every round mode and only seeded and drawn under
-      // SR, which keeps the tile type one type). The Mac policy is not part
-      // of it: one copy for the whole call below, or a pointer per element
-      // into the palette on the mixed path.
+      // One tile's worth of reduction state per worker task, reused for
+      // every tile the task takes rather than rebuilt per tile. For NAIVE
+      // (gemm_policy.h's NaiveTile) that is TI x TJ running sums and
+      // TI x TJ Philox streams; the streams exist under every round mode, so
+      // that the tile type is one type, but are seeded and drawn only under
+      // SR. The Mac policy is not part of the tile: the call has one copy of
+      // it (mac_single, below) or, on the palette path, a pointer per element
+      // into the palette.
       typename Accumulator::tile_type tile;
       tile.resize(TI * TJ);
       const auto tv = tile.view();
 
-      // The single-format path's one Mac, held by value in the task's frame
-      // rather than re-read per output element. By value and not through a
+      // The single-format path's one Mac, copied into the task's frame
+      // rather than read again per output element. A copy and not a
       // reference to the caller's acc_proto: the reference measured 5-8%
-      // slower on the split macs, since the compiler could not keep the
+      // slower on the split macs, because the compiler could not keep the
       // policy's fields in registers across the loop.
       const Mac mac_single = acc_proto.mac;
-      // A positional accumulator (KAHAN, BLOCK, TREE;
-      // common/gemm_accumulate.h) is configured by more than its Mac, a block
-      // size and an outer format, so its tile functions take the prototype
-      // itself. Every use of it is behind `if constexpr`, and it is read
-      // through the caller's acc_proto rather than through a second local:
-      // even an empty local of a NaiveAccumulator's moved the register
-      // allocation of two of that kernel's existing instantiations, and
-      // 0479b96 added the accumulators with the NAIVE objects byte-identical.
+      // A positional accumulator (KAHAN, BLOCK or TREE;
+      // common/gemm_accumulate.h) is configured by more than its Mac (also by
+      // a block size and an outer format), so its tile functions take the
+      // prototype itself. Every use of it is behind `if constexpr`, and it is
+      // read through the caller's acc_proto rather than through a second
+      // local: even an empty local of a NaiveAccumulator's type moved the
+      // register allocation of two existing NAIVE instantiations, and the
+      // NAIVE objects must stay byte-identical to what they were before the
+      // positional path existed.
       constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
-      const Mac *slot_of[MIXED ? TI * TJ : 1]; // the mixed path's per-element slots
+      const Mac *slot_of[MIXED ? TI * TJ : 1]; // the palette path's Mac per element
 
-      // Packed operand tiles and the finalized output tile, one set per
-      // worker task and reused across every tile it takes: 12 KB of frame in
-      // binary32 (24 KB in binary64) against a conversion per K-step saved.
-      // 64-byte aligned so the innermost loop's reads of b_pack start on a
-      // cache line.
+      // The packed operand tiles and the finalized output tile, one set per
+      // worker task, reused for every tile it takes: 12 KB of stack frame in
+      // binary32 (24 KB in binary64), in exchange for converting each element
+      // once per tile instead of once per K-step. They are 64-byte aligned so
+      // that the innermost loop's reads of b_pack start on a cache line.
       alignas(64) T a_pack[TI * TK];
       alignas(64) T b_pack[TK * TJ];
       alignas(64) T c_pack[TI * TJ];
@@ -434,10 +460,10 @@ namespace mptorch::gemm_cpu
         const int64_t tj = std::min<int64_t>(TJ, N - j0);
         tile.begin(ti * tj);
 
-        // Each element's SR stream is keyed by its global linear index into
-        // the whole [batch, M, N] output, so batch element 0 of a batched
-        // call draws exactly what the 2D call draws, and no two elements
-        // share a subsequence.
+        // Each element's SR stream is keyed by its linear index into the
+        // whole [batch, M, N] result, so batch element 0 of a batched call
+        // draws exactly what the 2D call draws, and no two elements draw from
+        // the same stream.
         if (use_rng)
         {
           for (int64_t i = 0; i < ti; ++i)
@@ -446,19 +472,19 @@ namespace mptorch::gemm_cpu
                             static_cast<uint64_t>(c_off + (i0 + i) * N + (j0 + j)));
         }
 
-        // Mixed format: resolve each output element's Mac policy from the
-        // palette (gemm_policy.h's FormatPalette) before its K-reduction.
-        // Pointers into the palette rather than copies of it: the palette
-        // outlives the call and an element's slot never changes
-        // mid-reduction, so a copy would only cost frame space.
+        // Palette: look up each output element's Mac policy in the palette
+        // (gemm_policy.h's FormatPalette) before its reduction starts. The
+        // task keeps pointers into the palette, not copies: the palette
+        // outlives the call and an element's slot does not change during its
+        // reduction, so a copy would only take frame space.
         if constexpr (MIXED)
         {
-          // The dense branch first, here and at the packs below: the
-          // parallel_for lambda captures by reference, and GCC lays its
-          // closure out in the order the body first names each variable,
+          // The dense branch comes first, here and at the packs below. The
+          // parallel_for lambda captures by reference, and GCC lays out its
+          // closure in the order the body first names each variable,
           // discarded branches included, so a gathered branch ahead of the
-          // dense one reorders the captures and moves every existing
-          // instantiation's stack slots.
+          // dense one would reorder the captures and move the stack slots of
+          // every existing instantiation.
           if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
           {
             for (int64_t i = 0; i < ti; ++i)
@@ -469,9 +495,9 @@ namespace mptorch::gemm_cpu
           }
           else
           {
-            // A gathered policy's map is indexed by the result tensor's
-            // (sample, channel, position), of which this tile's rows are
-            // one group's slice (common/gemm_gather.h).
+            // A conv op's format map is indexed by the result tensor's
+            // (sample, channel, position), and this tile's rows are channels
+            // of one group (common/gemm_gather.h).
             int64_t b;
             int32_t grp;
             mptorch::gemm::conv_batch(acc_proto.geom, bId, b, grp);
@@ -489,11 +515,10 @@ namespace mptorch::gemm_cpu
         for (int64_t k0 = 0; k0 < K; k0 += TK)
         {
           int64_t tk = std::min<int64_t>(TK, K - k0);
-          // A gathered policy (the conv ops) packs the same tiles through
-          // its geometry; nothing else about the loop changes for it, and
-          // every other policy compiles to the code it would without the
-          // branch (b16a3aa added it with the other objects byte-identical;
-          // the branch order is the mixed map's, above).
+          // A gathered policy (the conv ops) packs the same tiles through its
+          // geometry, and nothing else in the loop changes for it. Every other
+          // policy compiles to the code it would without this branch; the
+          // branches are in the palette lookup's order, above.
           if constexpr (!mptorch::gemm::is_gathered_v<Accumulator> &&
                         !mptorch::gemm::is_blocked_v<Accumulator>)
           {
@@ -508,16 +533,20 @@ namespace mptorch::gemm_cpu
           }
           else
           {
-            // A blocked policy (the block GEMM) decodes its packed operands;
-            // a_off and b_off are in bytes for it.
+            // A blocked policy (the block GEMM) decodes its block-format
+            // operands; for it, a_off and b_off are in bytes.
             pack_block_a(A, a_pack, acc_proto.block_a, bId, a_off, i0, k0, ti, tk);
             pack_block_b(B, b_pack, acc_proto.block_b, bId, b_off, k0, j0, tk, tj);
           }
-          // A binaryK RNE GEMM whose formats admit it runs this K-block in
-          // the vectorized tile (cpu/gemm_rne_tile.h), word for word what the
-          // loop below computes. The branch names nothing the lambda does not
-          // already capture or declare, so the instantiations it does not
-          // cover compile to what they did without it.
+          // A single-format binaryK GEMM in binary32 under RNE whose formats
+          // admit it (rne_tile_kind) runs this K-block, the tk steps of the
+          // current tile, in vector code (cpu/gemm_rne_tile.h, and
+          // cpu/gemm_odd_tile.h for the odd macs), which computes word for
+          // word what the loop below computes. When run_rne_tile returns
+          // false, the loop below runs the K-block instead. The branch names
+          // nothing the lambda does not already capture or declare, so the
+          // instantiations it does not cover compile to what they did
+          // without it.
           if constexpr (!MIXED && rne_tile_kind<Accumulator>::value != 0)
           {
             static_assert(TI * TJ <= RNE_TILE_MAX);
@@ -533,9 +562,11 @@ namespace mptorch::gemm_cpu
               const T *__restrict__ b_row = b_pack + k * tj;
               if constexpr (POSITIONAL)
               {
-                // The position in the 16-step slab the algorithms count in
-                // (the device's tile depth, which is theirs on every
-                // backend), and the slab's end after step 15 or the last.
+                // The step's position in its slab, the 16 consecutive K
+                // steps the algorithms count in (the CUDA kernel's tile
+                // depth, used on every backend so that they agree), and the
+                // end of the slab after its 16th step or after the last
+                // step of K.
                 const int64_t k_end = k0 + k + 1;
                 const int pos = static_cast<int>((k0 + k) & 15);
                 for (int64_t j = 0; j < tj; ++j)
@@ -568,12 +599,12 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  // One body for all eight ops in either carrier T (float or double): the
-  // Args type names the Accumulator policy, which is the only thing that
-  // differs between the ops, and the round mode is resolved to a template
-  // parameter here so the accumulate step compiles to straight-line code
-  // rather than a switch per multiply-add. Declared in cpu/gemm_backend.h
-  // and explicitly instantiated in the eight custom_matmul_*.cpp files.
+  // One body for every NAIVE GEMM op, in either carrier T (float or
+  // double). The Args type names the Accumulator policy, which is the only
+  // thing that differs between the ops, and dispatch_round_mode turns the
+  // round mode into a template parameter here, so the accumulate step
+  // compiles to straight-line code instead of a switch per multiply-add.
+  // Explicitly instantiated in cpu/inst/.
   template <class T, class Args>
   void CpuBackend::launch_as(const GemmShape &s, const Args &args, const LaunchContext &ctx)
   {
@@ -601,9 +632,10 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  // The same body for KAHAN, BLOCK and TREE, whose Args also names the
-  // algorithm its accumulator is built for. Instantiated by the six
-  // custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cpp files.
+  // The same body for the GEMM ops under KAHAN, BLOCK and TREE: the
+  // algorithm ALG is a template parameter, and args builds the accumulator
+  // for it. Instantiated by the cpu/inst/custom_matmul_*_{kahan,block,tree}*
+  // units.
   template <class T, AccumulateAlgorithm ALG, class Base>
   void CpuBackend::launch_accumulated_as(const GemmShape &s,
                                          const mptorch::gemm::AccumulateArgs<Base> &args,
@@ -620,11 +652,11 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  // The conv ops (common/gemm_gather.h): the policy `Inner` builds, as its
-  // GEMM op builds it, wrapped in a Gathered that carries the geometry, and
-  // run over the pass's [batch, M, N] with no transposes and no batch
-  // strides (the gathered packs address the operands themselves).
-  // Instantiated by the ten custom_conv_*.cpp files.
+  // The conv ops (common/gemm_gather.h): the accumulator that `Inner`
+  // builds, as its GEMM op builds it, wrapped in a Gathered that carries the
+  // geometry, and run over the pass's [batch, M, N] with no transposes and
+  // no batch strides, since the gathered packs address the operands
+  // themselves. Instantiated by the cpu/inst/custom_conv_* units.
   template <class T, AccumulateAlgorithm ALG, class Inner>
   void CpuBackend::launch_conv_as(const GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
                                   const LaunchContext &ctx)
@@ -662,10 +694,11 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  // The block GEMM (common/gemm_block.h): the policy `Inner` builds, wrapped
-  // in a Blocked that carries the two packed operands, and run over
-  // [batch, M, N] with the operands' own trans flags and their data's batch
-  // strides in bytes. Instantiated by the four custom_matmul_block*.cpp files.
+  // The block GEMM (common/gemm_block.h): the accumulator that `Inner`
+  // builds, wrapped in a Blocked that carries the two block-format operands,
+  // and run over [batch, M, N] with the operands' own trans flags and their
+  // codes' batch strides in bytes. Instantiated by the
+  // cpu/inst/custom_matmul_block* units.
   template <class T, AccumulateAlgorithm ALG, class Inner>
   void CpuBackend::launch_block_as(const GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
                                    const LaunchContext &ctx)

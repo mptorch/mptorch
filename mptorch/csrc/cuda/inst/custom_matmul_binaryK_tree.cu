@@ -1,17 +1,12 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel for
+// custom_matmul_binaryK_accumulated. They accumulate under
+// AccumulateAlgorithm::TREE (pairwise sums within each block of products) in
+// the binary32 carrier (float32, float16 and bfloat16 operands). The entry
+// points are in ../custom_matmul_accumulated_entry.cpp, and
+// ../custom_matmul_kernel.cuh explains how the instantiations are divided among
+// the files in this directory.
 
-// binaryK formats under AccumulateAlgorithm::TREE (pairwise summation within a
-// block; common/gemm_accumulate.h), in binary32: the float32, float16 and
-// bfloat16 kernels of custom_matmul_binaryK. There is no fused twin: a tree
-// sums products pairwise, and a fused multiply-add has no product term.
-//
-// One of six such files, one per (format family x algorithm). It includes no
-// ATen tensor headers, like the eight NAIVE files (custom_matmul_binaryK.cu
-// says why). They are separate from the NAIVE files so that those compile
-// exactly what they compiled before the three algorithms existed, and from
-// each other because the build is throughput-bound: this one holds fourteen
-// kernels (seven round modes, with and without an accumulate format). Its
-// binary64 twin is custom_matmul_binaryK_tree_f64.cu.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

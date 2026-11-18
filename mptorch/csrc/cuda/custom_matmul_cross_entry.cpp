@@ -1,13 +1,13 @@
-// The CUDA entry points of the six cross-family ops (common/gemm_cross.h): a
-// split mac whose products are rounded to a format of one family and whose
-// partial sums to a format of the other. The NAIVE pair, its *_accumulated
-// twins (KAHAN, BLOCK and TREE) and the conv pair, each one packer call and
-// one call of a driver every other op shares: run_custom_matmul,
-// run_custom_matmul_accumulated and run_custom_conv_single.
+// The CUDA entry points of the six cross-family ops (common/gemm_cross.h),
+// whose split mac rounds the products to a format of one family (binaryK or
+// superfp) and the running sums to a format of the other: the NAIVE GEMM
+// pair, its *_accumulated twins (KAHAN, BLOCK and TREE) and the conv pair.
+// Each is one packer call and one call of a driver the other ops share:
+// run_custom_matmul, run_custom_matmul_accumulated or run_custom_conv_single.
 //
-// A file of its own, so that the entry points of the other ops are the text
-// they were. Its kernels are instantiated by custom_matmul_cross{,_kahan,
-// _block,_tree}.cu and custom_conv_cross{,_kahan,_block,_tree}.cu.
+// They have a file of their own so that the other ops' entry points keep
+// their text. Their kernels are instantiated by the
+// cuda/inst/custom_{matmul,conv}_cross* units.
 
 #include "../common/gemm_cross_host.h"
 #include "../quant_ops.h"

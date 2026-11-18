@@ -1,7 +1,7 @@
 // _carrier_odd on the CPU: common/carrier_odd.h's host primitives applied
-// elementwise, so the tests can see what the format casts after them erase
-// (zero signs, the largest finite value, subnormal parity). A test op: small
-// tensors, one thread.
+// elementwise, so that the tests can see what the format casts that follow
+// them would erase (the signs of zeros, the largest finite value, the parity
+// of subnormals). It is a test-only op, run on small tensors on one thread.
 
 #include "../common/carrier_odd_host.h"
 #include "../quant_ops.h"

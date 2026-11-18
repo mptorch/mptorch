@@ -1,36 +1,43 @@
-// The vectorized binaryK RNE tiles of the CPU GEMM with the carrier step
-// rounded to odd (cpu/gemm_odd_tile.h; carrier_rounding=RoundMode.RO).
+// The vector tiles of the CPU GEMM's binaryK steps under RNE when the
+// carrier step rounds to odd (cpu/gemm_odd_tile.h;
+// carrier_rounding=RoundMode.RO).
 //
-// gemm_rne_tile.cpp's tiles with the odd macs' steps: the same passes (a
-// K-step's products row by row into a buffer, then each cast and each odd
-// sum as a pass over the whole tile, and a copy with the sizes fixed for a
-// whole tile), the same NaN hand-back, the same no-trapping-math pragma ahead
-// of every include (so the cast and the odd primitives are compiled under it)
-// and the same ISA choice, made once when the extension loads. Every lane
-// computes what the scalar kernel's step computes, in the same order, so the
-// results are the scalar kernel's word for word.
+// These are gemm_rne_tile.cpp's tiles with the odd macs' steps, and they
+// share its structure: the same passes (a K-step's products, row by row,
+// into a buffer, then each cast and each odd sum as a pass over the whole
+// tile, and a copy of the code with the sizes fixed for a whole tile), the
+// same hand-back of a tile with a NaN, the same no-trapping-math pragma
+// ahead of every include (so that the cast and the odd primitives are
+// compiled under it), and the same choice of instruction set, made once when
+// the extension loads. Every lane computes what the scalar kernel's step
+// computes, in the same order, so the results are the scalar kernel's word
+// for word.
 //
-// The odd primitives (carrier_odd.h's) are spelled as CUDA spells them, the
-// step rounded down and up and the one whose word is odd kept: round to odd
-// is the odd one of the two directed roundings, and both are the exact value
-// when the step is exact, which the CPU against CUDA tests of the odd ops hold
-// word for word; a NaN is handed back either way, and infinite operands give
-// IEEE's result. Each is the same value as the scalar primitive for every
-// input (cpu_odd_tile_sweep.cpp). Two ways to round:
+// The odd primitives are computed as the CUDA kernels compute them
+// (common/carrier_odd.h): the operation is rounded down and rounded up, and
+// whichever result has an odd word is kept. Round to odd is that one of the
+// two directed roundings, and when the operation is exact both are the exact
+// value; the CPU and CUDA odd ops agree on this word for word in the tests.
+// A NaN is handed back to the scalar loop either way, and infinite operands
+// give IEEE's result. Each primitive here gives the same value as the scalar
+// one for every input (dev/benchmarks/sweeps/cpu_odd_tile_sweep.cpp). There
+// are two ways to get the directed roundings:
 //
-//   * AVX-512: embedded rounding, the pair in one pass.
+//   * AVX-512: embedded rounding, both roundings in one pass.
 //   * AVX2 and NEON: the FP unit's rounding mode (MXCSR, FPCR), set once per
 //     pass: a pass rounded down into the buffer, a pass rounded up that keeps
 //     the odd word, then round to nearest again for the casts. Each switch is
 //     fenced by compiler barriers, and each pass reads its operands from
 //     memory and writes its result to memory, so no operation can move into
-//     another pass's mode (the compiler is not told about the mode: it folds
-//     nothing here, since nothing in these passes is a constant).
+//     another pass's mode. The compiler is not told about the mode change,
+//     which is safe because it has nothing to fold here: nothing in these
+//     passes is a constant.
 //
-// Measured (cpu_gemm_ab.cpp, ns per mac, one thread at 256^3; "->" is from
-// the row loops these replaced: on AVX-512 the same directed passes without
-// the fixed sizes, on AVX2 and NEON carrier_odd.h's binary64 primitives
-// vectorized row by row, half binary32's width and a long chain per lane):
+// Measured on 2026-11-14 (dev/benchmarks/timing/cpu_gemm_ab.cpp, ns per mac,
+// one thread at 256^3). "a -> b" compares an earlier row-loop version with
+// this one: on AVX-512 the same directed passes without the fixed sizes, and
+// on AVX2 and NEON carrier_odd.h's binary64 primitives vectorized row by row,
+// at half binary32's width and with a long dependency chain per lane.
 //
 //   * Ryzen 9 7940HS at 4.8 GHz: AVX-512 split 8p4/16p11 0.46 -> 0.43, fused
 //     16p11 0.26 -> 0.22, product only 0.24 -> 0.24, against the default
@@ -40,11 +47,11 @@
 //     0.85 -> 0.46, against 0.65, 0.32 and 0.34; 1.8-3.0x faster at 1024^3 on
 //     eleven threads.
 //
-// The binary32 error-free transforms (an fma for the product's error, 2Sum,
-// Boldo and Muller's ErrFma to its error's sign, with a binary64 fallback)
-// were measured as NEON's body and AVX2's: 1.3-2.6x slower than the mode on
-// both, the fused tile no faster than the binary64 row loop on NEON (e6ffed9
-// has them).
+// Binary32 error-free transforms (an fma for the product's error, 2Sum, and
+// Boldo and Muller's ErrFma for the sign of its error, with a binary64
+// fallback) were measured as the AVX2 and NEON bodies in place of the
+// rounding mode: 1.3-2.6x slower on both, and on NEON the fused tile was no
+// faster than the binary64 row loop (commit e6ffed9 has that code).
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("no-trapping-math")
@@ -67,7 +74,8 @@ namespace mptorch::gemm_cpu
   {
     namespace odd = mptorch::gemm::odd;
 
-    // A NaN anywhere in the tile hands the block back (gemm_rne_tile.h).
+    // A NaN anywhere in the tile hands the K-block back to the scalar loop,
+    // its sums restored (cpu/gemm_rne_tile.h says why).
     [[gnu::always_inline]] inline bool keep_or_restore(float *__restrict__ sums,
                                                        const float *__restrict__ saved, int64_t n)
     {
@@ -94,8 +102,9 @@ namespace mptorch::gemm_cpu
       return (odd::word(rd) & 1u) ? rd : ru;
     }
 
-    // Mode: word_t, get(), set(w) (fenced) and down(w) / up(w), the word
-    // with its rounding field set toward -inf / +inf.
+    // Mode provides word_t (the control register's type), get(), set(w)
+    // (fenced by compiler barriers), and down(w) and up(w), which return w
+    // with its rounding field set toward -inf and toward +inf.
     template <class Mode>
     struct Directed
     {
@@ -188,10 +197,10 @@ namespace mptorch::gemm_cpu
 
     // ---- the tiles -------------------------------------------------------
 
-    // A K-step after another, each element's steps in K order: the odd
-    // products (or fused steps) into a buffer, then the casts and the split's
-    // odd sums, each a pass over the whole tile. FTI, FTJ and FTK fix the
-    // sizes (0: the run-time ones).
+    // One K-step after another, each element's steps in K order: the odd
+    // products (or the fused steps) into a buffer, then the casts and the
+    // split tile's odd sums, each as a pass over the whole tile. FTI, FTJ and
+    // FTK fix the sizes at compile time; 0 means the run-time size.
     template <int KIND, class Ops, int FTI, int FTJ, int FTK>
     [[gnu::always_inline]] inline void steps(const Ops &ops, const float *__restrict__ a_pack,
                                              const float *__restrict__ b_pack,
@@ -253,7 +262,8 @@ namespace mptorch::gemm_cpu
       return keep_or_restore(sums, saved, n);
     }
 
-// BODY<KIND, OPS> with OPS given, BODY<KIND> without.
+// Each function calls BODY<KIND, OPS> when OPS is given, and BODY<KIND>
+// otherwise.
 #define MPTORCH_ODD_TILES(SUFFIX, TARGET, BODY, ...)                                               \
   TARGET bool split_##SUFFIX(const float *a, const float *b, float *s, int64_t ti, int64_t tk,     \
                              int64_t tj, const BinaryKParams &pm, const BinaryKParams &pa)         \
@@ -275,8 +285,9 @@ namespace mptorch::gemm_cpu
 #define MPTORCH_AVX512 __attribute__((target("avx512f,avx512vl,avx512dq,avx512bw,fma")))
 #define MPTORCH_AVX2 __attribute__((target("avx2,fma")))
 
-    // The directed pair and the select on RD's word parity, sixteen lanes at
-    // a time by embedded rounding, the row's tail masked (tj is at most 32).
+    // The odd result of one operation on sixteen lanes: the operation rounded
+    // down and up by AVX-512's embedded rounding, and a select on the parity
+    // of the rounded-down word.
     enum class OddOp
     {
       FMA,
@@ -310,14 +321,16 @@ namespace mptorch::gemm_cpu
       return _mm512_mask_blend_ps(odd_word, ru, rd);
     }
 
-    // The tile's n lanes from l on, sixteen at a time, the tail masked.
+    // The mask of the lanes from l on, at most sixteen, among a tile's n
+    // lanes.
     [[gnu::always_inline]] MPTORCH_AVX512 inline __mmask16 lanes(int64_t n, int64_t l)
     {
       return n - l >= 16 ? __mmask16(0xFFFF) : __mmask16((1u << (n - l)) - 1);
     }
 
-    // steps() with the odd passes in intrinsics: the directed pair needs no
-    // mode, so the products and the odd sums are one pass each.
+    // steps() with the odd passes written in intrinsics: embedded rounding
+    // needs no mode switch, so the products and the odd sums are one pass
+    // each.
     template <int KIND, int FTI, int FTJ, int FTK>
     [[gnu::always_inline]] MPTORCH_AVX512 inline void
     steps_avx512(const float *__restrict__ a_pack, const float *__restrict__ b_pack,
@@ -402,8 +415,9 @@ namespace mptorch::gemm_cpu
 #endif
 #undef MPTORCH_ODD_TILES
 
-    // gemm_rne_tile.cpp's choice, restated rather than shared, so that file
-    // and its object do not depend on this one.
+    // The same choice as gemm_rne_tile.cpp's choose_rne_tiles, written out
+    // again rather than shared, so that that file and its object do not
+    // depend on this one.
     OddTiles choose_odd_tiles()
     {
       OddTiles t;

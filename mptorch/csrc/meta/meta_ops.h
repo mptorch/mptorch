@@ -1,8 +1,8 @@
 #pragma once
 
-// The Meta kernels of every op, registered by meta_ops.cpp: the
-// GEMM-shaped ones are in custom_*_entry.cpp, the others in meta_ops.cpp. Each
-// takes its op's schema, as the CPU, CUDA and MPS entry points of
+// The Meta kernels of every op, registered by meta_ops.cpp: the GEMM-shaped
+// ones are defined in custom_*_entry.cpp, the others in meta_ops.cpp. Each
+// takes its op's schema, as the CPU, CUDA and MPS entry points declared in
 // quant_ops.h do.
 
 #include <ATen/core/Tensor.h>
@@ -11,7 +11,7 @@
 
 using at::Tensor;
 
-// meta_ops.cpp
+// Defined in meta_ops.cpp.
 Tensor binaryK_quantize_meta(Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
                              bool is_signed, int64_t round_mode, int64_t saturation_mode,
                              int64_t subnormals_mode);
@@ -43,7 +43,7 @@ Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op);
 Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
                             int64_t stochastic_mode);
 
-// custom_*_entry.cpp
+// Defined in custom_*_entry.cpp.
 Tensor binaryK_matmul_meta(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                            bool accumulate_quant, int64_t acc_K, int64_t acc_P,
@@ -331,8 +331,8 @@ Tensor block_matmul_meta(Tensor a_data, Tensor a_scales, int64_t a_cols, bool tr
                          bool outer_is_signed, int64_t outer_saturation_mode,
                          int64_t outer_subnormals_mode, int64_t outer_prng_bits, bool binary64);
 
-// The odd conv, cross-family and palette ops (custom_matmul_odd_entry.cpp and
-// custom_conv_odd_entry.cpp).
+// The odd conv, cross-family and palette ops, defined in
+// custom_matmul_odd_entry.cpp and custom_conv_odd_entry.cpp.
 Tensor binaryK_matmul_mixed_odd_meta(Tensor a, Tensor b, Tensor prec_idx, bool trans_a,
                                      bool trans_b, c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
                                      c10::IntArrayRef mul_bias, bool mul_is_signed,
@@ -502,7 +502,8 @@ Tensor superfp_binaryK_conv_odd_meta(Tensor a, Tensor b, int64_t conv_pass,
                                      bool outer_is_signed, int64_t outer_saturation_mode,
                                      int64_t outer_subnormals_mode, int64_t outer_prng_bits);
 
-// From the *_accumulated_odd bodies of common/carrier_odd_gemm_host.h.
+// The *_accumulated_odd ops, copies of the bodies in
+// common/carrier_odd_gemm_host.h (custom_matmul_odd_entry.cpp).
 Tensor binaryK_matmul_accumulated_odd_meta(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits);
 Tensor superfp_matmul_accumulated_odd_meta(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_man_bits, int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
 Tensor binaryK_matmul_fma_accumulated_odd_meta(Tensor a, Tensor b, bool trans_a, bool trans_b, bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias, bool fma_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t fma_saturation_mode, int64_t fma_subnormals_mode, int64_t fma_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits);

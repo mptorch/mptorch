@@ -1,11 +1,11 @@
 #pragma once
 
 // The CPU kernel of block_pack, block_quant and block_quant_ under a Four Over
-// Six rule, as templates on the storage dtype, whose carrier (carrier_t) it
-// rounds in: block_kernel_fos.cpp instantiates it for float32, float16 and
+// Six rule, as templates on the storage dtype, rounding in its carrier
+// (carrier_t): block_kernel_fos.cpp instantiates it for float32, float16 and
 // bfloat16, and block_kernel_f64.cpp for float64. block_kernel_fos.cpp says
-// how it works. The body is that file's from before binary64 had block
-// kernels, with the carrier spelled T, in an unnamed namespace as it was.
+// how it works. The body is that file's text from before binary64 had block
+// kernels, with the carrier written as T, in an unnamed namespace as it was.
 
 #include "../common/block_kernels.h"
 #include "../common/dispatch.h"
@@ -37,10 +37,10 @@ namespace
 
     at::parallel_for(0, tiles, grain, [&](int64_t t_begin, int64_t t_end)
     {
-      uint8_t buf[256]; // one row of a block: at most 128 codes of 16 bits
-      // A tile's codes under each candidate, row-major: on the stack for a 1D
-      // block, and for a 2D tile (up to 16,384 elements) in a buffer this
-      // task allocates once.
+      uint8_t buf[256]; // one block row's codes: at most 128 codes of 16 bits
+      // A tile's codes under each candidate scale, row major: on the stack
+      // for a tile of at most 128 elements, and otherwise (a 2D tile has up
+      // to 16,384) in a buffer this task allocates once.
       uint16_t row_codes[2][128];
       std::unique_ptr<uint16_t[]> tile_codes;
       uint16_t *kept[2] = {row_codes[0], row_codes[1]};
@@ -60,8 +60,8 @@ namespace
         const int64_t c0 = blk * p.block_size, c1 = std::min<int64_t>(c0 + p.block_size, j.cols);
         const scalar_t *xb = x + b * j.xs0;
 
-        // The largest magnitude, compared as words (a non-negative float's
-        // order is its word's), with the NaNs left out and noted.
+        // The largest magnitude, compared as words (non-negative floats are
+        // ordered as their words are), with NaNs left out but recorded.
         typename F::word_t amax = 0;
         bool nan = false;
         for (int64_t r = r0; r < r1; ++r)
@@ -76,8 +76,8 @@ namespace
         TileScale<T> s = tile_scale<T>(block_float<T>(amax), nan, p, c);
 
         // The tile under both candidate scales, and the second candidate if
-        // its error is strictly the smaller. `chosen` is the codes the encode
-        // pass writes, when this pass made them.
+        // its error is strictly smaller. `chosen` holds the codes the encode
+        // pass writes, when this pass produced them.
         const uint16_t *chosen = nullptr;
         const TileScale<T> low = four_over_six_low<T>(block_float<T>(amax), s, p, c);
         if (low.code != s.code)

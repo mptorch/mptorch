@@ -1,11 +1,11 @@
 #pragma once
 
-// _stochastic_cast: a format's stochastic cast with its random word given
-// rather than drawn, elementwise, so that a test can run every draw R of N
-// bits against P3109's definition and count exactly
-// (tests/test_stochastic_rounding.py). Test-only, like _carrier_odd.
-// ATen-free, for the CPU kernel and the .cu alike; the checks and the job's
-// construction are stochastic_cast_host.h's.
+// _stochastic_cast: a format's stochastic cast, applied elementwise with each
+// element's random word passed in rather than drawn, so that a test can run
+// every draw R of N bits through the cast and count the outcomes exactly
+// against P3109's definition (tests/test_stochastic_rounding.py). A test-only
+// op, like _carrier_odd. This header includes no ATen, so the CPU kernel and
+// the .cu share it; stochastic_cast_host.h has the checks and builds the Job.
 
 #include "cast_binaryK.h"
 #include "cast_fixedpoint.h"
@@ -13,8 +13,9 @@
 
 namespace mptorch::stochastic_cast
 {
-  // One format of one family: 0 binaryK, 1 superfp, 2 fixed point, with the
-  // spec its prng_bits field carries (N and the variant, stochastic.h).
+  // One format of one family (0 binaryK, 1 superfp, 2 fixed point), with the
+  // spec its prng_bits field carries: N and the stochastic variant
+  // (stochastic.h).
   template <class T>
   struct Job
   {
@@ -27,7 +28,8 @@ namespace mptorch::stochastic_cast
     FixedPointParamsT<T> fx;
   };
 
-  // The cast of x with the draw word `draw` (its MAN_BITS low bits).
+  // Casts x with the random word `draw`, of which the cast reads the
+  // MAN_BITS low bits.
   template <class T>
   CUDA_HOST_DEVICE_INLINE T cast(const MPTORCH_THREAD Job<T> &j, T x, typename FloatTraits<T>::word_t draw)
   {

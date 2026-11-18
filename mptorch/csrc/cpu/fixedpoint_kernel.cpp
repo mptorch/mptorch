@@ -12,12 +12,13 @@ namespace
 
   // Elementwise fixed-point cast of `size` values in one deterministic round
   // mode, the fixed-point twin of superfp_kernel.cpp's superfp_run: o[i] =
-  // cast(a[i]) on ATen's thread pool. `Cast` is a per-arm closure type
-  // rather than a function pointer so the cast inlines into the loop body,
-  // `IsSigned` is a template parameter so the unsigned early return folds
-  // away on the signed path, and `p` is a FixedPointParams built once per
-  // tensor rather than re-derived per element. The cast runs in the carrier,
-  // carrier_t<scalar_t>: binary64 for float64, binary32 otherwise.
+  // cast(a[i]) on ATen's thread pool. `Cast` is a closure type per arm,
+  // rather than a function pointer, so that the cast is inlined into the
+  // loop body; `IsSigned` is a template parameter so that the early return
+  // for an unsigned format disappears on the signed path; and `p` is a
+  // FixedPointParams built once per tensor rather than derived per element.
+  // The cast runs in the carrier, carrier_t<scalar_t>: binary64 for float64,
+  // binary32 otherwise.
   template <typename scalar_t, bool IsSigned, class Cast>
   void fixedpoint_run(const scalar_t *a, scalar_t *o, int64_t size,
                       const FixedPointParamsT<carrier_t<scalar_t>> &p, Cast cast)
@@ -81,10 +82,10 @@ namespace
   }
 
   // Stochastic-rounding driver: the same parameter build, with
-  // quant_kernel_sr (utils.h) handing each element a random word of the
-  // carrier's width, keyed on the element's index so the result does not
-  // depend on the thread count. The cast takes prng_bits of that word as
-  // the rounding offset.
+  // quant_kernel_sr (cpu/utils.h) giving each element a random word of the
+  // carrier's width, keyed on the element's index so that the result does
+  // not depend on the thread count. The cast uses prng_bits bits of that
+  // word.
   template <typename scalar_t, bool IsSigned>
   void fixedpoint_kernel_sr_impl(const scalar_t *a, scalar_t *o, int64_t size, int wl, int fl,
                                  bool symmetric, int prng_bits, uint64_t seed)
@@ -100,23 +101,23 @@ namespace
                     });
   }
 
-  // The body of both entry points, as binaryK_quantize_into is (binaryK_kernel.cpp):
-  // `o` is `a` itself for the in-place op. Dispatches once on the storage
-  // dtype and once on the sign, and draws one seed only when the round mode
-  // is SR.
+  // The body of both entry points, like binaryK_quantize_into
+  // (cpu/binaryK_kernel.cpp): `o` is `a` itself for the in-place op.
+  // Dispatches once on the storage dtype and once on the sign, and draws a
+  // seed only when the round mode is SR.
   void fixedpoint_quantize_into(const Tensor &a, Tensor &o, int64_t wl, int64_t fl,
                                 int64_t prng_bits, bool is_signed, bool symmetric,
                                 int64_t round_mode)
   {
-    // SR_B and SR_C run as SR with the variant in prng_bits
-    // (common/stochastic_host.h)
+    // SR_B and SR_C run as SR, with the variant recorded in prng_bits
+    // (common/stochastic_host.h).
     {
         int variant;
         round_mode = mptorch::sr_canonical(round_mode, variant);
         if (variant >= 0)
             prng_bits = mptorch::sr_encode(prng_bits, variant, "fixedpoint_quant");
     }
-    const int64_t size = a.numel(); // int would truncate past 2^31 elements
+    const int64_t size = a.numel(); // an int would overflow past 2^31 elements
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
 
     const int wl_ = static_cast<int>(wl);
@@ -152,23 +153,24 @@ namespace
 
 } // namespace
 
-// The CPU kernel behind mptorch::fixedpoint_quant: a new tensor of a's shape
-// and dtype, every element rounded to the fixed-point format (wl, fl,
-// is_signed, symmetric) in the given round mode (the int64_t is the enum
-// value of common/modes.h). There is no saturation mode: a fixed-point format
-// always saturates, having no infinity.
+// The CPU kernel of mptorch::fixedpoint_quant: a new tensor of a's shape and
+// dtype, every element rounded to the fixed-point format (wl, fl, is_signed,
+// symmetric) in the given round mode (the int64_t is an enum value of
+// common/modes.h). There is no saturation mode: a fixed-point format has no
+// infinity, so it always saturates.
 Tensor fixedpoint_quantize_cpu(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
                                bool is_signed, bool symmetric, int64_t round_mode)
 {
-  // data_ptr() walks storage linearly, so a strided input is copied to a
-  // contiguous one first (a no-op for an input that already is).
+  // The kernel reads data_ptr() in storage order, so a strided input is
+  // copied to a contiguous one first (contiguous() returns a contiguous
+  // input as it is).
   auto a_c = a.contiguous();
   auto o = empty_like(a_c);
   fixedpoint_quantize_into(a_c, o, wl, fl, prng_bits, is_signed, symmetric, round_mode);
   return o;
 }
 
-// The CPU kernel behind mptorch::fixedpoint_quant_: the same rounding written
+// The CPU kernel of mptorch::fixedpoint_quant_: the same rounding written
 // over `a`, which must be contiguous, as in binaryK_quantize_cpu_.
 Tensor &fixedpoint_quantize_cpu_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
                                  bool is_signed, bool symmetric, int64_t round_mode)

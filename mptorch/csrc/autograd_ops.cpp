@@ -1,24 +1,24 @@
 // What the ops do when they are handed a tensor that requires grad: the
-// Autograd dispatch key of every op in this extension, one boxed kernel that
-// raises.
+// Autograd dispatch key of every op in this extension is one boxed kernel,
+// which raises.
 //
-// The ops have CPU, CUDA and MPS kernels only. With no Autograd kernel at
-// all, calling one on an operand that requires grad under grad mode still runs,
-// returns a tensor that carries a grad_fn, and leaves that operand's `.grad`
-// as None after `.backward()`, with only a call-time UserWarning ("an
-// autograd kernel was not registered to the Autograd key(s) but we are
-// trying to backprop through it") from a deprecation path a future PyTorch
-// will remove. Anyone assembling a quantized block out of the raw ops would
-// get a silently untrained model. The dispatcher cannot infer a derivative
-// either: an op that simulates its own arithmetic is not differentiable in
-// autograd's sense, and what its gradient should be, which format each
-// gradient pass runs in, is a modelling choice that
-// `mptorch.quant.qmatmul` / `QMatmul` and `mptorch.quant.Quantizer` exist to
-// let a caller make.
+// The ops have backend kernels (CPU, CUDA and MPS) and Meta kernels, but no
+// derivative. With no Autograd kernel at all, calling one under grad mode on
+// an operand that requires grad still runs, returns a tensor that carries a
+// grad_fn, and leaves that operand's `.grad` as None after `.backward()`.
+// The only sign is a call-time UserWarning ("an autograd kernel was not
+// registered to the Autograd key(s) but we are trying to backprop through
+// it") from a deprecated path that a future PyTorch will remove. Anyone who
+// built a quantized layer out of the raw ops would get a silently untrained
+// model. Nor could the dispatcher infer a derivative: an op that simulates
+// its own arithmetic is not differentiable in autograd's sense, and what its
+// gradient should be (which format each gradient pass runs in) is a
+// modelling choice, which `mptorch.quant.qmatmul` / `QMatmul` and
+// `mptorch.quant.Quantizer` exist to let a caller make.
 //
-// The kernel therefore raises and names the entry point that does carry a
-// gradient. A silent fallthrough to the backend would keep the
-// gradient-loss shape, which is the bug.
+// The kernel therefore raises, and names the entry point that does carry a
+// gradient. Falling through to the backend silently would keep exactly the
+// lost gradient that is the bug.
 //
 // The check is `GradMode::is_enabled()` *and* requires_grad, which is what
 // makes this safe inside the layers: a torch.autograd.Function's forward
@@ -36,10 +36,10 @@ namespace
 {
 
   // True when any tensor argument of the call on the stack requires grad.
-  // The op's arguments are the last schema().arguments().size() values of
-  // the stack; the tensors are the leading ones, but the whole argument
-  // list is scanned so the check holds for any schema, and an op with no
-  // tensor arguments would simply never trigger.
+  // The op's arguments are the last schema().arguments().size() values on
+  // the stack. The tensors come first, but the whole argument list is
+  // scanned so that the check holds for any schema; an op with no tensor
+  // arguments would simply never raise.
   bool any_requires_grad(const c10::OperatorHandle &op, const torch::jit::Stack &stack)
   {
     const auto n = op.schema().arguments().size();
@@ -49,12 +49,13 @@ namespace
     return false;
   }
 
-  // The boxed Autograd kernel. Boxed (arguments on the stack, one kernel for
-  // every schema) so the same function serves all thirty-eight ops. It raises when
-  // a gradient would be expected, with a message specific to what the op is
-  // (a GEMM, the narrowing store, or an elementwise quantizer), and
-  // otherwise redispatches to the backend kernel below the autograd keys,
-  // which is what a plain fallthrough would have done.
+  // The boxed Autograd kernel: boxed (arguments on the stack, one kernel for
+  // every schema), so that one function serves all sixty-six ops. It raises
+  // when a gradient would be expected, with a message for what the op is (a
+  // GEMM, a conv pass, the block GEMM, a block pack, the narrowing store, or
+  // an elementwise quantizer), and otherwise redispatches to the backend
+  // kernel below the autograd keys, which is what a plain fallthrough would
+  // have done.
   void raise_on_grad(const c10::OperatorHandle &op, c10::DispatchKeySet ks,
                      torch::jit::Stack *stack)
   {
@@ -99,7 +100,7 @@ namespace
 
 // Every op the library declares (quant_ops.cpp) gets the same kernel under
 // the Autograd key. An op added there without a line here falls back to the
-// warn-and-run behaviour described at the top of this file.
+// run-with-a-warning behaviour described at the top of this file.
 TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
 {
   const auto kernel = []
@@ -172,14 +173,15 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_superfp_binaryK_accumulated_odd", kernel());
 }
 
-// The four in-place quantizers also need the ADInplaceOrView key, which is
-// where ATen's own in-place ops bump their tensor's version counter. The
-// backend kernels write through data_ptr() and go around ATen entirely, so
-// nothing else would: a tensor saved for backward and then quantized in place
-// would be used as if it still held what was saved, instead of raising "one
-// of the variables needed for gradient computation has been modified by an
-// inplace operation". torch's boxed fallback for the key reads the schema's
-// `Tensor(a!)` and does exactly that bump.
+// The four in-place quantizers also need a kernel for the ADInplaceOrView
+// key, which is where ATen's own in-place ops increment their tensor's
+// version counter. The backend kernels write through data_ptr() and bypass
+// ATen entirely, so nothing else would increment it: a tensor saved for
+// backward and then quantized in place would be used as if it still held
+// what was saved, instead of raising "one of the variables needed for
+// gradient computation has been modified by an inplace operation". torch's
+// boxed fallback for the key reads the schema's `Tensor(a!)` annotation and
+// increments the counter.
 TORCH_LIBRARY_IMPL(mptorch, ADInplaceOrView, m)
 {
   m.impl("binaryK_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());

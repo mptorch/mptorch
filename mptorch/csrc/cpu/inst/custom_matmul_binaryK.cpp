@@ -1,13 +1,9 @@
-// Explicit instantiation of the CPU GEMM kernel for binaryK formats with a
-// split mac (a rounding after the multiply and another after the add) in the
-// binary32 carrier: the kernels behind custom_matmul_binaryK and
-// custom_matmul_binaryK_mixed for float32, float16 and bfloat16 operands.
-// The kernel template (custom_matmul_kernel.h) is heavy to compile, one body
-// per round mode per policy, so each (format family x mac mode x carrier)
-// has its own translation unit and the eight objects build in parallel with
-// none of them the critical path. The binary64 twin is
-// custom_matmul_binaryK_f64.cpp; the entry points are in
-// custom_matmul_entry.cpp.
+// Explicit instantiations of the CPU GEMM kernel for custom_matmul_binaryK and
+// custom_matmul_binaryK_mixed. They accumulate under AccumulateAlgorithm::NAIVE
+// (one running sum) in the binary32 carrier (float32, float16 and bfloat16
+// operands). The entry points are in ../custom_matmul_entry.cpp, and
+// ../custom_matmul_kernel.h explains how the instantiations are divided among
+// the files in this directory.
 
 #include "../custom_matmul_kernel.h"
 

@@ -1,8 +1,8 @@
-// The elementwise quantizers, binaryK_quant, superfp_quant and
-// fixedpoint_quant: every element
-// rounded to the format by the cast the CPU backend calls, in its carrier
-// (binary32, since MPS has no float64), and stored back in the tensor's
-// dtype as the CPU stores it (prelude.metal's store_carrier).
+// The elementwise quantizers binaryK_quant, superfp_quant and
+// fixedpoint_quant on an Apple GPU: every element is rounded to the format
+// by the cast the CPU backend calls, in its carrier (binary32, since MPS has
+// no float64), and stored back in the tensor's dtype as the CPU stores it
+// (prelude.metal's store_carrier).
 //
 // Compiled once per instantiation, after prelude.metal and a few lines the
 // backend writes (quantize.cpp) that define
@@ -11,28 +11,29 @@
 //   MPT_ROUND_MODE    the RoundMode
 //   MPT_FORMATS       0 for binaryK_quant, 1 for superfp_quant, 2 for
 //                     fixedpoint_quant
-//   MPT_IS_SIGNED     the format's sign, as the CPU's IsSigned template
-//                     parameter is, so an unsigned format's early return
-//                     folds away on a signed one
+//   MPT_IS_SIGNED     whether the format is signed, a compile-time constant
+//                     as the CPU's IsSigned template parameter is, so that an
+//                     unsigned format's early return is compiled out of a
+//                     signed format's kernel
 //   MPT_SUBNORMALS    binaryK's SubnormalsMode
-//   MPT_PRNG_BITS     SR's random bits
-//   mpt_params()      make_binaryK_params / make_superfp_params /
+//   MPT_PRNG_BITS     the number of random bits SR uses
+//   mpt_params()      make_binaryK_params, make_superfp_params or
 //                     make_fixedpoint_params of the format, with its widths
-//                     as literals, so its constants
-//                     fold (gemm.metal says why that matters)
+//                     as literals, so that its constants are known at compile
+//                     time (gemm.metal says why that matters)
 //
 // Each thread takes four consecutive elements, the four that share a Philox
 // block under RoundMode::SR: element i takes word i & 3 of block i >> 2 of
 // the stream keyed on the CPU generator's seed, which is the CPU kernel's
 // layout (cpu/utils.h's quant_kernel_sr), so an SR result is the CPU's.
 //
-// The casts round on the word, and the few places where they compare or
-// compute on the value itself (their sign tests, SR's add into the floor's
-// binade, and SR's bound on a NORMALS floor) are spelled so that the GPU's
-// flush of binary32 subnormals cannot reach them (bit_helper.h, "The Apple
-// GPU's flush of binary32 subnormals"). So every input rounds as on the
-// CPU, subnormal ones included, in every mode: dev/benchmarks/mps_backend.py
-// sweeps all 2^32 words to that effect.
+// The casts round on the bits. Where they test the value itself, they are
+// written so that the GPU's flush of binary32 subnormals cannot reach them:
+// the sign tests go through MPTORCH_IS_NEGATIVE and MPTORCH_IS_NONNEGATIVE,
+// and the stochastic casts decide with integer arithmetic on the bits
+// (bit_helper.h, "The Apple GPU's flush of binary32 subnormals"). So every
+// input rounds as on the CPU, subnormal ones included, in every mode:
+// dev/benchmarks/mps_backend.py's sweep checks all 2^32 words.
 
 namespace mptorch_mps
 {

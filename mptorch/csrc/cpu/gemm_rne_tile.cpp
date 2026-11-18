@@ -1,49 +1,49 @@
-// The vectorized binaryK RNE tiles of the CPU GEMM (cpu/gemm_rne_tile.h;
-// added in eafa9aa).
+// The vector tiles of the CPU GEMM's binaryK steps under RNE
+// (cpu/gemm_rne_tile.h).
 //
-// Each function is one packed tile's K-block, its loops vectorized by the
-// compiler over the shipped cast_binaryK_rne_fast: a lane computes what the
+// Each function runs one packed tile's K-block, with loops the compiler
+// vectorizes over the shipped cast_binaryK_rne_fast: a lane computes what the
 // scalar kernel's step computes, in the same order, so the results are the
-// scalar kernel's word for word (a K-block that ends with a NaN in its tile
-// is handed back to the scalar loop: gemm_rne_tile.h says why). Two things
-// are this file's alone:
+// scalar kernel's word for word (a K-block that leaves a NaN in its tile is
+// handed back to the scalar loop, for the reason cpu/gemm_rne_tile.h gives).
+// Two settings belong to this file alone:
 //
-//   * no-trapping-math, by the pragma ahead of every include, so the cast is
-//     compiled under it too. Under GCC's default -ftrapping-math the
-//     vectorizer may not execute the fast path's two arms (the subnormal one
-//     and the Veltkamp one) as selects, since either may raise an exception
-//     the scalar branch would not, and an optimize attribute on the function
-//     alone stopped GCC inlining the cast. Exception flags are all it
-//     changes, and nothing reads them; no value moves. -ffp-contract=off
-//     still holds, so no multiply-add is fused that the scalar code does
-//     not fuse. Clang defaults to no-trapping-math.
-//   * the ISA, by target attributes on x86-64 (the cast's default-target
-//     definition inlines into them), chosen once when the extension loads;
-//     arm64's NEON is its baseline.
+//   * no-trapping-math, through the pragma ahead of every include, so that
+//     the cast is compiled under it too. Under GCC's default -ftrapping-math
+//     the vectorizer may not compute both arms of the fast path (the
+//     subnormal one and the Veltkamp one) and select between them, since
+//     either arm may raise a floating-point exception that the scalar branch
+//     would not, and an optimize attribute on the function alone stopped GCC
+//     from inlining the cast. The option changes only the exception flags,
+//     which nothing reads; no value changes. -ffp-contract=off still holds,
+//     so no multiply-add is fused that the scalar code does not fuse. Clang
+//     defaults to no-trapping-math. The option must stay out of setup.py's
+//     host flags, where it would change every other object.
+//   * the instruction set, through target attributes on x86-64 (the cast's
+//     default-target definition is inlined into them), chosen once when the
+//     extension loads; on arm64, NEON is the baseline.
 //
-// Each K-step is a pass of products (or of fused products) row by row into a
-// buffer, then each cast as its own pass over the whole tile; a whole tile
-// (32 x 32, a K-block of 32) runs a copy with those sizes fixed. Until
-// 2026-11-14 a K-step was one loop per row doing both casts, and the
-// split's lane was one long chain, the product's cast feeding the sum's,
-// which the out-of-order window could not overlap across enough lanes;
-// the per-row loop setup was ~2% (perf). In its own pass each cast is a
-// short chain and its lanes are independent.
+// Each K-step is a pass that writes the products (or the fused products) row
+// by row into a buffer, then one pass over the whole tile per cast; a whole
+// tile (32 x 32, with a K-block of 32) runs a copy of the code with those
+// sizes fixed. In one loop per row, the split tile's two casts would form one
+// long dependency chain per lane (the product's cast feeding the sum's),
+// which the CPU's out-of-order window cannot overlap across enough lanes; in
+// its own pass each cast is a short chain, and its lanes are independent.
 //
-// NEON keeps the row loop below (tile_rows) for the product-only and fused
-// tiles, the loop every tile ran before: with a cast chain that short the
-// passes' store and reload per lane cost the M3 Pro's tiles 2-4%, while its
-// split gained 1.08-1.17x.
+// NEON keeps the row loop (tile_rows) for the product-only and fused tiles:
+// with a cast chain that short, the passes' store and reload per lane cost
+// the M3 Pro's tiles 2-4%, while its split tile gained 1.08-1.17x.
 //
-// Measured (dev/benchmarks/timing/cpu_gemm_ab.cpp, Ryzen 9 7940HS at 4.8 GHz,
-// against the row loop; ns per mac at 256^3 on one thread): split 8p4/16p11
-// 0.48 -> 0.39 with AVX-512 and 0.70 -> 0.53 with AVX2, and 1.37-1.51x
-// faster at 100^3 and 77^3, whose edge tiles are ragged; 1.12-1.23x at 1024^3
-// on sixteen threads. The fused and product-only tiles: 1.01-1.07x on whole
-// tiles, 1.09-1.18x on ragged ones with AVX-512 (1.04-1.10x with AVX2). Against
-// the scalar kernel after eafa9aa's sign-test reorder the split was 7.5 ns.
-// On an M3 Pro (NEON, one thread, 256^3): split 0.70 -> 0.65; at 1024^3 on
-// eleven threads 1.15-1.17x.
+// Measured on 2026-11-14 (dev/benchmarks/timing/cpu_gemm_ab.cpp, Ryzen 9
+// 7940HS at 4.8 GHz, against the row loop; ns per mac at 256^3 on one
+// thread): split 8p4/16p11 0.48 -> 0.39 with AVX-512 and 0.70 -> 0.53 with
+// AVX2, and 1.37-1.51x faster at 100^3 and 77^3, whose edge tiles are
+// ragged (smaller than 32 x 32); 1.12-1.23x at 1024^3 on sixteen threads.
+// The fused and product-only tiles: 1.01-1.07x on whole tiles, 1.09-1.18x
+// on ragged ones with AVX-512 (1.04-1.10x with AVX2). The scalar kernel's
+// split step took 7.5 ns. On an M3 Pro (NEON, one thread, 256^3): split
+// 0.70 -> 0.65; at 1024^3 on eleven threads, 1.15-1.17x.
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("no-trapping-math")
@@ -61,10 +61,10 @@ namespace mptorch::gemm_cpu
   namespace
   {
     // One K-step after another, each element's steps in K order: the
-    // products of a step row by row into t (the fused tile's fma reads the
-    // sum), then each cast as one pass over every lane of the tile. The split
-    // rounds the product in t, then the sum. FTI, FTJ and FTK fix the sizes
-    // (0: the run-time ones).
+    // products of a step, row by row, into t (the fused tile's fma also reads
+    // the sum), then each cast as one pass over every lane of the tile. The
+    // split tile rounds the product in t, then the sum. FTI, FTJ and FTK fix
+    // the sizes at compile time; 0 means the run-time size.
     template <int KIND, int FTI, int FTJ, int FTK>
     [[gnu::always_inline]] inline void tile_steps(const float *__restrict__ a_pack,
                                                   const float *__restrict__ b_pack,
@@ -117,9 +117,9 @@ namespace mptorch::gemm_cpu
       }
     }
 
-    // The loop every tile ran until 2026-11-14, which NEON's product-only and
-    // fused tiles keep (above): K outside the rows, each row one loop doing
-    // the step's every operation.
+    // The row loop, which NEON's product-only and fused tiles run (see the
+    // top of the file): K outside the rows, and one loop per row that does
+    // all of the step's operations.
     template <int KIND>
     [[gnu::always_inline]] inline void tile_rows(const float *__restrict__ a_pack,
                                                  const float *__restrict__ b_pack,
@@ -164,8 +164,8 @@ namespace mptorch::gemm_cpu
         tile_steps<KIND, 32, 32, 32>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
       else
         tile_steps<KIND, 0, 0, 0>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
-      // A NaN anywhere: a sum of two NaNs may have returned the other one
-      // (gemm_rne_tile.h), so the block goes back to the scalar loop.
+      // A NaN anywhere: a sum of two NaNs may have returned the other NaN
+      // (cpu/gemm_rne_tile.h), so the K-block goes back to the scalar loop.
       uint32_t nan = 0;
 #pragma omp simd reduction(| : nan)
       for (int64_t l = 0; l < n; ++l)
@@ -213,8 +213,8 @@ namespace mptorch::gemm_cpu
     {
       RneTiles t;
       // MPTORCH_CPU_SIMD=0 keeps the scalar loop, =avx2 stops below AVX-512
-      // (so a machine that has it can check the AVX2 tiles too), and anything
-      // else, or nothing, takes the widest the CPU has.
+      // (so that a machine with AVX-512 can test the AVX2 tiles too), and any
+      // other value, or none, takes the widest instruction set the CPU has.
       const char *env = std::getenv("MPTORCH_CPU_SIMD");
       if (env && std::strcmp(env, "0") == 0)
         return t;

@@ -1,20 +1,23 @@
-// The MPS dispatch-key registrations: binds each op declared in quant_ops.cpp
-// to its Apple GPU implementation, the twin of cpu/cpu_ops.cpp and
-// cuda/cuda_ops.cpp. Compiled only where setup.py builds the MPS backend
+// The MPS dispatch-key registrations: each op declared in quant_ops.cpp
+// bound to its Apple GPU implementation, the counterpart of cpu/cpu_ops.cpp
+// and cuda/cuda_ops.cpp. Compiled only where setup.py builds the MPS backend
 // (macOS, with a torch built with MPS).
 //
 // Every op runs as Metal kernels whose results are the CPU backend's bit for
-// bit, stochastic rounding included, up to what gemm.metal documents about
-// the GPU's flushing of binary32 subnormals: the quantizers and their
-// in-place twins (quantize.cpp), the GEMMs (custom_matmul_entry.cpp), their
-// KAHAN, BLOCK and TREE twins (custom_matmul_accumulated_entry.cpp), the
-// cross-family ones (custom_matmul_cross_entry.cpp), the conv ops
-// (custom_conv_entry.cpp), the block GEMM (custom_matmul_block_entry.cpp)
-// and the elementwise block ops (block_entry.cpp). The one exception is
-// narrow_float64, whose input is a float64 tensor, which MPS cannot hold: it
-// keeps torch's boxed CPU fallback, so that a call on an MPS tensor reaches
-// the op's own dtype check and fails with its message rather than the
-// dispatcher's, which names nothing a caller can act on.
+// bit, stochastic rounding included, except for what gemm.metal documents
+// about the GPU's flush of binary32 subnormals: the quantizers and their
+// in-place twins (quantize.cpp), the NAIVE GEMMs (custom_matmul_entry.cpp),
+// their KAHAN, BLOCK and TREE twins (custom_matmul_accumulated_entry.cpp),
+// the cross-family ops (custom_matmul_cross_entry.cpp), the conv ops
+// (custom_conv_entry.cpp), the block GEMM (custom_matmul_block_entry.cpp),
+// the elementwise block ops (block_entry.cpp), the odd ops
+// (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp) and the test-only
+// _carrier_odd (carrier_odd_entry.cpp). There are two exceptions. The
+// test-only _stochastic_cast has no Metal kernel and raises. narrow_float64
+// takes a float64 tensor, which MPS cannot hold, so it keeps torch's boxed
+// CPU fallback: a call on an MPS tensor then reaches the op's own dtype
+// check and fails with its message, rather than with the dispatcher's,
+// which names nothing a caller can act on.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>

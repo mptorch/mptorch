@@ -1,8 +1,9 @@
-// The MPS entry points of the ten odd conv ops (custom_conv_*_odd;
-// carrier_rounding=RoundMode.RO, phase Z): the text of their CPU twins
-// (cpu/custom_conv_odd_entry.cpp) with the backend swapped. The bodies are
-// common/carrier_odd_conv_host.h's, shared with the other backends; the
-// kernel is mps/gemm.metal's gathered variant, compiled after mps/odd.metal.
+// The MPS entry points of the ten odd conv ops (custom_conv_*_odd), whose
+// carrier step rounds to odd (carrier_rounding=RoundMode.RO). The bodies are
+// the same text as their CPU twins (cpu/custom_conv_odd_entry.cpp): each
+// forwards to a body in common/carrier_odd_conv_host.h, shared with the other
+// backends. The kernel is mps/gemm.metal's gathered variant, compiled after
+// mps/odd.metal.
 
 #include "../common/carrier_odd_conv_host.h"
 #include "../quant_ops.h"

@@ -1,9 +1,13 @@
-// binaryK GEMMs (split and fused) under AccumulateAlgorithm::BLOCK with the carrier step rounded to odd
-// (carrier_rounding=RoundMode.RO; common/carrier_odd_accumulate.h), in binary32.
-//
-// Instantiation-only, one of the 36 such files per backend that
-// MPTORCH_ODD_ACCUMULATED=1 builds (setup.py), each the odd twin of the
-// default file without the _odd suffix.
+// Explicit instantiations of the CUDA GEMM kernel for
+// custom_matmul_binaryK_accumulated_odd and
+// custom_matmul_binaryK_fma_accumulated_odd. They accumulate under
+// AccumulateAlgorithm::BLOCK (a sum per block of products, added to the running
+// total) in the binary32 carrier (float32, float16 and bfloat16 operands), and
+// round each carrier step to odd (carrier_rounding=RoundMode.RO). The entry
+// points are in ../custom_matmul_odd_entry.cpp, and ../custom_matmul_kernel.cuh
+// explains how the instantiations are divided among the files in this
+// directory.
+
 #include "../custom_matmul_kernel.cuh"
 #include "../../common/carrier_odd_accumulate.h"
 

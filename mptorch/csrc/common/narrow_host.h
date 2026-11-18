@@ -1,8 +1,8 @@
 #pragma once
 
 // What the CPU and CUDA entry points of narrow_float64 share: the argument
-// checks, and the tensors they read and write. The rounding itself is in
-// narrow_binary64.h.
+// checks, and the tensors the kernel reads and writes. The rounding itself is
+// in narrow_binary64.h.
 
 #include <ATen/core/Tensor.h>
 #include <ATen/ops/empty.h>
@@ -12,10 +12,10 @@ namespace mptorch
 {
 
   // Returns (input, output) for a narrowing kernel: the input made
-  // contiguous, and a fresh tensor of `dtype` shaped like it. The kernels
-  // walk data_ptr() linearly, so a strided input is copied first, as the
-  // elementwise quantizers do. Rejects a non-float64 input and a target
-  // dtype other than float32, float16 or bfloat16.
+  // contiguous, and a new tensor of `dtype` with the input's shape. The
+  // kernels walk data_ptr() linearly, so a strided input is copied first, as
+  // the elementwise quantizers do. Rejects an input that is not float64, and
+  // a target dtype other than float32, float16 or bfloat16.
   inline std::pair<at::Tensor, at::Tensor> narrow_float64_tensors(const at::Tensor &a,
                                                                   c10::ScalarType dtype)
   {

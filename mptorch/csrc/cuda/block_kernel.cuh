@@ -1,13 +1,13 @@
 #pragma once
 
 // The CUDA kernels of the elementwise block ops, as templates on the carrier
-// T they round in and the storage dtype they read and write: block_kernel.cu
-// instantiates binary32's (float32, float16, bfloat16) and block_kernel_f64.cu
-// binary64's (float64), so that MPTORCH_NO_FP64 leaves those out with the
-// file. block_kernel.cu says how the kernels work. The bodies are that file's
-// at f9a6aa9, from before binary64 had block kernels, with the carrier
-// spelled T: a binary32 kernel compiles to what it compiled to there, under
-// a name that carries T.
+// T they round in and on the storage dtype they read and write:
+// block_kernel.cu instantiates the binary32 ones (float32, float16 and
+// bfloat16) and block_kernel_f64.cu the binary64 ones (float64), so that
+// MPTORCH_NO_FP64 leaves those out with that file. block_kernel.cu says how
+// the kernels work. The bodies are the binary32 kernels' text from before
+// binary64 had block kernels, with the carrier written as T, so a binary32
+// kernel compiles to the code it did then, under a name that includes T.
 
 #include "block_kernel.h"
 #include "../common/philox.h"
@@ -25,8 +25,8 @@ namespace mptorch::block_cuda
     {
         constexpr int THREADS = 256;
         constexpr int WARPS = THREADS / 32;
-        // A CTA pass stages four codes a thread: a group of G lanes holds a
-        // block of 4 G codes (a block of 2 is one lane's two).
+        // A pass of a thread block stages four codes per thread: a group of G
+        // lanes holds a block of 4 G codes (a block of 2 is one lane's two).
         constexpr int MAX_CODES = THREADS * 4;
         constexpr int64_t MAX_GRID = int64_t(1) << 20;
 
@@ -42,8 +42,8 @@ namespace mptorch::block_cuda
             static_cast<scalar_t *>(o)[i] = static_cast<scalar_t>(v);
         }
 
-        // What a lane keeps of its group: its index in the group, the group's
-        // width G and each lane's element count E.
+        // What a lane knows of its group: its index in the group, the group's
+        // width G, and the number E of elements each lane takes.
         struct Group
         {
             int gl;
@@ -61,9 +61,10 @@ namespace mptorch::block_cuda
             return g;
         }
 
-        // The largest magnitude among a lane's words, and whether any is a
-        // NaN, reduced over its group of G lanes (a power of two, aligned in
-        // the warp). Every lane of the warp takes part.
+        // Reduces the largest magnitude among the lanes' words, and whether
+        // any of them is a NaN, over a group of G lanes (G is a power of two,
+        // and the groups are aligned in the warp). Every lane of the warp
+        // takes part.
         template <class W>
         __device__ __forceinline__ void reduce_group(W &amax, bool &nan, int G)
         {
@@ -77,14 +78,15 @@ namespace mptorch::block_cuda
             nan = n != 0;
         }
 
-        // Four Over Six's choice for one row segment (a 1D block), by its
-        // group: `six` is tile_scale's candidate, the same in every lane of
-        // the group, as is the second one. Each lane adds up its elements'
-        // errors under both, in the fixed point of block_decode.h, with the
-        // draws encode_segment will give them; the group reduces them by
-        // shuffles, which every lane of the warp takes part in, and takes the
-        // second candidate if its error is strictly the smaller. The errors
-        // are integers, so the choice is the CPU's whatever the order.
+        // The Four Over Six choice for one row segment (a 1D block), made by
+        // its group. `six` is tile_scale's candidate, the same in every lane
+        // of the group, as is the second candidate. Each lane adds up its
+        // elements' errors under both, in the fixed-point arithmetic of
+        // common/block_decode.h, with the random draws encode_segment will
+        // give them; the group reduces the sums by shuffles, which every lane
+        // of the warp takes part in, and takes the second candidate if its
+        // error is strictly smaller. The errors are integers, so the choice is
+        // the CPU's whatever the order of the sum.
         template <class T, RoundMode RM>
         __device__ __forceinline__ TileScale<T> four_over_six(const BlockPackJob &j, const BlockFormatParamsT<T> &p,
                                                               const BlockCastT<T> &c, const TileScale<T> &six,
@@ -113,7 +115,7 @@ namespace mptorch::block_cuda
                         else
                             rv = philox_block(seed, static_cast<uint64_t>(idx >> 2), offset).word(static_cast<int>(idx & 3));
                     }
-                    uint32_t code; // encode_segment casts again under the scale chosen
+                    uint32_t code; // encode_segment casts again under the chosen scale
                     err_six = add_block_error(
                         err_six, candidate_error_units<T, RM>(v[e], six, amax_exp, c.elem_signed, rv, p, c, code),
                         c.scale_rounding);
@@ -132,19 +134,21 @@ namespace mptorch::block_cuda
             return err_low < err_six ? low : six;
         }
 
-        // Four Over Six's choice for a whole 2D tile, by its CTA, between the
-        // amax pass and the encode pass of block_pack_tile_kernel. `six` is
-        // tile_scale's candidate, the same in every thread, as is the second
-        // one. Each thread adds up the errors of the elements it took in the
-        // amax pass, under both candidates and with the draws encode_segment
-        // will give them; the warp reduces the sums by shuffles, the warps
-        // combine through shared memory, and every thread takes the same
-        // choice. The reduction and its barrier run whether or not the two
-        // candidates differ, so no thread ever skips a barrier. The errors are
-        // integers, so the choice is the CPU's whatever the order, and a
-        // square tile's does not depend on the axis it is packed along. The
-        // pass only reads, which keeps the in-place quantizer sound. The
-        // slots are declared here, so a kernel of another rule holds none.
+        // The Four Over Six choice for a whole 2D tile, made by its thread
+        // block between the amax pass and the encode pass of
+        // block_pack_tile_kernel. `six` is tile_scale's candidate, the same in
+        // every thread, as is the second candidate. Each thread adds up the
+        // errors of the elements it took in the amax pass, under both
+        // candidates and with the random draws encode_segment will give them;
+        // each warp reduces its sums by shuffles, the warps combine theirs
+        // through shared memory, and every thread makes the same choice. The
+        // reduction and its barrier run whether or not the two candidates
+        // differ, so no thread ever skips a barrier. The errors are integers,
+        // so the choice is the CPU's whatever the order of the sum, and for a
+        // square tile it does not depend on the axis the tile is packed along.
+        // The pass only reads, which keeps the in-place quantizer sound. Its
+        // shared-memory slots are declared here, so the kernel of any other
+        // rule has none.
         template <class T, typename scalar_t, RoundMode RM>
         __device__ __forceinline__ TileScale<T> four_over_six_tile(
             const BlockPackJob &j, const BlockFormatParamsT<T> &p, const BlockCastT<T> &c, const TileScale<T> &six,
@@ -176,7 +180,7 @@ namespace mptorch::block_cuda
                         else
                             rv = philox_block(seed, static_cast<uint64_t>(idx >> 2), offset).word(static_cast<int>(idx & 3));
                     }
-                    uint32_t code; // encode_segment casts again under the scale chosen
+                    uint32_t code; // encode_segment casts again under the chosen scale
                     err_six = add_block_error(
                         err_six, candidate_error_units<T, RM>(v, six, amax_exp, c.elem_signed, rv, p, c, code),
                         c.scale_rounding);
@@ -208,10 +212,11 @@ namespace mptorch::block_cuda
             return err_low < err_six ? low : six;
         }
 
-        // One row segment's encode, by its group: the E elements `v` a lane
-        // loaded (cols past the row's end are not elements), their codes, and
-        // either the decoded values written back (quantize) or the block's
-        // bytes (pack). `codes` is the group's staging area in shared memory.
+        // Encodes one row segment, by its group: the E elements `v` that a
+        // lane loaded (columns past the row's end are not elements), their
+        // codes, and then either the decoded values written back (quantize)
+        // or the block's bytes (pack). `codes` is the group's staging area in
+        // shared memory.
         template <class T, typename scalar_t, RoundMode RM>
         __device__ __forceinline__ void encode_segment(const BlockPackJob &j, const BlockFormatParamsT<T> &p,
                                                        const BlockCastT<T> &c, const TileScale<T> &s,
@@ -258,10 +263,11 @@ namespace mptorch::block_cuda
             }
         }
 
-        // FOS: a Four Over Six rule's launch, the only one that carries the
-        // choice between two scales. A template parameter rather than a test
-        // of c.scale_rounding, so the kernel every other rule runs holds none
-        // of it (its registers were what the lane layout above was tuned to).
+        // FOS is true for a Four Over Six rule's launch, the only one that
+        // chooses between two scales. It is a template parameter rather than a
+        // test of c.scale_rounding, so the kernel that every other rule runs
+        // contains none of that code (the lane layout above was tuned to that
+        // kernel's register use).
         template <class T, typename scalar_t, RoundMode RM, bool FOS>
         __global__ __launch_bounds__(THREADS) void block_pack_kernel(BlockPackJob j, BlockFormatParamsT<T> p,
                                                                      BlockCastT<T> c, at::PhiloxCudaState rng)
@@ -282,8 +288,8 @@ namespace mptorch::block_cuda
             uint16_t *codes = codes_sh + my_group * p.block_size;
             const int64_t segs = j.batch * j.rows * p.n_blocks;
 
-            // The bound is the CTA's, so every lane of a warp runs every
-            // iteration and every shuffle.
+            // The loop bound is the same for the whole thread block, so every
+            // lane of a warp runs every iteration and every shuffle.
             for (int64_t base = int64_t(blockIdx.x) * groups_per_cta; base < segs;
                  base += int64_t(gridDim.x) * groups_per_cta)
             {
@@ -332,7 +338,7 @@ namespace mptorch::block_cuda
             }
         }
 
-        // FOS as on block_pack_kernel: the launch of a Four Over Six rule.
+        // FOS as in block_pack_kernel: true for a Four Over Six rule's launch.
         template <class T, typename scalar_t, RoundMode RM, bool FOS>
         __global__ __launch_bounds__(THREADS) void block_pack_tile_kernel(BlockPackJob j, BlockFormatParamsT<T> p,
                                                                           BlockCastT<T> c, at::PhiloxCudaState rng)
@@ -347,8 +353,8 @@ namespace mptorch::block_cuda
                 seed = std::get<0>(seeds);
                 offset = std::get<1>(seeds);
             }
-            // The CTA is sized to the tile (launch_pack_as): four elements a
-            // thread, between one warp and THREADS.
+            // The thread block is sized to the tile (launch_pack_as): four
+            // elements per thread, between one warp and THREADS threads.
             const int threads = static_cast<int>(blockDim.x);
             const int warps = threads / 32;
             const Group g = group_of(p);
@@ -406,8 +412,8 @@ namespace mptorch::block_cuda
                     s = four_over_six_tile<T, scalar_t, RM>(j, p, c, s, amax, seed, offset, b, r0, c0, nrows, ncols,
                                                             tile_elems, threads, warps);
 
-                // The encode pass: the tile's rows as row segments, a group
-                // each, as the 1D kernel encodes them.
+                // The encode pass: each of the tile's rows is a row segment,
+                // encoded by one group as in the 1D kernel.
                 for (int rr0 = 0; rr0 < nrows; rr0 += groups_per_cta)
                 {
                     const int rr = rr0 + my_group;
@@ -424,7 +430,7 @@ namespace mptorch::block_cuda
                 }
                 if (!j.quant && threadIdx.x == 0 && p.scale_cols != 0)
                     j.scales[(b * p.row_tiles + rt) * p.scale_cols + blk] = static_cast<uint8_t>(s.code);
-                // The shared amax slots, and the rule's, are the next tile's.
+                // The next tile reuses the shared amax slots and the rule's.
                 __syncthreads();
             }
         }
@@ -474,9 +480,9 @@ namespace mptorch::block_cuda
             }
             else
             {
-                // Four elements a thread: a small tile (NVFP4's 16 x 16) in a
-                // CTA of THREADS would leave three quarters of it idle through
-                // both passes and the barrier between them.
+                // Four elements per thread: a small tile (NVFP4's 16 x 16) in a
+                // block of THREADS threads would leave three quarters of them
+                // idle through both passes and the barrier between them.
                 const int tile_elems = p.block_rows * p.block_size;
                 const int threads = tile_elems / 4 < 32 ? 32 : (tile_elems / 4 > THREADS ? THREADS : tile_elems / 4);
                 const unsigned grid = grid_of(j.batch * p.row_tiles * p.n_blocks);

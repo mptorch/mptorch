@@ -1,9 +1,9 @@
 // The CUDA kernels of block_pack, block_unpack, block_quant and block_quant_
-// for float64 tensors, which round in binary64: block_kernel.cuh's templates
-// instantiated for double, whose binary32 instantiations are
-// block_kernel.cu's. A file of its own, like the GEMM's *_f64 twins, so that
-// MPTORCH_NO_FP64=1 leaves these kernels out by leaving the file out. The
-// entry points are in block_entry.cpp.
+// for float64 tensors, which round in binary64: cuda/block_kernel.cuh's
+// templates instantiated for double, whose binary32 instantiations are in
+// block_kernel.cu. They are in a file of their own, like the GEMM's *_f64
+// units, so that MPTORCH_NO_FP64=1 leaves these kernels out by leaving the
+// file out. The entry points are in block_entry.cpp.
 
 #include "block_kernel.cuh"
 

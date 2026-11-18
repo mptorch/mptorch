@@ -1,17 +1,11 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel for
+// custom_matmul_binaryK_superfp and custom_matmul_superfp_binaryK. They
+// accumulate under AccumulateAlgorithm::NAIVE (one running sum) in the binary32
+// carrier (float32, float16 and bfloat16 operands). The entry points are in
+// ../custom_matmul_cross_entry.cpp, and ../custom_matmul_kernel.h explains how
+// the instantiations are divided among the files in this directory.
 
-// The cross-family split macs (common/gemm_cross.h) under
-// AccumulateAlgorithm::NAIVE, in binary32: the kernels of
-// custom_matmul_binaryK_superfp (binaryK products, superfp sums) and
-// custom_matmul_superfp_binaryK (the reverse) for float32, float16 and
-// bfloat16 operands, seven each, one per round mode.
-//
-// One of four such files, one per algorithm, mirroring the single-family
-// GEMMs' layout; both directions share each file, since each direction's
-// kernels compile both families' casts anyway. They are files of their own so
-// that no file that compiled a kernel before these ops existed compiles
-// anything new. Its binary64 twin is custom_matmul_cross_f64.cpp. The entry
-// points are in custom_matmul_cross_entry.cpp.
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

@@ -1,16 +1,18 @@
 #pragma once
 
 // The palette ops with the carrier step rounded to odd
-// (custom_matmul_*_mixed_odd and custom_conv_*_mixed_odd;
-// carrier_rounding=RoundMode.RO): OddPaletteArgs, a mixed Args whose palette
-// holds the odd twins of the base's Macs, slot by slot.
+// (custom_matmul_*_mixed_odd and custom_conv_*_mixed_odd, for
+// carrier_rounding=RoundMode.RO): OddPaletteArgs, a palette Args whose
+// palette holds, slot by slot, the odd versions of the base's Macs.
 //
-// A header of its own, next to carrier_odd.h rather than in it, so that the
-// objects that include carrier_odd.h (the single-format odd ops') stay what
-// they were; only the palette ops' units include this one. The MPS backend
-// compiles it as Metal too (mps/odd.metal, phase Z), where the kernel builds
-// one element's slot at a time: there OddPaletteArgs has with_slot in place
-// of with_palette.
+// This is a header of its own, next to carrier_odd.h rather than in it, so
+// that the CUDA units of the single-format odd GEMMs
+// (custom_matmul_{binaryK,superfp}{,_fma}_odd) do not include it. (On the
+// CPU, every odd unit includes it through cpu/custom_matmul_odd_kernel.h, so
+// that all of them see one set of the tile trait's specializations.) The
+// MPS backend compiles it as Metal too (mps/odd.metal), where the kernel
+// builds one element's slot at a time, so there OddPaletteArgs has with_slot
+// instead of with_palette.
 
 #include "carrier_odd.h"
 #include "gemm_args.h"
@@ -21,22 +23,23 @@
 
 namespace mptorch::gemm
 {
-  // An existing palette Args with each slot's Mac rebuilt as its odd twin,
-  // the way OddArgs rebuilds a single-format one: the base's with_palette
-  // builds the palette of plain Macs, cast constants and all, and
-  // PaletteBuilder copies each slot into a FusedMacOdd or a SplitMacOdd,
-  // which hold the same policies. The kernels take the result unchanged, a
-  // FormatPalette of the odd Mac, which CUDA passes by value as a kernel
-  // parameter as it does the plain one.
+  // An existing palette Args with each slot's Mac rebuilt as its odd version,
+  // as OddArgs rebuilds a single-format one. The base's with_palette builds
+  // the palette of plain Macs, cast constants included, and PaletteBuilder
+  // copies each slot into a FusedMacOdd or a SplitMacOdd, which hold the
+  // same policies. The kernels take the result as it is, a FormatPalette of
+  // the odd Mac, which CUDA passes by value as a kernel parameter, as it does
+  // the plain one.
   //
-  // A wrapper with a `base` member, like OddArgs and AccumulateArgs, rather
-  // than a class derived from the mixed Args: sr_canonical_args and
-  // sr_encode_args reach the formats through `.base`, and nothing at the top
-  // level may be named like a base field (mul_c, acc_c, fma_c, outer_c), an
-  // inner Args (`inner`) or an algorithm (`alg`), or the prng bits would be
-  // encoded twice and launch_conv would take its accumulated branch. The
-  // drivers read `n_fmt` as a member, so the wrapper carries its own copy,
-  // which odd_palette() sets from the base and nothing else writes.
+  // It is a wrapper with a `base` member, like OddArgs and AccumulateArgs,
+  // rather than a class derived from the palette Args: sr_canonical_args and
+  // sr_encode_args reach the formats through `.base`. Nothing at its top
+  // level may have the name of a base field (mul_c, acc_c, fma_c, outer_c),
+  // of an inner Args (`inner`) or of an algorithm (`alg`): otherwise the prng
+  // bits would be encoded twice, and launch_conv would take its branch for
+  // accumulated ops. The drivers read `n_fmt` as a member, so the wrapper
+  // carries its own copy, which odd_palette() sets from the base and nothing
+  // else writes.
   template <class Base>
   struct OddPaletteArgs
   {
@@ -59,7 +62,7 @@ namespace mptorch::gemm
                       const FormatPalette<FusedMac<Adder>> &pal) const
       {
         // The fused palette ops refuse fma_quant = false before packing: a
-        // fused step that no format rounds has no format to vary.
+        // fused step that no format rounds has no format to choose between.
         static_assert(!is_identity_adder<Adder>::value,
                       "a fused palette always rounds its step to a format");
         using Mac = FusedMacOdd<Adder>;
@@ -72,8 +75,8 @@ namespace mptorch::gemm
         f(NaiveAccumulator<Mac>{odd.slots[0], T(0)}, odd);
       }
 
-      // Over an IdentityAdder (accumulate_quant = false) only the product is
-      // rounded to odd, as SplitMacOdd states.
+      // Over an IdentityAdder (accumulate_quant = false), only the product is
+      // rounded to odd, as in SplitMacOdd.
       template <class Multiplier, class Adder>
       void operator()(const NaiveAccumulator<SplitMac<Multiplier, Adder>> &,
                       const FormatPalette<SplitMac<Multiplier, Adder>> &pal) const
@@ -95,11 +98,11 @@ namespace mptorch::gemm
       base.template with_palette<T, RM>(PaletteBuilder<T, F>{f});
     }
 #else
-    // The MPS kernel builds one element's Mac from its slot (the base's
-    // with_slot, mps/gemm.metal says why) rather than a palette of them, and
-    // OddArgs' Builder makes that Mac its odd twin, as it does a
-    // single-format op's: the base hands it the NaiveAccumulator its slot's
-    // widths build.
+    // The MPS kernel builds one element's Mac from its slot (with the base's
+    // with_slot; the comments in mps/gemm.metal explain why) rather than a
+    // palette of them, and OddArgs' Builder turns that Mac into its odd
+    // version, as it does a single-format op's: the base hands it the
+    // NaiveAccumulator that its slot's widths build.
     template <class T, RoundMode RM, class F>
     void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
     {

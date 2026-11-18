@@ -1,9 +1,12 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's block-format form, which
+// decodes its operands from packed block-format codes, for custom_matmul_block
+// with a split and with a fused mac. They accumulate under
+// AccumulateAlgorithm::BLOCK (a sum per block of products, added to the running
+// total) in the binary32 carrier. The entry points are in
+// ../custom_matmul_block_entry.cpp, and ../custom_matmul_kernel.h explains how
+// the instantiations are divided among the files in this directory.
 
-// The block GEMM (custom_matmul_block; common/gemm_block.h) under
-// AccumulateAlgorithm::BLOCK (two-level block summation;
-// common/gemm_accumulate.h), in binary32. One of four block GEMM
-// instantiation files (custom_matmul_block.cpp says why).
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

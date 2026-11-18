@@ -1,28 +1,32 @@
-// The head of every Metal library the MPS backend compiles: what the shared
-// headers under common/ take from the C++ standard library, spelled with
-// Metal's, then those headers themselves, then the loads and stores the
-// kernels share. setup.py resolves the quoted includes below into one string
-// (mps/metal_source.h), and the backend appends a few lines naming one
-// instantiation (mps/metal_runtime.mm) and then gemm.metal or quantize.metal.
+// The start of every Metal library the MPS backend compiles: Metal
+// spellings of what the shared headers under common/ take from the C++
+// standard library, then those headers themselves, then the loads and
+// stores every kernel shares. setup.py's embed_metal_sources replaces the
+// quoted includes below by the files they name, and stores the result as a
+// string in the generated header mps_metal_sources.h. The backend
+// (metal_runtime.mm's compile) appends to it odd.metal for the odd kernels,
+// then the lines naming one instantiation, then one kernel file: gemm.metal,
+// quantize.metal, block.metal or carrier_odd.metal.
 
 #include <metal_stdlib>
 
-// The build's two promises to the fast casts, made the way setup.py makes
-// them to the host compiler (bit_helper.h, MPTORCH_FAST_CAST): no
-// contraction of separately written float operations, and no fast math, and
-// only then the macro that admits the Veltkamp split. The library's compile
-// options ask for safe math as well (metal_runtime.mm); these pragmas keep
-// the promise in the source, where a library compiled some other way still
-// carries it.
+// The build's two promises to the fast cast paths, made as setup.py makes
+// them to the host compiler (MPTORCH_FAST_CAST in bit_helper.h): no
+// contraction of separately written float operations into one, and no fast
+// math. Only with both does it define the macro that turns on the paths,
+// whose Veltkamp split is exact only under them. The library's compile
+// options ask for safe math as well (metal_runtime.mm's compile); these
+// pragmas keep the promise in the source, so that a library compiled some
+// other way still keeps it.
 #pragma METAL fp math_mode(safe)
 #pragma METAL fp contract(off)
 #define MPTORCH_FAST_CAST 1
 
-// The library is compiled as MSL 3.1 (metal_runtime.mm says why), which is
-// C++14. The headers use two C++17 features, `if constexpr` and nested
-// namespace definitions, which the compiler takes in C++14 as extensions
-// with the C++17 meaning, and warns about at every use; the warnings would
-// bury a real error in a failed compile's message.
+// The library is compiled as MSL 3.1 (metal_runtime.mm's compile says why),
+// which is C++14. The headers use two C++17 features, `if constexpr` and
+// nested namespace definitions, which the compiler accepts in C++14 as
+// extensions with their C++17 meaning, warning at every use; those warnings
+// would bury a real error in a failed compile's message.
 #pragma clang diagnostic ignored "-Wc++17-extensions"
 
 #ifndef INT32_MIN
@@ -36,15 +40,16 @@ using metal::is_same_v;
 using metal::make_signed_t;
 } // namespace std
 
-// Called by name in the casts (bit_helper.h says why). Both are bit
-// operations on the word, as they are on every other backend, so a NaN keeps
-// its payload and a subnormal is not flushed.
+// The casts call fabsf and copysignf by name rather than through a trait,
+// so Metal needs functions of those names. Both are bit operations on the
+// word here, as on every other backend, so a NaN keeps its payload and a
+// subnormal is not flushed.
 inline float fabsf(float x) { return metal::fabs(x); }
 inline float copysignf(float x, float y) { return metal::copysign(x, y); }
 
 // quantize.metal's fixed-point casts: there is no fixed-point GEMM, so no
-// GEMM header includes them. An #include line carries no trailing comment,
-// which would stop setup.py's embed_metal_sources inlining it.
+// GEMM header includes them. An #include line must carry no trailing
+// comment, or setup.py's embed_metal_sources would not inline it.
 #include "../common/cast_fixedpoint.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_accumulate.h"
@@ -56,28 +61,31 @@ inline float copysignf(float x, float y) { return metal::copysign(x, y); }
 namespace mptorch_mps
 {
 
-// Storage dtype <-> the binary32 carrier, bit for bit what the CPU backend's
+// Conversions between the storage dtype and the binary32 carrier (the float
+// format the kernels compute in), bit for bit what the CPU backend's
 // static_casts do, so that a result stored to a narrow tensor is the one the
-// CPU stores: to_carrier on a loaded element, store_carrier to write one.
+// CPU stores: to_carrier converts a loaded element, store_carrier writes
+// one.
 //
-// float is the carrier itself. bfloat16 is done on the word, as c10 does it:
-// widening is a shift, and narrowing is round-to-nearest-even on the word
-// with every NaN becoming 0x7FC0 (c10's round_to_nearest_even). The GPU's
-// own conversion would flush a binary32 subnormal before rounding it. And
-// the word is stored as a ushort, never formed as a bfloat value: the GPU
-// flushes a bfloat16 subnormal (binary32's exponent range is bfloat16's)
-// wherever it forms one, as_type and the store included, which the block
-// formats' decode reaches with an E8M0 scale of 2^-127. A loaded bfloat
-// keeps its word under as_type, and tests/test_mps.py reads every one.
+// float is the carrier itself. bfloat16 is converted on the word, as c10
+// converts it: widening is a shift, and narrowing is round-to-nearest-even
+// on the word, with every NaN becoming 0x7FC0 (c10's
+// round_to_nearest_even). The GPU's own conversion would flush a binary32
+// subnormal before rounding it. And the narrowed word is stored as a
+// ushort, never formed as a bfloat value: the GPU flushes a bfloat16
+// subnormal (bfloat16 has binary32's exponent range) wherever it forms one,
+// as_type and the store included, and the block formats' decode produces
+// such values with an E8M0 scale of 2^-127. A loaded bfloat keeps its word
+// under as_type, and tests/test_mps.py loads every bfloat16 word.
 //
-// half is c10's too, which on arm64 is the CPU's `fcvt` instruction: IEEE
+// half follows c10 too, which on arm64 is the CPU's `fcvt` instruction: IEEE
 // conversion, round to nearest even, with half's subnormals. The GPU's
-// conversion is the same arithmetic, and differs from `fcvt` only on a NaN:
-// `fcvt` quiets a signalling one and keeps its payload (the top bits of it,
-// narrowing), where the GPU hands a signalling NaN back signalling. Both
-// directions therefore take NaNs on the word, as `fcvt` does, and every
-// other value through the GPU. tests/test_mps.py runs every half word
-// through both.
+// conversion does the same arithmetic, and differs from `fcvt` only on a
+// NaN: `fcvt` quiets a signalling NaN and keeps its payload (the payload's
+// top bits, when narrowing), whereas the GPU returns a signalling NaN still
+// signalling. Both directions therefore convert NaNs on the word, as `fcvt`
+// does, and every other value through the GPU's conversion.
+// tests/test_mps.py converts every half word both ways.
 inline float to_carrier(float x) { return x; }
 inline float to_carrier(bfloat x) { return as_type<float>(uint32_t(as_type<ushort>(x)) << 16); }
 inline float to_carrier(half x)

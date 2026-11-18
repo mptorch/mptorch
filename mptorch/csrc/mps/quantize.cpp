@@ -1,22 +1,22 @@
 // The MPS kernels behind mptorch::binaryK_quant, mptorch::superfp_quant and
-// mptorch::fixedpoint_quant: a new tensor of the input's shape and dtype,
-// every element rounded by quantize.metal, in the same cast, the same
-// rounding mode and, under RoundMode::SR, the same random word as the CPU
-// kernel gives it (cpu/binaryK_kernel.cpp, cpu/superfp_kernel.cpp,
+// mptorch::fixedpoint_quant. Each returns a new tensor of the input's shape
+// and dtype, with every element rounded by quantize.metal with the same
+// cast, the same rounding mode and, under RoundMode::SR, the same random word
+// as the CPU kernel gives it (cpu/binaryK_kernel.cpp, cpu/superfp_kernel.cpp,
 // cpu/fixedpoint_kernel.cpp), so the result is the CPU's bit for bit.
 //
-// Each entry point observes what its CPU twin does, in the same order: the
-// input is made contiguous, the output allocated, the seed drawn under SR
-// (even for an empty tensor, which the CPU also draws for, so that the
-// generator's later draws stay in step), and only then is the dtype checked.
+// Each entry point does what its CPU twin does, in the same order: the input
+// is made contiguous, the output allocated, the seed drawn under SR (even
+// for an empty tensor, which the CPU also draws for, so that the generator's
+// later draws stay in step), and only then is the dtype checked.
 //
-// The in-place ops, binaryK_quant_, superfp_quant_ and fixedpoint_quant_, run
-// the same kernel with the tensor bound as both its input and its output.
-// That is value-safe: mpt_quantize reads x[i] before it writes y[i] and
-// touches no other element, and neither buffer is declared restrict. Like the
-// CPU's, they refuse a strided tensor rather than make the copy the
-// out-of-place op makes, which the kernel would write instead of the caller's
-// tensor.
+// The in-place ops, binaryK_quant_, superfp_quant_ and fixedpoint_quant_,
+// run the same kernel with the tensor bound as both its input and its
+// output. That is safe for the values: mpt_quantize reads x[i] before it
+// writes y[i] and touches no other element, and neither buffer is declared
+// restrict. Like the CPU's in-place ops, they refuse a strided tensor rather
+// than copy it as the out-of-place op does, since the kernel would then
+// write the copy instead of the caller's tensor.
 
 #include "../common/stochastic_host.h"
 #include "../cpu/utils.h" // draw_cpu_seed
@@ -31,9 +31,9 @@ using at::Tensor;
 namespace
 {
 
-  // The CPU quantizers treat every integer that names no deterministic mode
-  // as RO (the `default:` arm of their switch), and SR as SR; so does this,
-  // so that an out-of-range round_mode rounds as it does on the CPU.
+  // The CPU quantizers round every integer that names no deterministic mode
+  // as RO (the `default:` arm of their switch), and SR as SR. This does the
+  // same, so that an out-of-range round_mode rounds as it does on the CPU.
   int64_t cpu_round_mode(int64_t round_mode)
   {
     const auto sr = static_cast<int64_t>(RoundMode::SR);
@@ -48,8 +48,8 @@ namespace
   void quantize_into(const char *op, const Tensor &a, const Tensor &o, int64_t round_mode,
                      bool is_signed, int64_t prng_bits, const std::string &format)
   {
-    // SR_B and SR_C run as SR with the variant in prng_bits, as on the CPU
-    // (common/stochastic_host.h)
+    // SR_B and SR_C run as SR, with the variant recorded in prng_bits, as on
+    // the CPU (sr_canonical and sr_encode, common/stochastic_host.h).
     int variant;
     round_mode = mptorch::sr_canonical(round_mode, variant);
     if (variant >= 0)
@@ -82,14 +82,14 @@ namespace
     return o;
   }
 
-  // The format lines of a binaryK, a superfp and a fixed-point instantiation;
-  // MPT_FORMATS selects the family in quantize.metal.
+  // The format lines of a binaryK, a superfp and a fixed-point
+  // instantiation; MPT_FORMATS selects the family in quantize.metal.
   std::string binaryK_format(int64_t K, int64_t P, int64_t bias, bool is_signed,
                              int64_t saturation_mode, int64_t subnormals_mode)
   {
-    // P3109's widths, narrowed to int and derived as the CPU kernel derives
-    // them: P - 1 stored mantissa bits, and the exponent gets the rest after
-    // the sign, if there is one.
+    // P3109's widths, narrowed to int and converted as the CPU kernel
+    // converts them: P - 1 stored mantissa bits, and the exponent field takes
+    // the remaining bits after the sign bit, if there is one.
     const int K_ = static_cast<int>(K), P_ = static_cast<int>(P);
     const int man_bits = P_ - 1;
     const int exp_bits = is_signed ? K_ - P_ : K_ - P_ + 1;
@@ -148,9 +148,9 @@ Tensor fixedpoint_quantize_mps(Tensor a, int64_t wl, int64_t fl, int64_t prng_bi
                   fixedpoint_format(wl, fl, is_signed, symmetric));
 }
 
-// mptorch::binaryK_quant_, mptorch::superfp_quant_ and mptorch::fixedpoint_quant_
-// on an MPS tensor: the kernel above over `a` in place, after the CPU's
-// contiguity check, worded as the CPU words it.
+// mptorch::binaryK_quant_, mptorch::superfp_quant_ and
+// mptorch::fixedpoint_quant_ on an MPS tensor: the kernel above, run over `a`
+// in place, after the CPU's contiguity check, worded as the CPU words it.
 Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
                               bool is_signed, int64_t round_mode, int64_t saturation_mode,
                               int64_t subnormals_mode)

@@ -1,9 +1,11 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel's block-format form, which
+// decodes its operands from packed block-format codes, for custom_matmul_block.
+// They accumulate under AccumulateAlgorithm::TREE (pairwise sums within each
+// block of products) in the binary32 carrier. The entry points are in
+// ../custom_matmul_block_entry.cpp, and ../custom_matmul_kernel.cuh explains
+// how the instantiations are divided among the files in this directory.
 
-// The block GEMM (custom_matmul_block; common/gemm_block.h) under
-// AccumulateAlgorithm::TREE (pairwise summation within a block; split mac only;
-// common/gemm_accumulate.h), in binary32. One of four block GEMM
-// instantiation files (custom_matmul_block.cu says why).
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

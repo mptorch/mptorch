@@ -17,10 +17,10 @@ namespace mptorch::gemm_mps
 
     // Writes `mpt_args()` for gemm.metal: the Args struct value-initialized,
     // then every field the schema set, by name, so that the Metal compiler
-    // checks each name against the struct it is compiled from. What cannot
-    // be checked there is a field this file does not know about, which would
-    // stay zero on the device; the size assertions in the args_source
-    // functions below catch the struct growing one.
+    // checks each name against the struct it compiles. What it cannot check
+    // is a field this file does not know about, which would stay zero on the
+    // device; the size assertions in the write functions below catch a
+    // struct that grows one.
     class ArgsWriter
     {
     public:
@@ -92,16 +92,16 @@ namespace mptorch::gemm_mps
       std::string out_;
     };
 
-    // The component structs, whose every field the writer above sets.
+    // The component structs, every field of which the writer above sets.
     static_assert(sizeof(BinaryKWidths) == 3 * sizeof(int), "set() every new BinaryKWidths field");
     static_assert(sizeof(SuperfpWidths) == 4 * sizeof(int), "set() every new SuperfpWidths field");
     static_assert(sizeof(BinaryKCommon) == 16, "set() every new BinaryKCommon field");
     static_assert(sizeof(SuperfpCommon) == 12, "set() every new SuperfpCommon field");
 
-    // The fields of the single-format Args, under `at` ("" for the Args
-    // itself, "base." inside an AccumulateArgs). The size assertions are each
-    // struct's size with the fields written here; a new field changes it and
-    // stops the build here.
+    // The fields of the single-format Args, under the prefix `at` ("" for the
+    // Args itself, "base." inside an AccumulateArgs). Each size assertion is
+    // the struct's size with exactly the fields written here, so a new field
+    // changes the size and stops the build here.
     void write(ArgsWriter &w, const std::string &at, const BinaryKSplitArgs &a)
     {
       static_assert(sizeof(BinaryKSplitArgs) == 60, "write every BinaryKSplitArgs field");
@@ -139,7 +139,7 @@ namespace mptorch::gemm_mps
     }
 
     // The cross-family split macs (common/gemm_cross.h): their accumulate
-    // format is always there, so there is no flag.
+    // format is always present, so there is no accumulate_quant flag.
     template <class MulW, class MulC, class AccW, class AccC>
     void write(ArgsWriter &w, const std::string &at, const CrossSplitArgs<MulW, MulC, AccW, AccC> &a)
     {
@@ -151,8 +151,8 @@ namespace mptorch::gemm_mps
       w.set(at + "acc_c", a.acc_c);
     }
 
-    // The block GEMM's split mac (common/gemm_block.h): the carrier's
-    // product, and the sum's format.
+    // The block GEMM's split mac (common/gemm_block.h): the product in the
+    // carrier, and the sum's format.
     void write(ArgsWriter &w, const std::string &at, const BlockSplitArgs &a)
     {
       static_assert(sizeof(BlockSplitArgs) == 32, "write every BlockSplitArgs field");
@@ -161,7 +161,7 @@ namespace mptorch::gemm_mps
       w.set(at + "acc_c", a.acc_c);
     }
 
-    // The palette Args (one list per field, n_fmt slots of it written).
+    // The palette Args: one list per format field, n_fmt slots of each.
     void write(ArgsWriter &w, const std::string &at, const BinaryKSplitMixedArgs &a)
     {
       static_assert(sizeof(BinaryKSplitMixedArgs) == 232, "write every BinaryKSplitMixedArgs field");
@@ -201,8 +201,8 @@ namespace mptorch::gemm_mps
     }
 
     // The odd carrier step's Args (common/carrier_odd.h, carrier_odd_mixed.h):
-    // a wrapper of the op's Args, which is all it holds, and a palette's own
-    // copy of n_fmt.
+    // a wrapper around the op's Args, which is all it holds, plus, for a
+    // palette, its own copy of n_fmt.
     template <class Base>
     void write(ArgsWriter &w, const std::string &at, const OddArgs<Base> &a)
     {
@@ -219,7 +219,7 @@ namespace mptorch::gemm_mps
       w.set(at + "n_fmt", int64_t{a.n_fmt});
     }
 
-    // The Metal name of an Args type the odd ops wrap.
+    // The Metal name of each Args type the odd ops wrap.
     const char *name_of(const BinaryKSplitArgs &) { return "BinaryKSplitArgs"; }
     const char *name_of(const BinaryKFusedArgs &) { return "BinaryKFusedArgs"; }
     const char *name_of(const SuperfpSplitArgs &) { return "SuperfpSplitArgs"; }
@@ -231,7 +231,7 @@ namespace mptorch::gemm_mps
     const char *name_of(const SuperfpSplitMixedArgs &) { return "SuperfpSplitMixedArgs"; }
     const char *name_of(const SuperfpFusedMixedArgs &) { return "SuperfpFusedMixedArgs"; }
 
-    // An AccumulateArgs: its base's fields, then the accumulation's.
+    // An AccumulateArgs: its base's fields, then the accumulation's own.
     template <class Base>
     std::string accumulated_source(const char *base, const AccumulateArgs<Base> &a)
     {
@@ -244,8 +244,8 @@ namespace mptorch::gemm_mps
       w.set("alg", a.alg);
       w.set("block_size", int64_t{a.block_size});
       w.set("outer_quant", a.outer_quant);
-      // An outer format that is off arrives as zero widths, which the
-      // device's Builder never derives a cast from (gemm_accumulate.h).
+      // An outer format that is off arrives as zero widths, from which the
+      // device's Builder never derives a cast (gemm_accumulate.h).
       w.set("outer", a.outer);
       w.set("outer_c", a.outer_c);
       return w.str();
@@ -365,8 +365,9 @@ namespace mptorch::gemm_mps
     return accumulated_source("BlockSplitArgs", a);
   }
 
-  // The odd carrier step's Args, for the sixteen the odd ops build: N's four,
-  // X's two cross-family and four palette ones, and Y's six accumulated ones.
+  // The odd carrier step's Args, for the sixteen the odd ops build: four
+  // single-format ones, two cross-family ones, four palette ones and six
+  // accumulated ones.
   template <class Base>
   std::string MpsBackend::args_source(const OddArgs<Base> &a)
   {
@@ -436,7 +437,7 @@ namespace mptorch::gemm_mps
                   s.M, ", ", s.K, ", ", s.N, " and ", s.batch);
     }
 
-    // The tail's first lines: C's dtype (the operands' too, except for the
+    // The tail's first lines: C's dtype (the operands' too, except in the
     // block GEMM, whose operands are codes) and the rounding mode.
     std::string tail_head(const GemmShape &s, const at::Tensor &c)
     {
@@ -467,8 +468,8 @@ namespace mptorch::gemm_mps
 
     // One launch over (ceil(N / tile), ceil(M / tile), batch) threadgroups:
     // the operands, C, the launch parameters and the precision map at
-    // buffers 0 to 4 (gemm.metal binds a map on every op and reads it on the
-    // mixed ones only; the others bind C there, which is never read), and
+    // buffers 0 to 4 (gemm.metal binds a map on every op and reads it only
+    // on the mixed ones; the others bind C there, which is never read), and
     // the variant's buffers after them.
     void launch_gemm(const GemmShape &s, const std::string &tail, mptorch_mps::KernelSource source,
                      const MpsBackend::LaunchContext &ctx, std::vector<mptorch_mps::KernelArg> extra)
@@ -510,8 +511,8 @@ namespace mptorch::gemm_mps
 
   } // namespace
 
-  // The kernel an Args compiles to: gemm.metal, after the odd headers for
-  // the odd carrier step's (metal_runtime.h).
+  // The kernel source an Args compiles from: gemm.metal, after the odd
+  // headers for the odd carrier step's Args (metal_runtime.h).
   static mptorch_mps::KernelSource gemm_source(bool odd)
   {
     return odd ? mptorch_mps::KernelSource::GemmOdd : mptorch_mps::KernelSource::Gemm;

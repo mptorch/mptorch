@@ -1,12 +1,13 @@
-// The MPS entry points of the custom_matmul_*_odd ops
-// (carrier_rounding=RoundMode.RO, phase Z): the text of their CPU twins
-// (cpu/custom_matmul_odd_entry.cpp) with the backend swapped. The bodies are
-// common/carrier_odd_host.h's (N's four) and carrier_odd_gemm_host.h's (X's
-// palette and cross-family six, Y's six *_accumulated_odd ones), shared with
-// the other backends, so the flags (MPTORCH_NO_ODD, MPTORCH_ODD_ACCUMULATED)
-// govern these ops as they do the CPU's, which is what the MPS tests hold
-// them to. The kernels are mps/gemm.metal's, compiled after mps/odd.metal
-// with the odd Args written into the instantiation (mps/gemm_backend.cpp).
+// The MPS entry points of the custom_matmul_*_odd ops, whose carrier step
+// rounds to odd (carrier_rounding=RoundMode.RO). The bodies are the same text
+// as their CPU twins (cpu/custom_matmul_odd_entry.cpp): each forwards to a
+// body shared with the other backends, in common/carrier_odd_host.h (the four
+// single-format ops) or common/carrier_odd_gemm_host.h (the four palette, two
+// cross-family and six *_accumulated_odd ops). So the build flags
+// MPTORCH_NO_ODD and MPTORCH_ODD_ACCUMULATED govern these ops as they govern
+// the CPU's, and the MPS tests expect that. The kernels are mps/gemm.metal's,
+// compiled after mps/odd.metal, with the odd Args written into the
+// instantiation (mps/gemm_backend.cpp).
 
 #include "../common/carrier_odd_gemm_host.h"
 #include "../quant_ops.h"
@@ -160,8 +161,9 @@ Tensor superfp_binaryK_matmul_odd_mps(Tensor a, Tensor b, bool trans_a, bool tra
                                                                 acc_prng_bits);
 }
 
-// Phase Y: the *_accumulated_odd ops (KAHAN, BLOCK and TREE), whose kernels
-// MPTORCH_ODD_ACCUMULATED=1 builds.
+// The *_accumulated_odd ops (KAHAN, BLOCK and TREE). Only a build with
+// MPTORCH_ODD_ACCUMULATED=1 runs them; without it they raise, naming the
+// flag.
 
 Tensor binaryK_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits)
 {
@@ -193,9 +195,11 @@ Tensor superfp_binaryK_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans
   return mptorch::gemm::run_superfp_binaryK_matmul_accumulated_odd<Backend>(a, b, trans_a, trans_b, mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, acc_K, acc_P, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, acc_saturation_mode, acc_subnormals_mode, mul_prng_bits, acc_prng_bits, block_size, outer_quant, outer_K, outer_P, outer_bias, outer_is_signed, outer_saturation_mode, outer_subnormals_mode, outer_prng_bits);
 }
 
-// _stochastic_cast (common/stochastic_cast_host.h) is test-only, and has no
-// Metal kernel: tests/test_mps.py holds every MPS stochastic op to the CPU's
-// word for word instead, and the CPU's casts to P3109 through this op.
+// _stochastic_cast (common/stochastic_cast_host.h) is a test-only op with no
+// Metal kernel, so its MPS entry point only raises.
+// tests/test_stochastic_rounding.py checks the CPU's stochastic casts against
+// P3109 through this op, and tests/test_mps.py compares every MPS stochastic
+// op with the CPU's, word for word.
 Tensor stochastic_cast_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, int64_t)
 {
   TORCH_CHECK(false, "_stochastic_cast: a test-only op with no MPS kernel; run it on a CPU or CUDA tensor");

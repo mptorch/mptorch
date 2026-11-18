@@ -1,6 +1,6 @@
-// The CUDA entry point of _carrier_odd (cuda/carrier_odd_kernel.cu runs it):
-// the tensors and the stream. A .cpp inside csrc/cuda/, so a CPU-only build
-// skips it.
+// The CUDA entry point of _carrier_odd, which handles the tensors and the
+// stream (cuda/carrier_odd_kernel.cu holds the kernel). This file is a .cpp
+// inside csrc/cuda/, so a CPU-only build skips it.
 
 #include "../common/carrier_odd_host.h"
 #include "../quant_ops.h"

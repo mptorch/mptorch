@@ -1,9 +1,12 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for custom_conv_superfp
+// and custom_conv_superfp_fma. They accumulate under AccumulateAlgorithm::KAHAN
+// (compensated summation) in the binary32 carrier (float32, float16 and
+// bfloat16 operands). The entry points are in ../custom_conv_entry.cpp, and
+// ../custom_matmul_kernel.h explains how the instantiations are divided among
+// the files in this directory.
 
-// The conv ops over superfp formats under AccumulateAlgorithm::KAHAN
-// (Kahan-compensated summation; common/gemm_accumulate.h), in binary32: the
-// gathered kernels (common/gemm_gather.h) of custom_conv_superfp and custom_conv_superfp_fma.
-// One of ten conv instantiation files (custom_conv_superfp.cpp says why).
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

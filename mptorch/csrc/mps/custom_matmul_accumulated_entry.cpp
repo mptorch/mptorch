@@ -1,12 +1,13 @@
 // The MPS entry points of the four accumulated GEMM ops: the single-format
 // ops under KAHAN, BLOCK or TREE (common/gemm_accumulate.h).
 //
-// The text of their CPU twins (cpu/custom_matmul_accumulated_entry.cpp)
-// with the backend swapped: each is its twin's packer plus the accumulation
-// arguments' (pack_*_outer), handed to the one driver in common/gemm_host.h
-// on an AccumulateArgs, which mps/gemm_backend.h writes into the Metal
-// kernel's instantiation with the algorithm. A file of its own, next to
-// custom_matmul_entry.cpp, as on the other backends.
+// The bodies are the same text as their CPU twins
+// (cpu/custom_matmul_accumulated_entry.cpp): each packs its twin's arguments
+// and the accumulation's (pack_*_outer) and hands them to
+// run_custom_matmul_accumulated (common/gemm_host.h), which runs the shared
+// driver on an AccumulateArgs; mps/gemm_backend.h writes that into the Metal
+// kernel's instantiation with the algorithm. They have a file of their own,
+// beside custom_matmul_entry.cpp, as on the other backends.
 
 #include "../common/gemm_host.h"
 #include "../quant_ops.h"

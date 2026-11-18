@@ -16,24 +16,22 @@ namespace
 
     // The per-thread quantizer of one launch: everything a thread needs to
     // round one element, in a struct the kernel takes by value. A kernel
-    // argument lands in the constant bank, so every thread's read of it is a
-    // broadcast served from cache and it occupies no registers until a field
+    // argument is placed in the constant bank, so every thread reads it as a
+    // broadcast served from cache, and it occupies no registers until a field
     // is used.
     //
     // `p` is a BinaryKParams built once on the host by make_binaryK_params
-    // (rounding masks, clipping range, subnormal floor), so the casts called
-    // here are the precomputed-parameter overloads; the (man_bits, exp_bits,
-    // bias, ...) spellings would re-derive all of that on every element. That
-    // overload is also the one that admits the float-arithmetic RNE fast
-    // path on the device. The rounding mode is a template parameter so that
-    // each instantiation carries exactly one cast body instead of a switch
-    // over seven.
+    // (rounding masks, clipping range, subnormal floor, and the format's part
+    // of the test for the float-arithmetic RNE fast path), so no element
+    // derives those constants again. The rounding mode is a template parameter
+    // so that each instantiation holds exactly one cast body instead of a
+    // switch over seven.
     //
     // T is the carrier the cast rounds in: double for a float64 tensor, and
-    // float for float32, float16 and bfloat16 (carrier_t in bit_helper.h).
-    // scalar() and scalar_sr() take one storage value and hand one back;
-    // vec() rounds the lanes of one 16-byte vector through SIMDTraits, which
-    // converts them to the carrier and back.
+    // float for float32, float16 and bfloat16 (carrier_t in
+    // common/bit_helper.h). scalar() and scalar_sr() take one storage value and
+    // return one; vec() rounds the lanes of one 16-byte vector through
+    // SIMDTraits, which converts them to the carrier and back.
     template <typename scalar_t, RoundMode RM>
     struct BinaryKQuantizer
     {
@@ -85,9 +83,9 @@ namespace
 
     };
 
-    // binaryK's (K, P) spelling to the cast's (man_bits, exp_bits): P counts
-    // the significand bits including the implicit one, and an unsigned
-    // format spends the sign's bit on the exponent field.
+    // From binaryK's (K, P) to the cast's (man_bits, exp_bits): P counts the
+    // significand bits including the implicit one, and an unsigned format
+    // gives the sign's bit to the exponent field.
     template <class T>
     BinaryKParamsT<T> binaryK_params(int K, int P, int bias, bool is_signed,
                                      SaturationMode saturation_mode,
@@ -99,10 +97,10 @@ namespace
                                       subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
     }
 
-    // The six deterministic modes: build the params once, then launch the
-    // quant_kernel_all instantiation of the requested mode. The grid covers
-    // max(vector count, remainder count) threads because the kernel serves
-    // the vector body and the scalar tail from the same thread index.
+    // The six deterministic modes: build the parameters once, then launch
+    // the requested mode's instantiation of quant_kernel_all. The grid covers
+    // max(vector count, remainder count) threads because the kernel uses the
+    // same thread index for the vector body and for the scalar tail.
     template <typename scalar_t>
     void binaryK_kernel_impl(const scalar_t *a, scalar_t *o, int64_t size,
                              int K, int P, int bias, bool is_signed,
@@ -151,7 +149,7 @@ namespace
     }
 
     // RoundMode::SR: one launch of quant_kernel_all_sr with a (seed, offset)
-    // pair drawn from ATen's generator; the kernel derives each element's
+    // pair taken from ATen's generator; the kernel derives each element's
     // random word from that pair and the element's own index.
     template <typename scalar_t>
     void binaryK_kernel_sr_impl(const scalar_t *a,
@@ -178,25 +176,25 @@ namespace
         quant_kernel_all_sr<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer, rng_args);
     }
 
-    // The body of both entry points: `size` elements of `a` rounded into
+    // The body of both entry points: the `size` elements of `a` rounded into
     // `o`, which is `a` itself for the in-place op. Both are contiguous and
-    // start on a 16-byte boundary, which each entry point sees to in its own
+    // start on a 16-byte boundary, which each entry point ensures in its own
     // way. The kernels read element i (or vector i) before they write it and
-    // touch no other, so a == o is value-safe; that is also why their input
-    // pointer carries no __restrict__ (utils.cuh).
+    // touch no other, so a == o is safe; that is also why their input pointer
+    // is not declared __restrict__ (cuda/utils.cuh).
     void binaryK_quantize_into(const Tensor &a, Tensor &o, int64_t K, int64_t P, int64_t bias,
                                int64_t prng_bits, bool is_signed, int64_t round_mode,
                                int64_t saturation_mode, int64_t subnormals_mode)
     {
-        // SR_B and SR_C run as SR with the variant in prng_bits
-        // (common/stochastic_host.h)
+        // SR_B and SR_C run as SR, with the variant recorded in prng_bits
+        // (common/stochastic_host.h).
         {
             int variant;
             round_mode = mptorch::sr_canonical(round_mode, variant);
             if (variant >= 0)
                 prng_bits = mptorch::sr_encode(prng_bits, variant, "binaryK_quant");
         }
-        const int64_t size = a.numel(); // int would truncate past 2^31 elements
+        const int64_t size = a.numel(); // an int would overflow past 2^31 elements
         if (size == 0)
             return;
         RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
@@ -233,12 +231,13 @@ Tensor binaryK_quantize_cuda(
     Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
     int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
-    // data_ptr() walks storage linearly, so a non-contiguous input would be
-    // read in the wrong order; mptorch/quant/ops.py calls .contiguous(), but
-    // a direct torch.ops.mptorch.binaryK_quant call need not. The kernel's
-    // 16-byte vector loads also fault on a contiguous view that does not
-    // start on a 16-byte boundary, so vector_loadable (vector_load.h) copies
-    // such a view as well.
+    // The kernel reads data_ptr() in storage order, so a non-contiguous input
+    // would be read in the wrong order. The Python wrappers already pass a
+    // contiguous tensor (mptorch/quant/ops/_checks.py's _quantizer_operand),
+    // but a direct torch.ops.mptorch.binaryK_quant call need not. The
+    // kernel's 16-byte vector loads also fault on a contiguous view that does
+    // not start on a 16-byte boundary, so vector_loadable
+    // (cuda/vector_load.h) copies such a view as well.
     auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     binaryK_quantize_into(a_c, o, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
@@ -248,8 +247,8 @@ Tensor binaryK_quantize_cuda(
 
 // mptorch::binaryK_quant_: the same rounding written over `a`, with no output
 // allocation. A copy would defeat it (the kernel would write the copy), so
-// what the out-of-place op launders, a strided tensor or a view off a 16-byte
-// boundary, this one refuses.
+// this op refuses the inputs that the out-of-place op copies: a strided
+// tensor, and a view that does not start on a 16-byte boundary.
 Tensor &binaryK_quantize_cuda_(
     Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
     int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)

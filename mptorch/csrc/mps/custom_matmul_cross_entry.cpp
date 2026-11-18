@@ -1,15 +1,15 @@
-// The MPS entry points of the six cross-family ops (common/gemm_cross.h), the
-// text of their CPU twins (cpu/custom_matmul_cross_entry.cpp) with the backend
-// swapped: a
-// split mac whose products are rounded to a format of one family and whose
-// partial sums to a format of the other. The NAIVE pair, its *_accumulated
-// twins (KAHAN, BLOCK and TREE) and the conv pair, each one packer call and
-// one call of a driver every other op shares: run_custom_matmul,
-// run_custom_matmul_accumulated and run_custom_conv_single.
+// The MPS entry points of the six cross-family ops (common/gemm_cross.h):
+// a split mac whose products are rounded to a format of one family and
+// whose partial sums to a format of the other. They are the NAIVE pair, its
+// *_accumulated twins (KAHAN, BLOCK and TREE) and the conv pair. The bodies
+// are the same text as their CPU twins (cpu/custom_matmul_cross_entry.cpp):
+// each is one packer call and one call of a driver the other ops share,
+// run_custom_matmul, run_custom_matmul_accumulated or
+// run_custom_conv_single.
 //
-// A file of its own, as on the other backends. Their kernels are
-// mps/gemm.metal's, with the CrossSplitArgs written into the instantiation
-// by mps/gemm_backend.cpp.
+// They have a file of their own, as on the other backends. Their kernels
+// are mps/gemm.metal's, with the CrossSplitArgs written into the
+// instantiation by mps/gemm_backend.cpp.
 
 #include "../common/gemm_cross_host.h"
 #include "../quant_ops.h"

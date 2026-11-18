@@ -1,9 +1,12 @@
-// binaryK conv passes (split) under AccumulateAlgorithm::TREE with the carrier step rounded to odd
-// (carrier_rounding=RoundMode.RO; common/carrier_odd_accumulate.h), in binary64.
-//
-// Instantiation-only, one of the 36 such files per backend that
-// MPTORCH_ODD_ACCUMULATED=1 builds (setup.py), each the odd twin of the
-// default file without the _odd suffix.
+// Explicit instantiations of the CUDA GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_binaryK_odd. They accumulate under AccumulateAlgorithm::TREE
+// (pairwise sums within each block of products) in the binary64 carrier
+// (float64 operands), and round each carrier step to odd
+// (carrier_rounding=RoundMode.RO). The entry points are in
+// ../custom_conv_odd_entry.cpp, and ../custom_matmul_kernel.cuh explains how
+// the instantiations are divided among the files in this directory.
+
 #include "../custom_matmul_kernel.cuh"
 #include "../../common/carrier_odd_accumulate.h"
 

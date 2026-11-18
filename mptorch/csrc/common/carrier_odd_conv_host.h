@@ -1,26 +1,27 @@
 #pragma once
 
-// The host side of the ten odd conv ops (custom_conv_*_odd;
+// The host side of the ten odd conv ops (custom_conv_*_odd, for
 // carrier_rounding=RoundMode.RO): one body per op, which
-// {cpu,cuda}/custom_conv_odd_entry.cpp name, each its twin's conv entry
-// point with the packed Args wrapped as in carrier_odd_gemm_host.h.
+// {cpu,cuda,mps}/custom_conv_odd_entry.cpp call. Each is its twin's conv
+// entry point with the packed Args wrapped, as in carrier_odd_gemm_host.h.
 //
-// The single-format and cross-family ones take their twins' schema, the
-// *_accumulated one, and run every algorithm through run_custom_conv_odd
-// below: KAHAN, BLOCK and TREE need a build with MPTORCH_ODD_ACCUMULATED=1,
-// whose odd Args have an AccumulateFamily (carrier_odd_accumulate.h), and
-// raise otherwise. The palette ones are NAIVE only like their twins.
+// The single-format and cross-family ones take their twins' schema, which
+// is the *_accumulated one, and run every algorithm through
+// run_custom_conv_odd below. KAHAN, BLOCK and TREE need a build with
+// MPTORCH_ODD_ACCUMULATED=1, in which the odd Args have an AccumulateFamily
+// (carrier_odd_accumulate.h), and raise otherwise. The palette ones are
+// NAIVE only, like their twins.
 
 #include "carrier_odd_gemm_host.h"
 
 namespace mptorch::gemm
 {
-  // A single-format or cross-family odd conv op. With MPTORCH_ODD_ACCUMULATED
-  // it is the twin's body, run_custom_conv_single, on the odd Args. Without
-  // it, that body's checks for a NAIVE call, in its order and with its
-  // messages, then the conv driver on the odd Args, and the other algorithms
-  // raise, naming the flag (run_custom_conv checks no algorithm, so the
-  // refusal is this function's).
+  // Runs a single-format or cross-family odd conv op. With
+  // MPTORCH_ODD_ACCUMULATED, it is the twin's body, run_custom_conv_single,
+  // on the odd Args. Without it, a NAIVE call runs that body's checks, in its
+  // order and with its messages, then the conv driver on the odd Args, and
+  // the other algorithms raise an error that names the flag
+  // (run_custom_conv checks no algorithm, so this function refuses them).
   template <class Backend, class Base, class Widths, class Common>
   at::Tensor run_custom_conv_odd(const char *op_name, const OddArgs<Base> &args,
                                  const AccumulateTail<Widths, Common> &tail, at::Tensor a,

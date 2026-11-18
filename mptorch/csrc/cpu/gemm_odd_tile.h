@@ -1,23 +1,25 @@
 #pragma once
 
-// The CPU GEMM's binaryK RNE steps with the carrier rounded to odd,
-// vectorized: cpu/gemm_rne_tile.h's tiles for the odd macs
-// (carrier_rounding=RoundMode.RO; common/carrier_odd.h).
+// Vector code for the CPU GEMM's binaryK steps under RNE when the carrier
+// step rounds to odd (carrier_rounding=RoundMode.RO; common/carrier_odd.h):
+// cpu/gemm_rne_tile.h's tiles for the odd macs.
 //
-// The same contract as gemm_rne_tile.h's: a packed tile's K-block runs here
-// in place of the scalar loop when that computes the same thing, which is a
-// NAIVE single-format binaryK GEMM in binary32 under RNE whose formats are
-// signed, under SUBNORMALS and admitted by the fast gate. Each lane computes
-// the scalar step, carrier_odd.h's odd primitive and cast_binaryK_rne_fast,
-// in K order, and a K-block whose tile ends with a NaN is handed back with
-// its sums as they were. cpu/gemm_odd_tile.cpp holds the bodies.
+// The contract is cpu/gemm_rne_tile.h's: a packed tile's K-block runs here
+// in place of the scalar loop when the two compute the same thing, which is
+// when the GEMM is a NAIVE single-format binaryK GEMM in binary32 under RNE
+// whose formats are signed, under SUBNORMALS and admitted by the fast gate.
+// Each lane computes the scalar step (carrier_odd.h's odd primitive, then
+// cast_binaryK_rne_fast) in K order, and a K-block that leaves a NaN in its
+// tile is handed back with its sums restored. cpu/gemm_odd_tile.cpp holds
+// the bodies.
 //
-// A header of its own, which only the odd units include (through
-// cpu/custom_matmul_odd_kernel.h), so gemm_rne_tile.h, and with it every
-// default object, is what it was. Each odd kind is a specialization of
-// gemm_rne_tile.h's trait and of its run_rne_tile, both named by one alias:
-// run_rne_tile's primary would take any other kind for the fused RNE tile,
-// which an odd Mac, holding the same policies, would compile against.
+// Only the odd units include this header (through
+// cpu/custom_matmul_odd_kernel.h), so gemm_rne_tile.h and every default
+// object do not depend on it. Each odd kind (4 to 6) is a specialization of
+// both rne_tile_kind and run_rne_tile, and the two name the Mac through one
+// alias. Both are needed: run_rne_tile's primary template treats every kind
+// other than 1 and 2 as the fused RNE tile, and an odd Mac, which holds the
+// same policies as the default one, would compile against it.
 
 #include "../common/carrier_odd.h"
 #include "gemm_rne_tile.h"
@@ -32,7 +34,8 @@ namespace mptorch::gemm_cpu
     const char *isa = "none";
   };
 
-  // Chosen as rne_tiles is (MPTORCH_CPU_SIMD included), when the extension loads.
+  // Chosen as rne_tiles is (MPTORCH_CPU_SIMD included), when the extension
+  // loads.
   extern const OddTiles odd_tiles;
 
   using OddSplitTileMac = mptorch::gemm::SplitMacOdd<BinaryKMultiplierT<float, RoundMode::RNE>,

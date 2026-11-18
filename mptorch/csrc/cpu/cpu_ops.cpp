@@ -1,11 +1,12 @@
-// The CPU dispatch-key registrations: binds each op declared in quant_ops.cpp
-// to its CPU implementation (declared in quant_ops.h, defined in the kernel
-// files of this directory). The op schema is declared once, in
+// The CPU dispatch-key registrations: binds each op that quant_ops.cpp
+// declares to its CPU implementation (declared in quant_ops.h, defined in the
+// files of this directory). Each op's schema is declared once, in
 // quant_ops.cpp's TORCH_LIBRARY block, and each backend registers its
-// implementation under its own key in a block like this one, so a call to
-// torch.ops.mptorch.<op> reaches the CPU or CUDA function according to the
-// device of its tensors. cuda/cuda_ops.cpp is this file's CUDA twin,
-// mps/mps_ops.cpp its MPS one, and autograd_ops.cpp registers the Autograd key.
+// implementations under its own dispatch key in a block like this one, so a
+// call to torch.ops.mptorch.<op> reaches the CPU, CUDA or MPS function
+// according to the device of its tensors. cuda/cuda_ops.cpp and
+// mps/mps_ops.cpp are this file's twins, meta/meta_ops.cpp registers the
+// Meta key, and autograd_ops.cpp the Autograd key.
 
 #include "../quant_ops.h"
 #include <torch/library.h>

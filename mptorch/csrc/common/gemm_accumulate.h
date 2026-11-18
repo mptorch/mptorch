@@ -1,29 +1,30 @@
 #pragma once
 
-// The three accumulate algorithms past NAIVE (modes.h's AccumulateAlgorithm):
-// KAHAN, BLOCK and TREE, as Accumulator policies over the same Mac policies
-// NaiveAccumulator drives (gemm_policy.h), and the Args wrapper that builds
-// them from the schema of an *_accumulated op, the twin each single-format op
-// has for them.
+// The three accumulate algorithms besides NAIVE (modes.h's
+// AccumulateAlgorithm): KAHAN, BLOCK and TREE. They are accumulator policies
+// that drive the same Mac policies as NaiveAccumulator (gemm_policy.h). This
+// header also holds AccumulateArgs, which builds them from the arguments of
+// an *_accumulated op, the version of a single-format op that takes these
+// algorithms.
 //
-// A header of its own, which gemm_policy.h and gemm_args.h do not include, on
-// purpose: those two are what the NAIVE kernels are compiled from, on three
-// compilers, and nothing here may move them. The CUDA and CPU kernel headers
-// include this one and recognize its accumulators by `positional` below; a
-// NaiveAccumulator, which has no such member, takes exactly the code path it
-// took before this file existed (byte for byte when 0479b96 added it). The
-// Metal prelude includes it too (mps/gemm.metal drives the accumulators
-// through the same contract, and recognizes them with a trait of its own,
-// since is_positional_accumulator_v is a C++20 requires-
-// expression), so it is written the way the other common/ headers are, with
-// MPTORCH_THREAD on references and function objects rather than lambdas.
+// gemm_policy.h and gemm_args.h deliberately do not include this header.
+// The NAIVE kernels are compiled from those two, by three compilers, and
+// nothing here may change what they compile to. The CUDA and CPU kernel
+// headers include this one, and recognize its accumulators by their
+// `positional` member; a NaiveAccumulator, which has none, takes exactly the
+// code path it would take if this header did not exist. The Metal prelude
+// includes it too: mps/gemm.metal drives these accumulators through the same
+// contract, and recognizes them with a trait of its own, since
+// is_positional_accumulator_v is a C++20 requires-expression, which Metal's
+// C++14 lacks. So this header is written like the other common/ headers, with
+// MPTORCH_THREAD on references, and function objects instead of lambdas.
 //
-// Semantics. `mul` and `add` are the Mac's two roundings (`add` is the
-// identity when the accumulate format is off), `outer` a third (the identity
-// when no outer format is given), and k runs over the K steps of one output
-// element's dot product, in order. Under RoundMode::SR every rounding that
-// is not an identity draws once from the element's stream, in the order the
-// expressions below are written.
+// What they compute. `mul` and `add` are the Mac's two roundings (`add` is
+// the identity when the accumulate format is off), and `outer` is a third
+// (the identity when no outer format is given). k runs over the K steps of
+// one output element's dot product, in order. Under RoundMode::SR, every
+// rounding that is not the identity draws once from the element's random
+// stream, in the order in which the expressions below are written.
 //
 //   KAHAN   y = add(mul(a*b) - c)         split;  add(fma(a, b, -c)) fused
 //           t = add(s + y)
@@ -34,50 +35,60 @@
 //           after step k, if (k+1) % block_size == 0 or k+1 == K:
 //             tot = outer(tot + blk); blk = 0          result: tot
 //
-//   TREE    (split macs only) p_i = mul(a*b) is product i of its block of
-//           block_size = 2^L. It is merged upward through the levels the
-//           trailing ones of i select, v = add(level[l] + v), and parked at
-//           the first level whose bit is clear: a binary counter, which sums
-//           the block pairwise, (p0+p1)+(p2+p3), in the order the products
-//           arrive. Product 2^L - 1 merges through all L levels and leaves
-//           the block's root: tot = outer(tot + root). A last partial block
-//           is flushed at K: the occupied levels are merged lowest first,
-//           v = add(level[l] + v), and the result folded the same way.
-//                                                     result: tot
+//   TREE    (split macs only) p_i = mul(a*b) is product i of its block, which
+//           has block_size = 2^L products. It is merged upward through the
+//           levels that the trailing one bits of i select,
+//           v = add(level[l] + v), and stored at the first level whose bit
+//           of i is zero. This is a binary counter, which sums the block
+//           pairwise, (p0+p1)+(p2+p3), in the order the products arrive.
+//           Product 2^L - 1 merges through all L levels, and the result is
+//           the block's root: tot = outer(tot + root). A last, partial block
+//           is flushed at K: its occupied levels are merged lowest first,
+//           v = add(level[l] + v), and the result is added to tot in the same
+//           way.                                      result: tot
 //
 // Nothing is padded: step k exists only for k < K, on every backend, so a
-// result does not depend on the 16-deep slabs the CUDA kernel stages its
-// operands in. (Padding the tail with zero products, which is free for NAIVE,
-// would not be for KAHAN: a zero product still applies the pending
-// compensation.) No result is -0.0: every sum above starts from +0.0, a cast
-// never returns -0.0, and x + y is -0.0 only when both are.
+// result does not depend on the slabs of 16 steps in which the CUDA kernel
+// stages its operands. (Padding the end with zero products, which costs NAIVE
+// nothing, would change KAHAN's result: a zero product still applies the
+// pending compensation.) No result is -0.0: every sum above starts from +0.0,
+// a cast never returns -0.0, and x + y is -0.0 only when both are.
 //
-// The kernel contract is NaiveAccumulator's plus a position:
+// The contract with the kernel is NaiveAccumulator's plus a position (the
+// "positional contract"):
 //
-//   accumulate(a, b, pos)   pos = k & 15. BLOCK folds a block that divides
-//                           16 here, TREE walks its first four levels.
+//   accumulate(a, b, pos)   pos = k & 15, the step's position in its slab.
+//                           BLOCK adds a finished block to the total here
+//                           when block_size divides 16, and TREE walks its
+//                           first four levels.
 //   end_slab(k_end, K)      after step k_end - 1, when k_end % 16 == 0 or
-//                           k_end == K: what happens at most once per 16
-//                           steps. BLOCK's fold for a block_size that is a
-//                           multiple of 16, TREE's levels 4 and up, and both
-//                           algorithms' handling of the last partial block.
+//                           k_end == K, so at most once per 16 steps. BLOCK
+//                           adds a finished block here when block_size is a
+//                           multiple of 16, TREE walks its levels from 4 up,
+//                           and both handle the last, partial block.
 //
-// which is why BLOCK's block_size must divide 16 or be a multiple of it: the
-// fold test is then a mask per step or a modulo per slab, never a division
-// per step. Every array below is indexed by constants only (the level walks
-// are written out), so a GPU thread keeps the whole state in registers; a
-// dynamically indexed array would be placed in local memory (philox.h).
+// This is why BLOCK's block_size must divide 16 or be a multiple of 16: the
+// test for the end of a block is then a mask per step or a remainder per
+// slab, never a division per step. Every array below is indexed by
+// constants only (the walks over the levels are written out), so a GPU
+// thread keeps the whole state in registers; an array indexed at run time
+// would be placed in local memory (see the note on PhiloxEngine in
+// philox.h).
 //
-// State per output element: KAHAN two carrier values, BLOCK two, TREE ten.
+// The state per output element is two carrier values for KAHAN, two for
+// BLOCK and ten for TREE.
 
 #include "gemm_args.h"
 
 // ---------------------------------------------------------------------------
-// The pieces of a Mac the algorithms need separately. Free functions rather
-// than members of SplitMac/FusedMac so that gemm_policy.h stays as it was.
+// The parts of a Mac that the algorithms use separately. They are free
+// functions rather than members of SplitMac and FusedMac, so that
+// gemm_policy.h, and the NAIVE kernels built from it, do not change for
+// them.
 
-// KAHAN's term: the product less the running compensation, rounded to the
-// accumulate format. A fused mac forms it with one FMA, as its step does.
+// KAHAN's term: the product minus the running compensation, rounded to the
+// accumulate format. A fused mac computes it with one FMA, as its step
+// does.
 template <class Multiplier, class Adder>
 CUDA_HOST_DEVICE_INLINE typename Adder::value_t
 mac_term(const MPTORCH_THREAD SplitMac<Multiplier, Adder> &m, typename Adder::value_t a,
@@ -99,8 +110,8 @@ mac_term(const MPTORCH_THREAD FusedMac<Adder> &m, typename Adder::value_t a,
 #endif
 }
 
-// Whether a Mac is a fused multiply-add, whose step is one rounding where a
-// split mac's is two. BLOCK's unroll factor depends on it.
+// Whether a Mac is a fused mac, whose step rounds once where a split mac's
+// rounds twice. BLOCK's unroll factor depends on it.
 template <class Mac>
 struct is_fused_mac
 {
@@ -114,27 +125,30 @@ struct is_fused_mac<FusedMac<Adder>>
 };
 
 // Whether a Mac's carrier operations round to odd (carrier_rounding=
-// RoundMode.RO): false here, true for the odd macs, which
-// common/carrier_odd_accumulate.h says. The algorithms below then take, at
-// each carrier operation a format rounds, its odd twin (odd_sum, odd_diff,
-// odd_fold, defined in that header and found by argument-dependent lookup).
-// The choice is an `if constexpr` in front of the plain statement, which
-// every other Mac compiles exactly as before, and not a function each Mac
-// calls: such hooks, inlined, moved 162 device functions and 22 host objects
-// of the existing kernels when they were tried (their arguments are
-// evaluated in another order than the expression's operands, and the
-// operand order and register allocation followed), while a discarded branch
-// compiles to nothing.
+// RoundMode.RO). It is false here, and carrier_odd_accumulate.h sets it to
+// true for the odd macs. For those, the algorithms below replace each
+// carrier operation whose result a format then rounds by its round-to-odd
+// version (odd_sum, odd_diff, odd_fold, defined in that header and found by
+// argument-dependent lookup). The choice is an `if constexpr` placed in front
+// of the plain statement, which every other Mac compiles exactly as it
+// would without it, rather than a function that every Mac calls. Such
+// functions, even inlined, changed 162 device functions and 22 host objects
+// of the existing kernels when they were tried: their arguments are
+// evaluated in a different order from the expression's operands, and the
+// operand order and the register allocation changed with it. A discarded
+// branch compiles to nothing. So a change here must keep the plain
+// statements as they are and test the trait, not wrap them.
 template <class Mac>
 struct carrier_rounds_to_odd
 {
     static constexpr MPTORCH_CONSTANT bool value = false;
 };
 
-// The Mac an accumulator drives, given the one its base Args built: that Mac,
-// except where common/carrier_odd_accumulate.h maps an odd split mac to one
-// whose multiply rounds the product to odd, as TREE's product and KAHAN's
-// term take it. A type, so that no statement below changes for it.
+// The Mac that an accumulator drives, given the one its base Args built:
+// that same Mac, except that carrier_odd_accumulate.h maps an odd split mac
+// to one whose multiply rounds the product to odd, which is the product that
+// TREE and KAHAN's term need. It is a type mapping, so that no statement
+// below changes for it.
 template <class Mac>
 struct accumulate_mac
 {
@@ -142,8 +156,9 @@ struct accumulate_mac
 };
 
 // ---------------------------------------------------------------------------
-// Per-output-element state. Plain aggregates, zero-initialized, each naming
-// the field a finished reduction is read from.
+// The state of one output element's sum. Each is a plain aggregate,
+// initialized to zero, whose result() returns the field that holds the
+// finished sum.
 
 template <class T>
 struct KahanState
@@ -161,8 +176,9 @@ struct BlockState
     CUDA_HOST_DEVICE_INLINE T result() const { return tot; }
 };
 
-// lo[l] and hi[l] hold a finished subtree of 2^l and 2^(4+l) products; `slab`
-// is the 16-product subtree accumulate() hands to end_slab().
+// lo[l] holds a finished subtree of 2^l products and hi[l] one of 2^(4+l)
+// products. `slab` is the subtree of 16 products that accumulate() passes to
+// end_slab().
 template <class T>
 struct TreeState
 {
@@ -173,8 +189,9 @@ struct TreeState
     CUDA_HOST_DEVICE_INLINE T result() const { return tot; }
 };
 
-// The CPU tile for these accumulators: NaiveTile's contract (gemm_policy.h)
-// over a dense array of State instead of a dense array of sums. Host-only.
+// The CPU tile for these accumulators: the same interface as NaiveTile
+// (gemm_policy.h), over a dense array of states instead of a dense array of
+// sums. Host only.
 #if !defined(__METAL_VERSION__)
 template <class State>
 struct StateTileView
@@ -197,9 +214,10 @@ struct StateTile
 
     StateTileView<State> view() { return {states.data(), streams.data()}; }
 
-    // A new tile: the first `n` elements' state back to zero, every field of
-    // it. (A TreeState's levels would not need it, being written before they
-    // are read, but its total does, and one fill is simpler than two rules.)
+    // Resets the whole state of the first `n` elements to zero for a new
+    // tile. (A TreeState's levels would not need it, since they are written
+    // before they are read, but its total does, and one fill is simpler than
+    // two rules.)
     void begin(int64_t n) { std::fill_n(states.data(), static_cast<size_t>(n), State{}); }
 
     void seed_rng(int64_t idx, uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
@@ -214,10 +232,10 @@ struct StateTile
 #endif // !__METAL_VERSION__
 
 // ---------------------------------------------------------------------------
-// The accumulators. Each is, like NaiveAccumulator, one GPU thread's whole
-// state in its object form and a set of static functions over a tile on the
-// CPU. Both forms call the same `step` / `slab`, with the accumulator itself
-// as the read-only configuration, so the two cannot disagree.
+// The accumulators. Like NaiveAccumulator, each has an object form, which is
+// one GPU thread's whole state, and static functions over a CPU tile. Both
+// forms call the same `step` and `slab` functions, which read the
+// accumulator object as the configuration, so the two cannot disagree.
 
 template <class Mac>
 struct KahanAccumulator
@@ -283,9 +301,11 @@ struct KahanAccumulator
 #endif
 };
 
-// `outer_quant` is a runtime flag rather than a second Outer type: the fold
-// runs once per block, not once per step, and an IdentityAdder instantiation
-// of every BLOCK and TREE kernel would double their number for it.
+// `outer_quant` is a flag read at run time rather than a choice of Outer type
+// (an IdentityAdder when it is off). Adding a block's sum to the total
+// happens once per block, not once per step, so the flag costs little,
+// whereas a second Outer type would double the number of BLOCK and TREE
+// kernels.
 template <class Mac, class Outer>
 struct BlockAccumulator
 {
@@ -301,8 +321,9 @@ struct BlockAccumulator
     Mac mac{};
     Outer outer{};
     bool outer_quant = false;
-    // A block that divides 16 (and is not 16) folds inside the slab, on
-    // (pos + 1) & lo_mask; any other folds at a slab's end, on k_end % block.
+    // A block_size that divides 16 (other than 16 itself) ends its blocks
+    // within the slab, where (pos + 1) & lo_mask is zero; any other ends
+    // them at the end of a slab, where k_end % block is zero.
     bool in_slab = false;
     int lo_mask = 0;
     int64_t block = 16;
@@ -349,8 +370,9 @@ struct BlockAccumulator
                                              MPTORCH_THREAD PhiloxEngine &rng, int64_t k_end,
                                              int64_t K)
     {
-        // In-slab blocks have folded every whole block already; what is left
-        // at K is a partial one. Slab-end blocks fold here or not at all.
+        // When blocks end within the slab, every whole block has already been
+        // added, and what is left at K is a partial one. Otherwise blocks are
+        // added here or not at all.
         const bool due = cfg.in_slab ? (k_end == K && (K & cfg.lo_mask) != 0)
                                      : (k_end == K || k_end % cfg.block == 0);
         if (due)
@@ -395,8 +417,8 @@ struct TreeAccumulator
     Mac mac{};
     Outer outer{};
     bool outer_quant = false;
-    // block_size = 2^levels. The first min(levels, 4) levels live inside a
-    // 16-step slab (lo), the rest across slabs (hi).
+    // block_size = 2^levels. The first min(levels, 4) levels are within a
+    // slab of 16 steps (lo), and the others span slabs (hi).
     int lo_levels = 4;
     int hi_levels = 0;
     int lo_mask = 15;
@@ -429,11 +451,11 @@ struct TreeAccumulator
         st.tot = cfg.outer_quant ? cfg.outer(x, rng) : x;
     }
 
-    // One level of the binary counter: `i` is the subtree's index among its
-    // siblings and `l` the level `slot` holds. Returns whether `v` is still
-    // looking for its level. A level at or past `levels` is not part of the
-    // walk, so a `v` that has merged through all of them stays open and is
-    // the finished subtree.
+    // One level of the binary counter. `i` is the subtree's index among its
+    // siblings, and `l` the level that `slot` holds. Returns whether `v` has
+    // yet to be stored at a level. A level at or above `levels` is not part
+    // of the walk, so a `v` that has merged through all of them is still
+    // unstored, and is the finished subtree.
     CUDA_HOST_DEVICE_INLINE static bool walk(const MPTORCH_THREAD TreeAccumulator &cfg,
                                              MPTORCH_THREAD value_t &slot, int l, int levels, int i,
                                              MPTORCH_THREAD value_t &v,
@@ -455,7 +477,8 @@ struct TreeAccumulator
         return false;
     }
 
-    // One occupied level of a partial block, merged into the flush.
+    // Merges one level of a partial block, if it is occupied, into the value
+    // being flushed.
     CUDA_HOST_DEVICE_INLINE static void drain(const MPTORCH_THREAD TreeAccumulator &cfg, value_t slot,
                                               bool occupied, MPTORCH_THREAD value_t &v,
                                               MPTORCH_THREAD bool &any,
@@ -487,8 +510,9 @@ struct TreeAccumulator
         open = open && walk(cfg, st.lo[3], 3, n, i, v, rng);
         if (open)
         {
-            // Every in-slab level merged: a whole block of at most 16, or
-            // one 16-product subtree of a larger block.
+            // Every level within the slab has merged: this is a whole block
+            // of at most 16 products, or a subtree of 16 products of a
+            // larger block.
             if (cfg.hi_levels == 0)
                 fold(cfg, st, rng, v);
             else
@@ -503,8 +527,8 @@ struct TreeAccumulator
     {
         if (cfg.hi_levels != 0 && (k_end & 15) == 0)
         {
-            // A whole slab just ended, and st.slab is its subtree: the same
-            // counter, over slabs.
+            // A whole slab has just ended, and st.slab is its subtree: run
+            // the same counter over slabs.
             value_t v = st.slab;
             const int i = static_cast<int>((k_end >> 4) - 1) & cfg.hi_mask;
             const int n = cfg.hi_levels;
@@ -517,9 +541,9 @@ struct TreeAccumulator
         }
         if (k_end != K)
             return;
-        // The last block, if K left it partial: its size in binary says which
-        // levels hold a subtree. Lowest first, so each merge keeps the
-        // earlier products on the left.
+        // The last block, if K left it partial. Its size, in binary, says
+        // which levels hold a subtree. They are merged lowest level first,
+        // so each merge keeps the earlier products on the left.
         const int r = static_cast<int>(K & cfg.block_mask);
         if (r == 0)
             return;
@@ -559,8 +583,9 @@ struct TreeAccumulator
 #endif
 };
 
-// Whether a kernel drives this Accumulator through the positional contract
-// (accumulate with a position, end_slab) rather than NaiveAccumulator's.
+// Whether a kernel drives this accumulator through the positional contract
+// (accumulate with a position, then end_slab) rather than through
+// NaiveAccumulator's.
 #if !defined(__METAL_VERSION__)
 template <class Accumulator>
 inline constexpr bool is_positional_accumulator_v = requires { Accumulator::positional; };
@@ -569,9 +594,9 @@ inline constexpr bool is_positional_accumulator_v = requires { Accumulator::posi
 namespace mptorch::gemm
 {
 
-  // The family an accumulated op's outer format belongs to, and whether its
-  // mac has a product term to build a tree of, by the single-format Args it
-  // wraps.
+  // For each single-format Args that an AccumulateArgs can wrap: the family
+  // of the outer format (its Widths and Common types), and whether the mac
+  // has a separate product, which TREE needs.
   template <class Base>
   struct AccumulateFamily;
 
@@ -607,14 +632,15 @@ namespace mptorch::gemm
     static constexpr MPTORCH_CONSTANT bool has_product = false;
   };
 
-  // The most random values one K-step of an algorithm may draw under
-  // RoundMode::SR, given what the Mac's own step draws (2 split, 1 fused). An
-  // upper bound is all the reservation it sizes needs. KAHAN rounds y, t,
-  // t - s and c on top of the multiply: the mac's count plus three. BLOCK
-  // adds at most one fold per step. TREE draws one multiply per product,
-  // fewer than one merge per product over a block and at most one fold, and
-  // its flush of a partial block merges fewer levels than the block has
-  // products.
+  // The largest number of random draws one K-step of an algorithm may take
+  // under RoundMode::SR, given what the Mac's own step draws (two for a
+  // split mac, one for a fused one). The result sizes a reservation of
+  // random numbers, so an upper bound is enough. KAHAN rounds y, t, t - s and
+  // c besides the product: the mac's count plus three. BLOCK adds at most
+  // one rounding of the total per step. TREE rounds one product per step,
+  // fewer merges than products over a block, and at most one addition to
+  // the total per block, and the flush of a partial block merges fewer
+  // levels than the block has products.
   inline uint64_t accumulate_draws_per_k_step(AccumulateAlgorithm alg, uint64_t mac_draws)
   {
     switch (alg)
@@ -630,8 +656,8 @@ namespace mptorch::gemm
     }
   }
 
-  // log2 of a power of two in [2, 256], TREE's block_size; the host has
-  // validated it.
+  // The base-2 logarithm of TREE's block_size, a power of two in [2, 256]
+  // that the host has already checked.
   CUDA_HOST_DEVICE_INLINE int tree_levels(int block_size)
   {
     int levels = 0;
@@ -640,13 +666,14 @@ namespace mptorch::gemm
     return levels;
   }
 
-  // A single-format op's Args plus what its *_accumulated twin's schema says
-  // about the accumulation: the Args of a KAHAN, BLOCK or TREE call. A NAIVE
-  // call never builds one; it runs on `Base` itself, as it always has.
+  // The Args of a KAHAN, BLOCK or TREE call: a single-format op's Args plus
+  // what its *_accumulated twin's schema says about the accumulation. A NAIVE
+  // call never builds one; it runs on `Base` itself.
   //
-  // with_accumulator<T, RM, ALG> reuses Base's factory for the Mac, which
-  // hands it a NaiveAccumulator whose Mac is the one to drive, so the choice
-  // between an Adder and an IdentityAdder stays written once.
+  // with_accumulator<T, RM, ALG> reuses Base's factory to build the Mac: the
+  // factory hands it a NaiveAccumulator, whose Mac is the one to drive, so
+  // the choice between an Adder and an IdentityAdder is written in one
+  // place.
   template <class Base>
   struct AccumulateArgs
   {
@@ -662,8 +689,9 @@ namespace mptorch::gemm
     Widths outer{};
     Common outer_c{};
 
-    // The most random values one K-step may draw under RoundMode::SR, which
-    // depends on the algorithm and so is not the constant it is on Base.
+    // The largest number of random draws one K-step may take under
+    // RoundMode::SR. It depends on the algorithm, so unlike Base's it is not
+    // a constant of the type.
     uint64_t draws_per_k_step() const
     {
       return accumulate_draws_per_k_step(alg, Base::draws_per_k_step);
@@ -685,9 +713,9 @@ namespace mptorch::gemm
         }
         else
         {
-          // An outer format that is off arrives as zero widths, which no
-          // cast's constants should be derived from; the adder is then
-          // never called and a value-initialized one will do.
+          // An outer format that is off arrives as zero widths, from which
+          // no cast's constants should be derived. The adder is then never
+          // called, so a value-initialized one is enough.
           using Outer = decltype(make_add<T, RM>(args.outer, args.outer_c));
           const Outer outer = args.outer_quant ? make_add<T, RM>(args.outer, args.outer_c) : Outer{};
           if constexpr (ALG == AccumulateAlgorithm::BLOCK)

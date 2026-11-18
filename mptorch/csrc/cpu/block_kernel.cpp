@@ -1,33 +1,35 @@
 // The CPU kernels and entry points of the elementwise block ops: block_pack,
-// block_unpack, block_quant and block_quant_ (common/block_decode.h has the
-// format; mptorch/quant/block.py the Python side).
+// block_unpack, block_quant and block_quant_ (common/block_decode.h defines
+// the format; mptorch/quant/ops/block.py is the Python side).
 //
-// A pack or quantize call is one task per tile, a tile being block_rows rows
-// of one block (block_rows = 1 for a 1D format), over ATen's thread pool: an
-// amax pass over the tile, its scale, then an encode pass over the same
-// elements, which reads element i before it writes it and touches no other,
-// so the in-place quantizer is sound. The encode rounds through the element
-// format's cast in the call's rounding mode, a template parameter as for the
-// GEMM, and with the sign as a template parameter as in binaryK_kernel.cpp,
-// which folds the cast's unsigned early return away (2.5x there). Inputs are
-// read through their strides, so a transposed view packs without a copy.
+// A pack or quantize call runs one task per tile on ATen's thread pool, a
+// tile being block_rows rows of one block (block_rows = 1 for a 1D format):
+// an amax pass, which finds the tile's largest magnitude, the tile's scale,
+// then an encode pass over the same elements. The encode pass reads element
+// i before it writes it and touches no other, so the in-place quantizer is
+// sound. It rounds through the element format's cast in the call's rounding
+// mode, which is a template parameter as in the GEMM, and with the sign as a
+// template parameter, as in binaryK_kernel.cpp, so that the cast's early
+// return for an unsigned format disappears (2.5x in binaryK_kernel.cpp's
+// loop). Inputs are read through their strides, so a transposed view is
+// packed without a copy.
 //
-// A Four Over Six rule's calls leave for block_kernel_fos.cpp before any of
-// that (run_pack). The rule reads a tile's elements between the two passes,
-// and written into pack_tiles, even behind a template parameter, it moved the
-// register and stack assignment of every other rule's instantiation, so
-// pack_tiles is its text at 4abbc6e, from before the rule, and is not the
-// place for the next one either.
+// A call under a Four Over Six rule goes to block_kernel_fos.cpp before any
+// of that (run_pack). The rule reads a tile's elements between the two
+// passes, and written into pack_tiles (cpu/block_pack_tiles.h), even behind
+// a template parameter, it changed the register and stack assignment of
+// every other rule's instantiation. So pack_tiles keeps its text from before
+// the rule, and is not the place for the next rule either.
 //
 // Tiles are disjoint and each element's stochastic draw is keyed on its own
-// index (common/block_kernels.h), so results do not depend on the thread
+// index (common/block_kernels.h), so the results do not depend on the thread
 // count.
 //
-// The kernels themselves are templates on the storage dtype in
-// block_pack_tiles.h and block_pack_tiles_fos.h, which round in its carrier:
-// this file instantiates the binary32 ones (float32, float16, bfloat16), and
+// The kernels are templates on the storage dtype, in cpu/block_pack_tiles.h
+// and cpu/block_pack_tiles_fos.h, and round in its carrier: this file
+// instantiates the binary32 ones (float32, float16 and bfloat16), and
 // block_kernel_f64.cpp the binary64 ones (float64), so that MPTORCH_NO_FP64
-// can leave those out with the file. The entry points pick the carrier from
+// can leave those out with that file. The entry points pick the carrier from
 // the dtype and check the format against it.
 
 #include "../common/stochastic_host.h"
@@ -75,7 +77,8 @@ namespace
   }
 
 #if !defined(MPTORCH_NO_FP64)
-  // binary64: a float64 tensor, whose kernels block_kernel_f64.cpp holds.
+  // The binary64 carrier, for a float64 tensor; its kernels are in
+  // block_kernel_f64.cpp.
   void run_pack(const BlockPackJob &j, const BlockFormatParamsT<double> &p, const BlockCastT<double> &c)
   {
     mptorch::block_cpu::run_pack_f64(j, p, c, j.rm == RoundMode::SR ? draw_cpu_seed() : 0);
@@ -87,9 +90,9 @@ namespace
   }
 #endif
 
-  // Calls `f` with a value of the carrier dtype `dt` rounds in: double for
-  // float64 (block_dtype has refused it in a build without binary64
-  // kernels), float otherwise.
+  // Calls `f` with a value of the type of the carrier that the dtype `dt`
+  // rounds in: double for float64 (in a build without binary64 kernels,
+  // block_dtype has already refused float64), and float otherwise.
   template <class F>
   void with_carrier(mptorch::GemmDtype dt, F &&f)
   {
@@ -109,7 +112,8 @@ namespace
     const BlockExtents e = block_extents(x, op);
     const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
     Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
-    // SR_B and SR_C run as SR with the variant in the element's prng_bits
+    // SR_B and SR_C run as SR, with the variant recorded in the element
+    // format's prng_bits.
     mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                               round_mode, op);
     if (x.numel() == 0)
@@ -134,7 +138,8 @@ std::tuple<Tensor, Tensor> block_pack_cpu(Tensor x, c10::IntArrayRef fmt, double
   const BlockExtents e = block_extents(x, op);
   const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
   Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
-  // SR_B and SR_C run as SR with the variant in the element's prng_bits
+  // SR_B and SR_C run as SR, with the variant recorded in the element
+  // format's prng_bits.
   mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
                             round_mode, op);
   std::tuple<Tensor, Tensor> out;
@@ -187,9 +192,9 @@ Tensor block_unpack_cpu(Tensor data, Tensor scales, int64_t cols, c10::IntArrayR
 Tensor block_quantize_cpu(Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max,
                           double tensor_scale, int64_t round_mode)
 {
-  // A result laid out as x is (empty_like keeps a dense view's strides), so
-  // a view with its packed axis moved last comes back as the caller's layout
-  // once the axis is moved back.
+  // The result has x's layout (empty_like keeps a dense view's strides), so
+  // for a view whose packed axis was moved last, the result is in the
+  // caller's layout once the axis is moved back.
   Tensor o = at::empty_like(x);
   quantize_into(x, o, fmt, elem_max, scale_max, tensor_scale, round_mode, "block_quant");
   return o;

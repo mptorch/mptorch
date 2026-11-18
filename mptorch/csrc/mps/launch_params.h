@@ -2,12 +2,13 @@
 
 // What an MPS kernel takes per launch besides its tensors: the shape, the
 // strides and the stochastic-rounding seed, passed as one small `constant`
-// buffer. The host (metal_runtime.mm) fills these and the kernels
-// (gemm.metal, quantize.metal) read them, and both compile this one
-// definition, so the two layouts cannot drift apart; the size checks pin
-// them anyway. Everything in them varies per call, which is why they are a
-// buffer and not part of a kernel's source (the formats are, so that their
-// constants fold; see metal_runtime.mm).
+// buffer. The host code (gemm_backend.cpp, quantize.cpp, block_entry.cpp)
+// fills these structs and the kernels (gemm.metal, quantize.metal,
+// block.metal) read them, and both compile this one definition, so the two
+// layouts cannot drift apart; the size checks pin them anyway. Everything in
+// them varies per call, which is why they are a buffer and not part of a
+// kernel's source. The formats are part of the source, so that their
+// constants are known at compile time (gemm.metal says why that matters).
 
 #if !defined(__METAL_VERSION__)
 #include <cstdint>
@@ -18,8 +19,9 @@ namespace mptorch_mps
 
   // A GEMM, as common/gemm_args.h's GemmShape describes it: C[b] =
   // op(A[b]) @ op(B[b]), written densely as [batch, M, N], with per-operand
-  // batch strides in elements (0 broadcasts that operand). The idx_* strides
-  // read a mixed op's precision index, and are 0 on the single-format ops.
+  // batch strides in elements (a stride of 0 broadcasts that operand). The
+  // idx_* strides index a mixed op's precision map, and are 0 on the
+  // single-format ops.
   struct GemmLaunch
   {
     uint32_t M, K, N, batch;
@@ -31,16 +33,18 @@ namespace mptorch_mps
   static_assert(sizeof(GemmLaunch) == 80, "GemmLaunch must have one layout on the host and the GPU");
 
   // The GEMM's tile (gemm.metal): a threadgroup of GEMM_TILE x GEMM_TILE
-  // threads computes that block of C, one element per thread, staging op(A)
-  // and op(B) GEMM_TILE K-steps at a time. The host sizes the grid with it.
+  // threads computes that block of C, one element per thread, copying op(A)
+  // and op(B) into threadgroup memory GEMM_TILE steps of K at a time. The
+  // host sizes the grid with it.
   enum : uint32_t
   {
     GEMM_TILE = 16
   };
 
-  // The block GEMM's operands' scale batch strides, in scale bytes (0
-  // broadcasts an operand), which common/gemm_block.h's BlockOperand carries
-  // beside its scales and which the kernel binds as buffers of their own.
+  // The batch strides of the block GEMM's two scale tensors, in scale bytes
+  // (a stride of 0 broadcasts that operand's scales). common/gemm_block.h's
+  // BlockOperand carries them beside its scales; the kernel binds them as a
+  // buffer of their own.
   struct BlockGemmLaunch
   {
     int64_t scale_stride_a, scale_stride_b;
@@ -50,8 +54,8 @@ namespace mptorch_mps
   // A block_pack, block_quant or block_quant_ call (block.metal's
   // mpt_block_pack and mpt_block_pack_tile): the tensor's [batch, rows, cols]
   // extents and element strides, the result's strides (block_quant only),
-  // the SR seed and the number of tiles, one thread or one threadgroup
-  // each.
+  // the SR seed, and the number of tiles, each of which gets one thread or
+  // one threadgroup.
   struct BlockPackLaunch
   {
     int64_t batch, rows, cols;
@@ -62,9 +66,10 @@ namespace mptorch_mps
   };
   static_assert(sizeof(BlockPackLaunch) == 88, "BlockPackLaunch must have one layout on the host and the GPU");
 
-  // The most threads a tile's threadgroup has (mpt_block_pack_tile): the
-  // host gives each thread 64 of a tile's elements, from one simdgroup up
-  // to this, which a 128 x 128 tile reaches.
+  // The most threads a tile's threadgroup has (mpt_block_pack_tile). The
+  // host gives each thread 64 of a tile's elements, with at least one
+  // simdgroup and at most this many threads, which a 128 x 128 tile
+  // reaches.
   enum : uint32_t
   {
     BLOCK_TILE_THREADS = 256

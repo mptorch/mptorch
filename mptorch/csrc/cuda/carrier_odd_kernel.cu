@@ -1,8 +1,9 @@
 #include "../common/carrier_odd.h"
 #include "carrier_odd_kernel.h"
 
-// _carrier_odd on the device: common/carrier_odd.h's directed-pair
-// primitives applied elementwise, one element a thread. A test op.
+// _carrier_odd on the device, a test-only op: common/carrier_odd.h's device
+// primitives (each operation rounded down and up, and the result with the
+// odd word kept) applied elementwise, one element per thread.
 
 namespace mptorch::carrier_odd_cuda
 {

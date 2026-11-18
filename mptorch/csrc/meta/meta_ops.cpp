@@ -1,12 +1,13 @@
-// The Meta dispatch-key registrations of every op, and the Meta kernels
-// of the twelve that are not GEMM-shaped: the quantizers,
-// narrow_float64, the block elementwise ops and _carrier_odd. The
-// GEMM-shaped ones are in this directory's custom_*_entry.cpp files. A Meta kernel is what the meta
+// The Meta dispatch-key registrations of every op, and the Meta kernels of
+// the thirteen ops that are not GEMM-shaped: the quantizers and their
+// in-place twins, narrow_float64, the elementwise block ops, _carrier_odd and
+// _stochastic_cast. The GEMM-shaped ops' Meta kernels are in this
+// directory's custom_*_entry.cpp files. A Meta kernel is what the meta
 // device, FakeTensorMode, torch.export and torch.compile run in an op's
 // place: the CPU op's checks, in its order and with its messages, and a
-// result of the shape, dtype and layout the CPU op allocates, with
-// nothing computed and no RNG state drawn (common/meta_host.h has the
-// rules and the exceptions).
+// result of the shape, dtype and layout the CPU op allocates, with nothing
+// computed and no RNG state drawn (common/meta_host.h states the rules and
+// their exceptions).
 
 #include "../common/meta_host.h"
 #include "../common/stochastic_cast_host.h"
@@ -17,9 +18,10 @@ using namespace mptorch::meta;
 
 namespace
 {
-  // The CPU quantizers refuse another dtype through AT_DISPATCH, whose
-  // c10::NotImplementedError would make FakeTensorMode take the op for one
-  // with no Meta kernel; this is a RuntimeError naming the dtype instead.
+  // The CPU quantizers refuse any other dtype through AT_DISPATCH, whose
+  // c10::NotImplementedError would make FakeTensorMode treat the op as one
+  // with no Meta kernel; this raises a RuntimeError naming the dtype
+  // instead.
   void check_quant_dtype(const Tensor &a, const char *op)
   {
     const at::ScalarType st = a.scalar_type();
@@ -43,8 +45,8 @@ namespace
                 "tensor, got strides ", a.sym_strides(), " for sizes ", a.sym_sizes(), ": use ",
                 out_of_place, ", which copies a strided input");
   }
-  // The quantizers' prng_bits refusal under a stochastic mode
-  // (common/stochastic_host.h), named as the CPU names it.
+  // The quantizers' check, under a stochastic mode, that prng_bits fits in a
+  // byte (sr_encode, common/stochastic_host.h), worded as the CPU words it.
   void check_quant_prng(int64_t prng_bits, int64_t round_mode, const char *op)
   {
     int variant;
@@ -102,7 +104,7 @@ Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t prng_bits
   return a;
 }
 
-// narrow_float64_tensors (common/narrow_host.h).
+// The checks and the result of narrow_float64_tensors (common/narrow_host.h).
 Tensor narrow_float64_meta(Tensor a, c10::ScalarType dtype)
 {
   TORCH_CHECK(a.scalar_type() == c10::ScalarType::Double,
@@ -128,8 +130,8 @@ Tensor block_unpack_meta(Tensor data, Tensor scales, int64_t cols, c10::IntArray
   return meta_block_unpack(data, scales, cols, fmt, elem_max, scale_max, tensor_scale, dtype);
 }
 
-// block_quantize_cpu (cpu/block_kernel.cpp): the result is allocated before
-// any check, laid out as x is.
+// As in block_quantize_cpu (cpu/block_kernel.cpp), the result is allocated
+// before any check, laid out as x is.
 Tensor block_quantize_meta(Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max,
                            double tensor_scale, int64_t round_mode)
 {
@@ -159,8 +161,8 @@ Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op)
 #endif
 }
 
-// _stochastic_cast (common/stochastic_cast_host.h): check_tensors' checks on
-// symbolic sizes, the job's, and a result like x.
+// _stochastic_cast (common/stochastic_cast_host.h): check_tensors' checks,
+// on symbolic sizes, then make_job's checks, and a result laid out like x.
 Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
                             int64_t stochastic_mode)
 {

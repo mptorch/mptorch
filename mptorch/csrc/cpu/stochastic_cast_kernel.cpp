@@ -1,6 +1,6 @@
-// The CPU kernel of _stochastic_cast (common/stochastic_cast_host.h): a
-// format's stochastic cast with each element's random word given, for
-// tests/test_stochastic_rounding.py. Test-only.
+// The CPU kernel of _stochastic_cast (common/stochastic_cast_host.h), a
+// test-only op: a format's stochastic cast, with each element's random word
+// passed in rather than drawn, for tests/test_stochastic_rounding.py.
 
 #include "../common/stochastic_cast_host.h"
 #include "../quant_ops.h"

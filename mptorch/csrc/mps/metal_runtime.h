@@ -1,21 +1,22 @@
 #pragma once
 
-// The MPS backend's one door into Metal, as the C++ files see it: compile a
-// kernel for one instantiation, cache it, and encode one launch of it on
+// The MPS backend's one interface to Metal, as the C++ files see it: compile
+// a kernel for one instantiation, cache it, and encode one launch of it on
 // torch's MPS stream. The implementation (metal_runtime.mm) is the backend's
-// only Objective-C++; everything else in csrc/mps is plain C++ that builds
-// the lines naming an instantiation (its "tail") and the per-launch
+// only Objective-C++; every other file in csrc/mps is plain C++ that writes
+// the lines naming an instantiation (its "tail"), fills the per-launch
 // parameters (launch_params.h), and hands over the tensors.
 //
 // A kernel's source is prelude.metal, then the tail, then gemm.metal,
-// quantize.metal or block.metal (the odd carrier step's kernels put odd.metal
-// between the prelude and the tail, and end in gemm.metal or
-// carrier_odd.metal). The tail holds everything that is a constant of the
-// instantiation: the storage dtype, the rounding mode and the format, which
-// the kernel builds its cast constants from so that they fold (gemm.metal
+// quantize.metal or block.metal. The odd carrier step's kernels put
+// odd.metal between the prelude and the tail, and end in gemm.metal or
+// carrier_odd.metal. The tail holds everything that is a constant of the
+// instantiation: the storage dtype, the rounding mode and the format, from
+// which the kernel builds its cast constants at compile time (gemm.metal
 // says why). Each distinct tail is one compile, 20-300 ms the first time a
-// process meets it (less once the system's Metal cache has seen it), then a
-// hash lookup. A layer's formats are fixed, so a model compiles a handful.
+// process meets it (less once the system's Metal cache has seen it), and a
+// hash lookup after that. A layer's formats are fixed, so a model compiles
+// a handful.
 
 #include <ATen/core/Tensor.h>
 #include <cstddef>
@@ -27,10 +28,9 @@ namespace mptorch_mps
 {
 
   // Which kernel source follows the tail, and so which kernel is launched.
-  // The odd carrier step's two (phase Z) also put odd.metal, the odd
-  // headers, between the prelude and the tail; the others' sources are what
-  // they were. New sources go at the end: the cache key starts with the
-  // source's number.
+  // The two odd carrier step sources also put odd.metal, the odd headers,
+  // between the prelude and the tail. New sources go at the end, since the
+  // cache key starts with the source's number.
   enum class KernelSource
   {
     Gemm,          // gemm.metal's mpt_gemm
@@ -65,13 +65,13 @@ namespace mptorch_mps
     KernelArg() = default;
   };
 
-  // Encodes one launch of the kernel `source` instantiated by `tail` on the
-  // current MPS stream, after whatever torch has already encoded there and
-  // before whatever comes next. Compiles the instantiation first if this
+  // Encodes one launch of the kernel `source`, instantiated by `tail`, on
+  // the current MPS stream, after whatever torch has already encoded there
+  // and before whatever comes next. Compiles the instantiation first if this
   // process has not; a compile error is raised with the Metal compiler's
   // message. Nothing is waited for.
   //
-  // `launch` runs `threads` threads, one-dimensional, in threadgroups the
+  // `launch` runs `threads` threads in one dimension, in threadgroups the
   // runtime sizes (quantize.metal). `launch_groups` runs (gx, gy, gz) whole
   // threadgroups of tx x ty threads, for a kernel whose threadgroup shares
   // its work and so must be complete (gemm.metal's tiles).
@@ -80,13 +80,13 @@ namespace mptorch_mps
   void launch_groups(KernelSource source, const std::string &tail, const std::vector<KernelArg> &args,
                      uint64_t gx, uint64_t gy, uint64_t gz, uint32_t tx, uint32_t ty);
 
-  // The Metal name of a tensor's dtype, for a tail's `mpt_storage_t`, or a
-  // NotImplementedError naming `op` for a dtype the kernels do not load.
+  // The Metal name of a tensor's dtype, for a tail's `mpt_storage_t`. A dtype
+  // the kernels do not load raises a NotImplementedError naming `op`.
   const char *metal_storage_type(at::ScalarType t, const char *op);
 
-  // The RoundMode enumerator a mode's integer names, for a tail, spelled out
-  // so that a compile error reads as the source would. `rm` must be a valid
-  // RoundMode.
+  // The RoundMode enumerator that a mode's integer names, written out for a
+  // tail so that a compile error shows the enumerator, as the source would.
+  // `rm` must be a valid RoundMode.
   const char *metal_round_mode(int64_t rm);
 
 } // namespace mptorch_mps

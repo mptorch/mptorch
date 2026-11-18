@@ -1,7 +1,8 @@
 #pragma once
 
-// The device half of _stochastic_cast (cuda/stochastic_cast_entry.cpp holds
-// the tensors): ATen-free, like every .cu here.
+// The device half of _stochastic_cast (cuda/stochastic_cast_entry.cpp
+// handles the tensors). Like the GEMM, block and narrowing kernels, its .cu
+// includes no ATen header.
 
 #include "../common/stochastic_cast.h"
 #include <cstdint>

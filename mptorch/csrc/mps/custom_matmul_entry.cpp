@@ -1,5 +1,4 @@
-// The eight MPS GEMM entry points: everything mps/mps_ops.cpp binds for the
-// MPS dispatch key.
+// The MPS entry points of the eight NAIVE GEMM ops.
 //
 // The bodies are the same text as their CPU and CUDA twins
 // (cpu/custom_matmul_entry.cpp, cuda/custom_matmul_entry.cpp): each packs its
@@ -39,13 +38,13 @@ Tensor binaryK_matmul_mps(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Per-output-element mixed-format binaryK GEMM: the same SplitMac arithmetic
-// as binaryK_matmul_mps, but the multiply and accumulate formats of each
-// output element C[i, j] are picked from a palette of up to MAX_GEMM_FORMATS
-// entries by prec_idx[i, j] (gemm_policy.h's FormatPalette). mul_K/mul_P/
-// mul_bias and acc_K/acc_P/acc_bias are per-entry lists of one common
-// length; round_mode, saturation, sign and prng_bits are shared across the
-// palette, since only the format widths vary per element.
+// The mixed-format (palette) binaryK GEMM: the same SplitMac arithmetic as
+// binaryK_matmul_mps, but the multiply and accumulate formats of each output
+// element C[i, j] are picked by prec_idx[i, j] from a palette of up to
+// MAX_GEMM_FORMATS entries. mul_K/mul_P/mul_bias and acc_K/acc_P/acc_bias
+// are per-entry lists of one common length; round_mode, saturation, sign and
+// prng_bits are shared across the palette, since only the format widths vary
+// per element.
 Tensor binaryK_matmul_mixed_mps(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
@@ -85,12 +84,12 @@ Tensor binaryK_matmul_fma_mps(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Per-output-element mixed-format binaryK FMA GEMM: the same FusedMac
-// arithmetic as binaryK_matmul_fma_mps (one rounding per K-step), with each
-// output element's FMA format taken from the palette. fma_quant=false is
-// rejected: FusedMac<IdentityAdder> carries no format, so a palette of it
-// would make prec_idx a no-op. custom_matmul_binaryK_fma is the unquantized
-// fused step.
+// The mixed-format (palette) binaryK FMA GEMM: the same FusedMac arithmetic
+// as binaryK_matmul_fma_mps (one rounding per K step), with each output
+// element's FMA format taken from the palette. fma_quant=false is refused:
+// an unquantized fused step (FusedMac<IdentityAdder>) has no format to vary,
+// so its palette would make prec_idx do nothing. custom_matmul_binaryK_fma
+// is the op for the unquantized fused step.
 Tensor binaryK_matmul_fma_mixed_mps(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
@@ -131,7 +130,7 @@ Tensor superfp_matmul_mps(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// The superfp analogue of binaryK_matmul_mixed_mps; see its comment.
+// The superfp counterpart of binaryK_matmul_mixed_mps; see its comment.
 Tensor superfp_matmul_mixed_mps(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
@@ -171,7 +170,7 @@ Tensor superfp_matmul_fma_mps(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// The superfp analogue of binaryK_matmul_fma_mixed_mps; see its comment.
+// The superfp counterpart of binaryK_matmul_fma_mixed_mps; see its comment.
 Tensor superfp_matmul_fma_mixed_mps(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,

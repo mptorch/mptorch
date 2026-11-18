@@ -1,23 +1,26 @@
 #pragma once
 
 // The host side of the odd palette and cross-family GEMM ops
-// (custom_matmul_*_mixed_odd, custom_matmul_{binaryK_superfp,superfp_binaryK}_odd;
-// carrier_rounding=RoundMode.RO): one body per op, written once on the
-// backend, which {cpu,cuda}/custom_matmul_odd_entry.cpp name. Each is its
-// twin's entry point with the packed Args wrapped, OddPaletteArgs for a
-// palette (common/carrier_odd_mixed.h) and OddArgs for a cross-family mac
-// (common/carrier_odd.h): the schema, the checks and the driver are the
-// twin's, so a call differs from the twin's only in the kernel it runs. The
-// drivers refuse every algorithm but NAIVE, as for the twins.
+// (custom_matmul_*_mixed_odd and
+// custom_matmul_{binaryK_superfp,superfp_binaryK}_odd, for
+// carrier_rounding=RoundMode.RO): one body per op, a template over the
+// backend, which {cpu,cuda,mps}/custom_matmul_odd_entry.cpp call. Each body
+// is its twin's entry point with the packed Args wrapped: in an
+// OddPaletteArgs for a palette (carrier_odd_mixed.h), and in an OddArgs for
+// a cross-family mac (carrier_odd.h). The schema, the checks and the driver
+// are the twin's, so a call differs from the twin's only in the kernel it
+// runs. The drivers refuse every algorithm but NAIVE, as they do for the
+// twins.
 //
-// A header of its own rather than more of carrier_odd_host.h, which the Meta
-// units include: those keep compiling what they did.
+// These bodies are in a header of their own rather than in
+// carrier_odd_host.h, which every Meta unit includes through meta_host.h, so
+// that the Meta units of the other ops do not compile them.
 //
-// Phase Y's six *_accumulated_odd bodies are at the end: the single-format
-// and cross-family ops under KAHAN, BLOCK and TREE, each its *_accumulated
+// The six *_accumulated_odd bodies are at the end: the single-format and
+// cross-family ops under KAHAN, BLOCK and TREE, each its *_accumulated
 // twin's entry point on the odd Args (carrier_odd_accumulate.h). Without
-// MPTORCH_ODD_ACCUMULATED=1 each raises, naming the flag, before it names a
-// driver.
+// MPTORCH_ODD_ACCUMULATED=1, each raises an error that names the flag,
+// before it refers to a driver.
 
 #include "carrier_odd_accumulate.h"
 #include "carrier_odd_host.h"

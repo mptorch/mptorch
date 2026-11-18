@@ -1,10 +1,12 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel for
+// custom_matmul_superfp_accumulated and custom_matmul_superfp_fma_accumulated.
+// They accumulate under AccumulateAlgorithm::KAHAN (compensated summation) in
+// the binary64 carrier (float64 operands). The entry points are in
+// ../custom_matmul_accumulated_entry.cpp, and ../custom_matmul_kernel.h
+// explains how the instantiations are divided among the files in this
+// directory.
 
-// The binary64 twin of custom_matmul_superfp_kahan.cpp: its kernels in the
-// binary64 carrier, for float64 operands and for calls that name
-// carrier=torch.float64. A file of its own, like the NAIVE *_f64.cpp files,
-// so that MPTORCH_NO_FP64=1 leaves these kernels out by leaving the file out,
-// and no other translation unit grows.
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

@@ -1,7 +1,8 @@
 #pragma once
 
-// The device half of _carrier_odd (cuda/carrier_odd_entry.cpp holds the
-// tensors): ATen-free, like every .cu here.
+// The device half of _carrier_odd (cuda/carrier_odd_entry.cpp handles the
+// tensors). Like the GEMM, block and narrowing kernels, its .cu includes no
+// ATen header.
 
 #include <cstdint>
 #include <cuda_runtime.h>

@@ -1,18 +1,18 @@
 #pragma once
 
-// The host side of _stochastic_cast (common/stochastic_cast.h): its checks
-// and its job, shared by the CPU kernel and the CUDA entry point.
+// The host side of _stochastic_cast (common/stochastic_cast.h): its checks,
+// and the Job it builds, shared by the CPU kernel and the CUDA entry point.
 //
 //   _stochastic_cast(Tensor x, Tensor draws, int family, int[] format,
 //                    int stochastic_mode) -> Tensor
 //
-// x is float32 or float64, draws an int64 tensor of x's shape and device
-// holding each element's random word (the low 32 bits in binary32, all 64 in
-// binary64), and format the family's fields as its quantizer's schema spells
-// them: binaryK [K, P, bias, prng_bits, is_signed, saturation, subnormals],
-// superfp [man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
-// saturation], fixed point [wl, fl, prng_bits, is_signed, symmetric].
-// stochastic_mode is RoundMode::SR, SR_B or SR_C.
+// x is float32 or float64. draws is an int64 tensor with x's shape and
+// device, holding each element's random word (its low 32 bits in binary32,
+// all 64 in binary64). format lists the family's fields in the order of the
+// family's quantizer schema: binaryK [K, P, bias, prng_bits, is_signed,
+// saturation, subnormals], superfp [man_bits, exp_bits, normal_binades, bias,
+// prng_bits, is_signed, saturation], fixed point [wl, fl, prng_bits,
+// is_signed, symmetric]. stochastic_mode is RoundMode::SR, SR_B or SR_C.
 
 #include "stochastic_cast.h"
 #include "stochastic_host.h"
@@ -51,8 +51,8 @@ namespace mptorch::stochastic_cast
       j.is_signed = format[4] != 0;
       j.subnormals = static_cast<SubnormalsMode>(format[6]);
       j.spec = sr_encode(format[3], variant, op);
-      // as the quantizer derives them: P - 1 mantissa bits, the rest after
-      // the sign the exponent's
+      // as the binaryK quantizer derives them: P - 1 mantissa bits, and
+      // every bit left after the sign is the exponent's
       j.bk = make_binaryK_params<T>(P - 1, j.is_signed ? K - P : K - P + 1, static_cast<int>(format[2]),
                                     j.is_signed, static_cast<SaturationMode>(format[5]),
                                     j.subnormals == SubnormalsMode::EXTENDED_NORMALS);

@@ -1,16 +1,12 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_binaryK_superfp and custom_conv_superfp_binaryK. They accumulate
+// under AccumulateAlgorithm::NAIVE (one running sum) in the binary32 carrier
+// (float32, float16 and bfloat16 operands). The entry points are in
+// ../custom_matmul_cross_entry.cpp, and ../custom_matmul_kernel.h explains how
+// the instantiations are divided among the files in this directory.
 
-// The conv ops over the cross-family split macs (common/gemm_cross.h)
-// under AccumulateAlgorithm::NAIVE, in binary32: the gathered kernels
-// (common/gemm_gather.h) of custom_conv_binaryK_superfp and
-// custom_conv_superfp_binaryK, the conv twins of
-// custom_matmul_binaryK_superfp and custom_matmul_superfp_binaryK.
-//
-// One of four such files, one per algorithm, mirroring the cross-family
-// GEMM's (custom_matmul_cross.cpp): a gathered kernel is its GEMM kernel's
-// instantiation over a Gathered policy, and keeping the two apart is what
-// leaves every earlier file compiling exactly what it did. Its binary64
-// twin is custom_conv_cross_f64.cpp.
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

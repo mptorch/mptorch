@@ -12,7 +12,7 @@
 namespace mptorch::narrow_cuda
 {
 
-  // The storage dtype the float64 input is rounded onto.
+  // The storage dtype that the float64 input is rounded to.
   enum class Target
   {
     Float32,
@@ -20,9 +20,10 @@ namespace mptorch::narrow_cuda
     BFloat16,
   };
 
-  // narrow_kernel.cu: rounds `size` float64 values at `a` onto `target`
-  // (round-to-nearest-even, once) and writes the resulting words to `o`, on
-  // `stream`. `a` must be 16-byte aligned; `o` is typed by the target.
+  // Defined in narrow_kernel.cu: rounds the `size` float64 values at `a` to
+  // `target` (once, to nearest even) and writes the resulting words to `o`,
+  // on `stream`. `a` must be 16-byte aligned; `o` holds words of the target
+  // dtype.
   void launch(const double *a, void *o, int64_t size, Target target, cudaStream_t stream);
 
 } // namespace mptorch::narrow_cuda

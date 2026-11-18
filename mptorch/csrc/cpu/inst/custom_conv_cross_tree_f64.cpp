@@ -1,10 +1,12 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_binaryK_superfp and custom_conv_superfp_binaryK. They accumulate
+// under AccumulateAlgorithm::TREE (pairwise sums within each block of products)
+// in the binary64 carrier (float64 operands). The entry points are in
+// ../custom_matmul_cross_entry.cpp, and ../custom_matmul_kernel.h explains how
+// the instantiations are divided among the files in this directory.
 
-// The binary64 twin of custom_conv_cross_tree.cpp: its kernels in the
-// binary64 carrier, for float64 operands and for calls that name
-// carrier=torch.float64. A file of its own, like the NAIVE *_f64.cpp files,
-// so that MPTORCH_NO_FP64=1 leaves these kernels out by leaving the file out,
-// and no other translation unit grows.
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

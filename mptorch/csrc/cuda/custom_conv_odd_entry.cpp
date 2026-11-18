@@ -1,9 +1,11 @@
 // The CUDA entry points of the ten odd conv ops (custom_conv_*_odd;
-// carrier_rounding=RoundMode.RO): their twins' conv entry points with the
-// mac's carrier steps rounded to odd. The bodies are
-// common/carrier_odd_conv_host.h's, shared with the CPU file; the kernels are
-// instantiated by the custom_conv_{binaryK,superfp}{_fma,}_odd{,_f64} and
-// custom_conv_cross_odd{,_f64} files.
+// carrier_rounding=RoundMode.RO): the conv ops of their twins without the
+// _odd suffix, except that each carrier operation whose result a format
+// rounds next is rounded to odd, so that the format's cast rounds the exact
+// value. Each entry point forwards its arguments to a body in
+// common/carrier_odd_conv_host.h, shared by every backend. The kernels are
+// instantiated by the cuda/inst/custom_conv_*_odd* units; those under KAHAN,
+// BLOCK and TREE only in a build with MPTORCH_ODD_ACCUMULATED=1.
 
 #include "../common/carrier_odd_conv_host.h"
 #include "../quant_ops.h"

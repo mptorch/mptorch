@@ -1,5 +1,5 @@
-// The CUDA entry point of _stochastic_cast (common/stochastic_cast_host.h);
-// the kernel is cuda/stochastic_cast_kernel.cu. Test-only.
+// The CUDA entry point of _stochastic_cast (common/stochastic_cast_host.h), a
+// test-only op; the kernel is in cuda/stochastic_cast_kernel.cu.
 
 #include "../common/stochastic_cast_host.h"
 #include "../quant_ops.h"

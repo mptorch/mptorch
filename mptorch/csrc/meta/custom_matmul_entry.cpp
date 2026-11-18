@@ -1,7 +1,10 @@
-// The Meta kernels of the NAIVE GEMM ops, in the order of their CPU entry
-// points in cpu/custom_matmul_entry.cpp. Each body is the CPU entry point's
-// with the driver replaced by its meta_* twin from common/meta_host.h.
-// meta_ops.cpp registers them.
+// The Meta kernels of the NAIVE GEMM ops (what the meta device,
+// FakeTensorMode, torch.export and torch.compile run in an op's place; see
+// meta_ops.cpp), in the order of their CPU entry points in
+// cpu/custom_matmul_entry.cpp. Each body is the CPU entry point's with the
+// driver replaced by its meta_* twin from common/meta_host.h.
+// tests/test_entry_copies.py checks that they stay copies. meta_ops.cpp
+// registers them.
 
 #include "../common/meta_host.h"
 #include "meta_ops.h"

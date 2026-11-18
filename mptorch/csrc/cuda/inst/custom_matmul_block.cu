@@ -1,13 +1,12 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel's block-format form, which
+// decodes its operands from packed block-format codes, for custom_matmul_block
+// with a split and with a fused mac. They accumulate under
+// AccumulateAlgorithm::NAIVE (one running sum) in the binary32 carrier. The
+// entry points are in ../custom_matmul_block_entry.cpp, and
+// ../custom_matmul_kernel.cuh explains how the instantiations are divided among
+// the files in this directory.
 
-// The block GEMM (custom_matmul_block; common/gemm_block.h) under
-// AccumulateAlgorithm::NAIVE, in binary32: the blocked kernels of its split
-// mac (the carrier's product, the sum rounded or not) and its fused one.
-//
-// One of four such files, one per algorithm, mirroring the GEMM's: a blocked
-// kernel is its GEMM kernel's instantiation over a Blocked policy, and keeping
-// these apart from the GEMM files is what leaves those compiling exactly what
-// they did. Its binary64 twin is custom_matmul_block_f64.cu.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

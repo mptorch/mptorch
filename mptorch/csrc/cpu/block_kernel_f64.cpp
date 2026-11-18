@@ -1,8 +1,8 @@
 // The CPU kernels of block_pack, block_unpack, block_quant and block_quant_
-// for float64 tensors, which round in binary64: block_pack_tiles.h's and
-// block_pack_tiles_fos.h's templates instantiated for double, whose binary32
-// instantiations are block_kernel.cpp's and block_kernel_fos.cpp's. The
-// entry points are in block_kernel.cpp.
+// for float64 tensors, which round in binary64: the templates of
+// cpu/block_pack_tiles.h and cpu/block_pack_tiles_fos.h instantiated for
+// double. Their binary32 instantiations are in block_kernel.cpp and
+// block_kernel_fos.cpp, and the entry points in block_kernel.cpp.
 
 #include "block_kernel_f64.h"
 #include "block_pack_tiles.h"

@@ -1,16 +1,12 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_binaryK_fma and custom_conv_binaryK_fma_mixed. They accumulate
+// under AccumulateAlgorithm::NAIVE (one running sum) in the binary32 carrier
+// (float32, float16 and bfloat16 operands). The entry points are in
+// ../custom_conv_entry.cpp, and ../custom_matmul_kernel.cuh explains how the
+// instantiations are divided among the files in this directory.
 
-// The conv ops over binaryK formats with a fused mac under AccumulateAlgorithm::NAIVE,
-// in binary32: the gathered kernels (common/gemm_gather.h) of custom_conv_binaryK_fma
-// and custom_conv_binaryK_fma_mixed, the conv twins of custom_matmul_binaryK_fma and its
-// palette op.
-//
-// One of ten such files, one per (format family x mac mode) for NAIVE and one
-// per (format family x algorithm) for KAHAN, BLOCK and TREE, mirroring the
-// GEMM's: a gathered kernel is its GEMM kernel's instantiation over a
-// Gathered policy, so it costs what its GEMM kernel costs to compile, and
-// keeping these apart from the GEMM files is what leaves those compiling
-// exactly what they did. Its binary64 twin is custom_conv_binaryK_fma_f64.cu.
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

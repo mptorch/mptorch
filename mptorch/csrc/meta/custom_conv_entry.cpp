@@ -1,7 +1,9 @@
 // The Meta kernels of the single-family conv ops, in the order of their CPU
 // entry points in cpu/custom_conv_entry.cpp. Each body is the CPU entry
 // point's with the driver replaced by its meta_* twin from
-// common/meta_host.h. meta_ops.cpp registers them.
+// common/meta_host.h.
+// tests/test_entry_copies.py checks that they stay copies. meta_ops.cpp
+// registers them.
 
 #include "../common/meta_host.h"
 #include "meta_ops.h"

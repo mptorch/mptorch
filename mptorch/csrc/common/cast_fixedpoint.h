@@ -4,33 +4,34 @@
 #include "modes.h"
 #include "stochastic.h"
 
-// The fixed-point format cast, one function per rounding mode, in the same
-// shape as cast_binaryK.h and cast_superfp.h: each reads a FixedPointParamsT
-// built once per tensor, and is a template on the carrier (bit_helper.h's
+// The fixed-point format cast, one function per rounding mode, built like
+// cast_binaryK.h and cast_superfp.h: each reads a FixedPointParamsT built
+// once per tensor, and is a template on the carrier (bit_helper.h's
 // FloatTraits).
 //
-// A fixed-point format holds the multiples of its step 2^-fl that a wl-bit
-// integer holds, so it is a float that is subnormal everywhere: one fixed step
-// from zero to the largest value. Each cast is therefore binaryK's subnormal
-// arm (cast_binaryK.h) applied to the whole range. A value whose leading bit
-// is 2^target_exp keeps exp_diff = target_exp + fl bits below it, which is
-// binaryK's man_bits - (min_exp - target_exp) with the step in place of its
-// smallest subnormal; a value under the step (exp_diff < 0) is zero or the
-// step; and the result saturates to the ends of the range, which have no
-// infinity beyond them. Stochastic rounding is integer arithmetic on the same
-// two cases, the draw added directly below the step, so it is P3109's
-// StochasticA exactly (see cast_fixedpoint_stochastic).
+// A fixed-point format with word length wl and fl fraction bits holds the
+// multiples of its step 2^-fl that a wl-bit integer can hold. It is like a
+// float format that is subnormal everywhere: one fixed spacing from zero to
+// the largest value. Each cast is therefore binaryK's subnormal arm
+// (cast_binaryK.h) applied to the whole range. A value whose leading bit is
+// 2^target_exp keeps exp_diff = target_exp + fl bits below that bit, which
+// is binaryK's man_bits - (min_exp - target_exp) with the step in place of
+// the smallest subnormal; a value under the step (exp_diff < 0) becomes zero
+// or the step; and the result saturates to the ends of the range, which have
+// no infinity beyond them. Stochastic rounding is integer arithmetic on the
+// same two cases, with the draw added directly below the step, so it is
+// P3109's StochasticA, B or C exactly (see cast_fixedpoint_stochastic).
 
-// The constants the casts read, flat for the reason BinaryKParamsT is (a
+// The constants the casts read. Flat, for the reason BinaryKParamsT is (a
 // nested aggregate in the GEMM instantiations costs nvcc minutes).
 template <class T>
 struct FixedPointParamsT
 {
-    int fl;                  // exp_diff = target_exp + fl, the bits a value keeps
-    int step_exponent_store; // the carrier's exponent field of the step 2^-fl
-    int mag_bits;            // wl - is_signed, the bits of a magnitude code
-    int shift_exp;           // mag_bits - fl: one binade above the largest value, where SR saturates
-    T max_val;               // the largest value, which +inf and overflow saturate to
+    int fl;                  // fraction bits: a value keeps exp_diff = target_exp + fl bits
+    int step_exponent_store; // the carrier's exponent field for the step 2^-fl
+    int mag_bits;            // wl - is_signed: the bits of a magnitude code
+    int shift_exp;           // mag_bits - fl: the binade above the largest value, from which SR saturates
+    T max_val;               // the largest value, to which +inf and overflow saturate
     T min_val;               // the smallest: 0 unsigned, -max_val symmetric, else -2^(mag_bits - fl)
 };
 
@@ -43,14 +44,15 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_word_value(typename FloatTraits<T>::word_t 
     return reinterpret_cast<const MPTORCH_THREAD T &>(w);
 }
 
-// Builds the constants once per tensor. The two bounds are built on the word,
-// not by float arithmetic, so they are exact on every backend: the largest
-// value is mag_bits ones, a leading 1 at 2^top_exp and mag_bits - 1 ones
-// below it, and the two's complement bottom is the power of two 2^min_exp.
-// The number.py checks hold both inside the carrier's normals from below, and
-// raise for an end of the range past the carrier's largest value, so neither
-// bound is past it from Python; the infinity branches below are kept as a
-// guard, since the carrier cannot hold such a bound.
+// Builds the constants once per tensor. The two bounds are built on the
+// word, not by float arithmetic, so they are exact on every backend: the
+// largest value is mag_bits one bits, a leading 1 at 2^top_exp followed by
+// mag_bits - 1 ones, and the two's complement bottom is -2^min_exp. The
+// Python checks (mptorch/number/fixedpoint.py) keep both bounds at or above
+// the carrier's smallest normal, and raise for an end of the range past the
+// carrier's largest value, so from Python neither bound is past it; the
+// infinity branches below are a guard, since the carrier cannot hold such a
+// bound.
 template <class T = float>
 CUDA_HOST_DEVICE_INLINE FixedPointParamsT<T> make_fixedpoint_params(int wl, int fl, bool is_signed, bool symmetric)
 {
@@ -88,10 +90,10 @@ CUDA_HOST_DEVICE_INLINE FixedPointParamsT<T> make_fixedpoint_params(int wl, int 
     return p;
 }
 
-// A rounded value past either end becomes that end. Rounding can carry a value
-// one step past the top (1.875 to 2.0 in wl=4, fl=2), and a value far above
-// the range is left unrounded, since its exp_diff reaches the carrier's
-// mantissa, and lands here.
+// Returns a rounded value past either end of the range as that end. Rounding
+// can carry a value one step past the top (1.875 to 2.0 in wl=4, fl=2), and
+// a value far above the range arrives unrounded, because its exp_diff
+// reaches the carrier's mantissa width; both end up here.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T fixedpoint_saturate(T quantized, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -102,9 +104,10 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_saturate(T quantized, const MPTORCH_THREAD 
     return quantized;
 }
 
-// A NaN or an infinity, the words with an all-ones exponent field: a NaN (a
-// nonzero mantissa) passes through, and an infinity saturates to the end of
-// the range on its side, since a fixed-point word has no code for one.
+// Handles a NaN or an infinity (a word with an all-ones exponent field): a
+// NaN, whose mantissa is nonzero, passes through, and an infinity saturates
+// to the end of the range on its side, since a fixed-point format has no
+// code for one.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T fixedpoint_nonfinite(T x, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -117,10 +120,10 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_nonfinite(T x, const MPTORCH_THREAD FixedPo
 }
 
 // Rounds to nearest, ties to even: the NearestTiesToEven projection of x onto
-// the fixed-point format p describes, where "even" is the parity of the
-// integer code. A negative input to an unsigned format returns 0, a NaN passes
-// through, and every other value is binaryK's subnormal arm with exp_diff =
-// target_exp + fl, saturated to the range.
+// the fixed-point format p describes, where "even" refers to the integer
+// code. A negative input to an unsigned format returns 0, a NaN passes
+// through, and every other value takes binaryK's subnormal arm with
+// exp_diff = target_exp + fl and is then saturated to the range.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_even(T x, bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -136,15 +139,17 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_even(T x, bool is_signed, cons
     if (target_exp == F::INF_EXP)
         return fixedpoint_nonfinite(x, p);
 
-    // the bits kept below the leading one, down to the step: negative for a
-    // value under the step, which is then zero or the step. Half a step is
-    // the tie, and zero the even code, so only a value above half leaves zero.
+    // exp_diff is the number of bits kept below the leading bit, down to the
+    // step's. It is negative for a value under the step, which becomes zero
+    // or the step: half a step is a tie and zero is the even code, so only a
+    // value above half a step rounds to the step.
     int exp_diff = target_exp + p.fl;
     int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << (F::EXP_BITS + 1)) > 0));
 
-    // Rounded only where the result is nonzero: binaryK's subnormal arm never
-    // sees an exp_diff below -2, but a tiny input's here would shift the word
-    // past its width, which C++ leaves undefined.
+    // Rounded only where the result can be nonzero: for a tiny input the
+    // round would shift the word past its width, which C++ leaves undefined.
+    // (binaryK's subnormal arm rounds anyway and discards the result with
+    // not_uflow.)
     word_t quantize_bits = not_uflow ? round_bitwise_nearest_even(target, exp_diff) : word_t(0);
     quantize_bits = clip_subnormal_range_exponent(target, quantize_bits, p.step_exponent_store);
     T quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
@@ -152,8 +157,9 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_even(T x, bool is_signed, cons
     return fixedpoint_saturate(quantized, p);
 }
 
-// Rounds to nearest, ties away from zero. Under the step, half a step is a tie
-// the step wins, so every value from exp_diff == -1 up is nonzero.
+// Rounds to nearest, ties away from zero. Under the step, half a step is a
+// tie, which goes to the step, so every value from exp_diff == -1 up rounds
+// to a nonzero result.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_away(T x, bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -180,9 +186,10 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_away(T x, bool is_signed, cons
 }
 
 // Rounds to odd. Under the step the candidates are zero (code 0) and the step
-// (code 1), so every nonzero value there rounds to the step: the power of two
-// under it is taken, and the _up clip lifts it onto the step. At exp_diff ==
-// 0 that power of two is the step itself, code 1, already odd.
+// (code 1), so every nonzero value there rounds to the step: the round keeps
+// the power of two at or below the value, and the _up clip lifts it onto the
+// step. At exp_diff == 0 that power of two is the step itself, code 1, which
+// is already odd.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_odd(T x, bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -208,8 +215,8 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_odd(T x, bool is_signed, const MPTORCH
 }
 
 // Rounds a magnitude up (away from zero), for cast_fixedpoint_up and
-// cast_fixedpoint_down: assumes x >= 0 and finite. Under the step the value
-// rounds up to a whole power of two, which the _up clip lifts onto the step.
+// cast_fixedpoint_down; x must be finite and >= 0. Under the step the value
+// rounds up to a power of two, which the _up clip lifts onto the step.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T fixedpoint_absolute_up(T x, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -225,7 +232,7 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_absolute_up(T x, const MPTORCH_THREAD Fixed
     return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
 }
 
-// Rounds a magnitude down (toward zero); the other half of
+// Rounds a magnitude down (toward zero); the counterpart of
 // fixedpoint_absolute_up.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T fixedpoint_absolute_down(T x, const MPTORCH_THREAD FixedPointParamsT<T> &p)
@@ -242,11 +249,11 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_absolute_down(T x, const MPTORCH_THREAD Fix
     return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
 }
 
-// The three directed modes (toward +inf, toward -inf, toward zero) in terms
-// of the two magnitude helpers above, as in cast_binaryK_up: rounding a
+// The three directed modes (toward +inf, toward -inf, toward zero), built
+// from the two magnitude helpers above as in cast_binaryK_up: rounding a
 // negative value up is rounding its magnitude down, and so on. Unlike
-// binaryK's, they saturate after the sign is back on, since the range is not
-// symmetric: -2 is a value of wl=4, fl=2, and +2 is not.
+// binaryK's, they saturate after the sign is put back, since the range is
+// not symmetric: -2 is a value of wl=4, fl=2, and +2 is not.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_up(T x, bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -256,10 +263,10 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_up(T x, bool is_signed, const MPTORCH_
     if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
-    // A NaN or an infinity is settled before the sign is taken off, so the
-    // helpers only ever see a finite magnitude. The sign goes off and back on
-    // on the word (flip_sign, negate_magnitude), so a magnitude that rounded
-    // to zero comes back +0.0 and no payload is canonicalized.
+    // A NaN or an infinity is dealt with before the sign is taken off, so
+    // the helpers only see finite magnitudes. The sign is removed and put
+    // back on the word (flip_sign, negate_magnitude), so a magnitude that
+    // rounded to zero comes back as +0.0.
     word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);
     if ((int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS == F::INF_EXP)
         return fixedpoint_nonfinite(x, p);
@@ -288,8 +295,8 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_down(T x, bool is_signed, const MPTORC
     return fixedpoint_saturate(rounded, p);
 }
 
-// Rounds toward zero: down for a non-negative value, up for a negative one.
-// A NaN compares false and takes the up arm, which passes it through.
+// Rounds toward zero: down for a nonnegative value, up for a negative one. A
+// NaN fails the compare and takes the up arm, which passes it through.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_zero(T x, bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
@@ -298,28 +305,31 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_zero(T x, bool is_signed, const MPTORC
     return cast_fixedpoint_up(x, is_signed, p);
 }
 
-// Stochastic rounding with N random bits: P3109's StochasticA, B or C, as the
-// spec in prng_bits says (common/stochastic.h; R is the top N of the draw's
-// MAN_BITS bits, so N = 0 makes A RZ). With eta the fraction of |x| between
-// its two neighbours on the grid of step 2^-fl, the magnitude rounds away
-// from zero iff floor(eta * 2^N) + R >= 2^N (A), floor(eta * 2^(N+1)) + 2R +
-// 1 >= 2^(N+1) (B) or RNITE(eta * 2^N) + R >= 2^N (C). rand_prob (a word of
-// the carrier whose MAN_BITS low bits are the draw) and the spec stay
-// per-call arguments, as in cast_binaryK_stochastic.
+// Stochastic rounding with N random bits: P3109's StochasticA, B or C, as
+// the spec in prng_bits says (common/stochastic.h). R is the top N of the
+// draw's MAN_BITS bits, so N = 0 makes A round toward zero. With eta the
+// fraction of the way |x| lies between its two neighbours on the grid of
+// step 2^-fl, the magnitude rounds away from zero iff floor(eta * 2^N) + R >=
+// 2^N (A), floor(eta * 2^(N+1)) + 2R + 1 >= 2^(N+1) (B), or
+// RNITE(eta * 2^N) + R >= 2^N (C). rand_prob (a carrier word whose MAN_BITS
+// low bits are the draw) and the spec are per-call arguments, as in
+// cast_binaryK_stochastic.
 //
-// The arithmetic is integer, on the word. A value at or above the step keeps
-// exp_diff fraction bits above it: the draw goes in directly below the step
-// with the variant's constants below it, the bits below the step are cleared,
-// and a carry crosses a binade by itself. A value under the step is zero or
-// the step, by stochastic.h's bit test on its significand. Nothing is rounded
-// in the carrier first -- adding a power of two above the range, as binaryK's
-// subnormal SR arm once did, rounds |x| to nearest at MAN_BITS - mag_bits bits
-// below the step before the draw sees it, which made N = 0 RNE at mag_bits =
-// MAN_BITS -- and no float operation touches the input, so a subnormal is not
-// flushed on Metal. The carrier check's bound, mag_bits + N <= MAN_BITS + 1
-// (number.py), keeps every shift in range: in the range exp_diff <= mag_bits
-// - 1, so a value at or above the step has at least N fraction bits, and
-// exactly N where the bound is met (then B and C are A).
+// The arithmetic is integer, on the word. A value at or above the step has
+// exp_diff bits between its leading bit and the step: the draw is added
+// directly below the step, with the variant's constants below the draw, the
+// bits below the step are cleared, and a carry into the next binade happens
+// by itself. A value under the step becomes zero or the step, by
+// stochastic.h's bit test on its significand. Nothing is rounded in the
+// carrier first: adding a power of two above the range, to let the carrier's
+// addition do the rounding, would round |x| to nearest at MAN_BITS - mag_bits
+// bits below the step before the draw is applied, which makes N = 0 behave
+// as RNE at mag_bits = MAN_BITS. And no float operation touches the input,
+// so a subnormal is not flushed on Metal. The carrier check's bound,
+// mag_bits + N <= MAN_BITS + 1 (mptorch/number/fixedpoint.py), keeps every
+// shift in range: inside the range exp_diff <= mag_bits - 1, so a value at or
+// above the step has at least N bits below the step, and exactly N where the
+// bound is met (B and C then agree with A).
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T>::word_t rand_prob, int spec,
                                                      bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
@@ -341,7 +351,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     if (mag == 0)
         return T(0); // either zero comes back +0.0
 
-    // A value at or past 2^shift_exp is past the range: it saturates.
+    // A value at or above 2^shift_exp is past the range: it saturates.
     if (target_exp >= p.shift_exp)
         return fixedpoint_saturate(x, p);
 
@@ -349,8 +359,8 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     const int variant = sr_spec_variant(spec);
     word_t r = (rand_prob & F::MAN_MASK) >> (F::MAN_BITS - prng_bits);
 
-    // The fraction bits of |x| / step sit below bit `below` of the word. A
-    // subnormal input's field reads as the exponent 1 - BIAS.
+    // The fraction bits of |x| / step are the bits below bit `below` of the
+    // word. A subnormal input's field is read as the exponent 1 - BIAS.
     int exp_diff = (field == 0 ? 1 - F::BIAS : target_exp) + p.fl;
     if (exp_diff >= F::MAN_BITS)
         return fixedpoint_saturate(x, p); // a multiple of the step already
@@ -361,8 +371,8 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
         word_t or_v, tie;
         sr_word_constants<word_t>(below - prng_bits, prng_bits, variant, or_v, tie);
         word_t q = sr_round_word<word_t>(mag, r, below - prng_bits, prng_bits, or_v, tie);
-        // zero only for a subnormal input under a step the carrier holds as a
-        // subnormal (fl >= BIAS): the sign goes back on a nonzero result only
+        // q is zero only for a subnormal input under a step the carrier holds
+        // as a subnormal (fl >= BIAS); only a nonzero result gets the sign
         if (q == 0)
             return T(0);
         word_t signed_q = q | sign;
@@ -376,7 +386,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     const word_t top2 = sr_top2<word_t>(s, F::MAN_BITS - exp_diff, prng_bits, F::WORD_BITS, sticky);
     if (!sr_away<word_t>(top2, sticky, r, prng_bits, variant))
         return T(0);
-    // the step on the word, a subnormal of the carrier past fl = BIAS - 1
+    // the step as a word, which is a carrier subnormal once fl >= BIAS
     word_t step = p.step_exponent_store >= 1 ? (word_t)p.step_exponent_store << F::MAN_BITS
                                              : word_t(1) << (F::MAN_BITS - 1 + p.step_exponent_store);
     word_t signed_step = step | sign;

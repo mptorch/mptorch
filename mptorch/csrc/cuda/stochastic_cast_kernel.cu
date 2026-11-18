@@ -1,5 +1,5 @@
-// The CUDA kernel of _stochastic_cast (common/stochastic_cast.h): one thread
-// per element, its random word given. Test-only.
+// The CUDA kernel of _stochastic_cast (common/stochastic_cast.h), a test-only
+// op: one thread per element, with each element's random word passed in.
 
 #include "stochastic_cast_kernel.h"
 

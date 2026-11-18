@@ -1,9 +1,12 @@
-#include "../custom_matmul_kernel.cuh"
+// Explicit instantiations of the CUDA GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for custom_conv_binaryK
+// and custom_conv_binaryK_fma. They accumulate under AccumulateAlgorithm::BLOCK
+// (a sum per block of products, added to the running total) in the binary32
+// carrier (float32, float16 and bfloat16 operands). The entry points are in
+// ../custom_conv_entry.cpp, and ../custom_matmul_kernel.cuh explains how the
+// instantiations are divided among the files in this directory.
 
-// The conv ops over binaryK formats under AccumulateAlgorithm::BLOCK
-// (blocked summation with an outer format; common/gemm_accumulate.h), in binary32: the
-// gathered kernels (common/gemm_gather.h) of custom_conv_binaryK and custom_conv_binaryK_fma.
-// One of ten conv instantiation files (custom_conv_binaryK.cu says why).
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

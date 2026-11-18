@@ -1,17 +1,17 @@
 #pragma once
 
-// The CPU pack and unpack kernels of the elementwise block ops, by every
-// scale rule but Four Over Six's (block_pack_tiles_fos.h), as templates on
-// the storage dtype, whose carrier (carrier_t: binary64 for double, binary32
-// for the other three) they round in. block_kernel.cpp instantiates them for
-// float32, float16 and bfloat16, and block_kernel_f64.cpp for float64, so a
-// build with MPTORCH_NO_FP64 leaves the binary64 ones out with that file.
-// block_kernel.cpp says how they work.
+// The CPU pack and unpack kernels of the elementwise block ops, under every
+// scale rule except the Four Over Six ones (cpu/block_pack_tiles_fos.h), as
+// templates on the storage dtype. They round in its carrier (carrier_t:
+// binary64 for double, binary32 for the other three). block_kernel.cpp
+// instantiates them for float32, float16 and bfloat16, and
+// block_kernel_f64.cpp for float64, so a build with MPTORCH_NO_FP64 leaves
+// the binary64 ones out with that file. block_kernel.cpp says how they work.
 //
-// The bodies are block_kernel.cpp's at f9a6aa9, from before binary64 had
-// block kernels, with the carrier spelled T: a binary32 instantiation
-// compiles to what it compiled to there. In an unnamed namespace, as they
-// were, so that each including file keeps its own copies.
+// The bodies are the binary32 kernels' text from before binary64 had block
+// kernels, with the carrier written as T, so a binary32 instantiation
+// compiles to the code it did then. They are in an unnamed namespace, as
+// they were, so that each file that includes them keeps its own copies.
 
 #include "../common/block_kernels.h"
 #include "../common/dispatch.h"
@@ -42,7 +42,7 @@ namespace
 
     at::parallel_for(0, tiles, grain, [&](int64_t t_begin, int64_t t_end)
     {
-      uint8_t buf[256]; // one row of a block: at most 128 codes of 16 bits
+      uint8_t buf[256]; // one block row's codes: at most 128 codes of 16 bits
       for (int64_t t = t_begin; t < t_end; ++t)
       {
         const int64_t b = t / per_batch;
@@ -53,8 +53,8 @@ namespace
         const int64_t c0 = blk * p.block_size, c1 = std::min<int64_t>(c0 + p.block_size, j.cols);
         const scalar_t *xb = x + b * j.xs0;
 
-        // The largest magnitude, compared as words (a non-negative float's
-        // order is its word's), with the NaNs left out and noted.
+        // The largest magnitude, compared as words (non-negative floats are
+        // ordered as their words are), with NaNs left out but recorded.
         typename F::word_t amax = 0;
         bool nan = false;
         for (int64_t r = r0; r < r1; ++r)
@@ -123,7 +123,7 @@ namespace
     });
   }
 
-  // block_unpack: one task per row of the data, each element decoded with
+  // block_unpack: one task per row of the codes, each element decoded with
   // its tile's scale into a contiguous result.
   template <typename scalar_t>
   void unpack_rows(const BlockUnpackJob &j, const BlockFormatParamsT<carrier_t<scalar_t>> &p)

@@ -1,13 +1,14 @@
-// The MPS entry points of the eight conv ops, the text of their CPU twins
-// (cpu/custom_conv_entry.cpp) with the backend swapped: one pass of a convolution
-// (forward, input gradient or weight gradient) as the GEMM of the op each is
-// named after, with the operands gathered from the convolution's tensors in
-// the kernel's tile loads rather than unfolded (common/gemm_gather.h).
+// The MPS entry points of the eight conv ops, the same text as their CPU
+// twins (cpu/custom_conv_entry.cpp). Each runs one pass of a convolution
+// (the forward pass, the input gradient or the weight gradient) as the GEMM
+// of the op it is named after, with the operands gathered from the
+// convolution's tensors as the kernel loads its tiles rather than unfolded
+// first (common/gemm_gather.h).
 //
-// Each is its GEMM twin's packer handed to the conv driver
-// (common/gemm_conv_host.h): the single-format ones take the *_accumulated
-// twin's arguments, so every AccumulateAlgorithm, and the palette ones the
-// *_mixed twin's. mps/gemm.metal gathers the operand tiles through the
+// Each hands its GEMM twin's packed Args to the conv driver
+// (common/gemm_conv_host.h): the single-format ops take the *_accumulated
+// twin's arguments, and so every AccumulateAlgorithm, and the palette ops
+// the *_mixed twin's. mps/gemm.metal gathers the operand tiles through the
 // geometry, which mps/gemm_backend.cpp binds as a buffer.
 
 #include "../common/gemm_conv_host.h"

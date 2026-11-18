@@ -1,10 +1,13 @@
-#include "../custom_matmul_kernel.h"
+// Explicit instantiations of the CPU GEMM kernel's convolution form, which
+// gathers its operands from a convolution's tensors, for
+// custom_conv_binaryK_superfp and custom_conv_superfp_binaryK. They accumulate
+// under AccumulateAlgorithm::BLOCK (a sum per block of products, added to the
+// running total) in the binary32 carrier (float32, float16 and bfloat16
+// operands). The entry points are in ../custom_matmul_cross_entry.cpp, and
+// ../custom_matmul_kernel.h explains how the instantiations are divided among
+// the files in this directory.
 
-// The conv ops over the cross-family split macs (common/gemm_cross.h)
-// under AccumulateAlgorithm::BLOCK (blocked summation with an outer
-// rounding; common/gemm_accumulate.h), in binary32: the gathered kernels of
-// custom_conv_binaryK_superfp and custom_conv_superfp_binaryK. One of four
-// cross-family conv instantiation files (custom_conv_cross.cpp says why).
+#include "../custom_matmul_kernel.h"
 
 namespace mptorch::gemm_cpu
 {

@@ -1,32 +1,44 @@
 #pragma once
 
-// The CUDA GEMM kernel and its launcher, shared by the eight NAIVE
-// custom_matmul_*.cu translation units, each of which explicitly instantiates
-// CudaBackend::launch_as (declared in gemm_backend.h) for its two ops, and by
-// the six custom_matmul_*_{kahan,block,tree}.cu, which instantiate
-// launch_accumulated_as for the other accumulate algorithms.
+// The CUDA GEMM kernel, custom_matmul_kernel, and the four CudaBackend
+// templates that launch it, all declared in cuda/gemm_backend.h: launch_as
+// for the NAIVE GEMM ops, launch_accumulated_as for the GEMM ops under
+// KAHAN, BLOCK and TREE (common/gemm_accumulate.h), launch_conv_as for the
+// conv ops and launch_block_as for the block GEMM. Only the instantiation
+// units in cuda/inst/ include this header.
 //
-// This header includes no ATen tensor headers, on purpose. Under nvcc a
+// This header includes no ATen tensor header, on purpose. Under nvcc a
 // translation unit that includes <ATen/core/Tensor.h> pays about 25 s of
 // fixed front-end cost before it compiles a single kernel; one that includes
 // only the policy headers and the CUDA fp16/bf16 headers pays about 3 s. So
 // the kernels see raw pointers and plain structs (GemmShape and an Args from
-// common/gemm_args.h), and everything that touches at::Tensor stays in
-// custom_matmul_entry.cpp, which g++ compiles. The only ATen headers here are
-// the Philox state unpacker and the Half/BFloat16 value types, both
-// header-only and cheap.
+// common/gemm_args.h), and everything that touches at::Tensor stays in the
+// entry files (cuda/custom_*_entry.cpp), which g++ compiles. The only ATen
+// headers here are the Philox state unpacker and the Half and BFloat16
+// value types, both header-only and cheap.
 //
-// Why eight .cu files rather than one: the build is throughput-bound across
-// sixteen threads, and a single kernel file was its long pole (over 100 s of
-// a 111 s build). The cut is one translation unit per (format family x mac
-// mode x carrier): custom_matmul_{binaryK,superfp}{,_fma}.cu hold the
-// binary32 kernels and their *_f64.cu twins the binary64 ones. A family's
-// cast template is a body of ~150 instructions, and a file that holds both
-// the single-format and the mixed-format op of one (family, mac mode)
-// instantiates it once; no kernel specialization is compiled into two
-// objects. The *_f64 files are separate so that MPTORCH_NO_FP64=1 can leave
-// the binary64 kernels out of the build. Splitting further would only repeat
-// the ~3 s fixed cost per file with nothing left to parallelize.
+// How the instantiations are divided among the units. Each file in
+// cuda/inst/ holds nothing but explicit instantiations of these templates,
+// for a few closely related ops, under one accumulate algorithm and in one
+// carrier. There are three reasons:
+//   - The kernel is expensive to compile, since every policy is instantiated
+//     once per round mode, and separate units compile in parallel. When this
+//     was measured, one file that held every kernel was the build's longest
+//     step (over 100 s of a 111 s build). A format family's single-format
+//     and palette ops share a file: the family's cast template, about 150
+//     instructions, is then instantiated once for both, and separating them
+//     would only repeat the fixed cost of about 3 s per file.
+//   - setup.py leaves a group of units out of the build by its file stem:
+//     *_f64 under MPTORCH_NO_FP64=1, *_odd and *_odd_f64 under
+//     MPTORCH_NO_ODD=1, and *_{kahan,block,tree}_odd{,_f64} unless
+//     MPTORCH_ODD_ACCUMULATED=1 is set.
+//   - A new op gets units of its own rather than lines in an existing one, so
+//     that the existing units' objects stay byte-identical.
+// The units of the odd ops (carrier_rounding=RoundMode.RO) also include the
+// common/carrier_odd*.h header that defines their Args. Those under KAHAN,
+// BLOCK and TREE include common/carrier_odd_accumulate.h, which defines
+// AccumulateFamily for their Args and without which they do not compile;
+// tests/test_accumulators.py checks that they do.
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_block.h"
@@ -42,20 +54,20 @@ namespace mptorch::gemm_cuda
 {
     using mptorch::gemm::GemmShape;
 
-    // Double-buffered shared-memory tiled GEMM. Each thread block computes
-    // one BLOCKSIZE x BLOCKSIZE tile of C with BLOCKSIZE^2 threads, and each
-    // thread owns exactly one output element and its whole K-reduction,
-    // driven through an Accumulator policy (common/gemm_policy.h) so that the
-    // format and the rounding are the policy's, not the kernel's. Per K-step
-    // of BLOCKSIZE the block stages one tile of A and one of B in shared
-    // memory; the two buffers let the next tile's global loads overlap the
-    // current tile's arithmetic. This one-element-per-thread shape was
-    // benchmarked against a register-blocked variant (several outputs per
-    // thread; mm_kernel4, 4472a20^:dev/cuda/custom_matmul.cu): slightly faster.
+    // A tiled GEMM with double-buffered shared memory. Each thread block
+    // computes one BLOCKSIZE x BLOCKSIZE tile of C with BLOCKSIZE^2 threads,
+    // and each thread computes exactly one output element, its whole
+    // reduction over K, through an Accumulator policy (common/gemm_policy.h),
+    // so that the format and the rounding are the policy's and not the
+    // kernel's. For each BLOCKSIZE steps of K the block stages one tile of A
+    // and one of B in shared memory; with two buffers, the next tiles' global
+    // loads overlap the current tiles' arithmetic. One element per thread
+    // measured slightly faster than a register-blocked variant that computes
+    // several outputs per thread.
     constexpr int BLOCKSIZE = 16;
 
-    // The K-loop's unroll factor for every binary64 kernel (see the loop for
-    // the measurements). A macro only so that
+    // The K-loop's unroll factor for every binary64 kernel (the K-loop's
+    // comment has the measurements). It is a macro only so that
     // dev/benchmarks/timing/gemm_f64_unroll.cu can time the shipped kernels at
     // other factors; nothing in the build defines it.
 #if !defined(MPTORCH_GEMM_F64_UNROLL)
@@ -63,8 +75,8 @@ namespace mptorch::gemm_cuda
 #endif
 
     // The K-loop's unroll factor for a single-format binary32 kernel: a
-    // positional accumulator's own, and 16 for a NaiveAccumulator (see the
-    // loop for the measurements).
+    // positional accumulator's own factor, and 16 for a NaiveAccumulator (the
+    // K-loop's comment has the measurements).
     template <class Accumulator>
     constexpr int unroll_of()
     {
@@ -78,17 +90,18 @@ namespace mptorch::gemm_cuda
     // argument (mptorch::GemmDtype, common/gemm_dtype.h), not a template
     // parameter: the storage type decides nothing but these two conversions,
     // and instantiating the kernel per dtype would triple the cast bodies,
-    // the unrolled K-loop, the compile time and the binary for the sake of
-    // two loads per BLOCKSIZE K-steps and one store per output element. The
-    // switch is warp-uniform and sits next to the global load whose latency
-    // hides it.
+    // the unrolled K-loop, the compile time and the binary, for the sake of
+    // two loads per BLOCKSIZE steps of K and one store per output element.
+    // Every thread of a warp takes the same arm of the switch, and the switch
+    // sits next to the global load, whose latency hides it.
     //
-    // T is the carrier the kernel computes in. The primary template is
-    // binary32's and converts any of its three dtypes to float; binary64 has
-    // one dtype (double), so its specializations are a plain load and a
-    // plain store. They are specializations rather than an `if constexpr`
-    // around the switch so the binary32 bodies compile to the same code
-    // whether or not the binary64 kernels are built.
+    // T is the carrier the kernel computes in (the float type of its
+    // arithmetic). The primary template serves binary32 and converts any of
+    // its three storage dtypes to float; binary64 has one storage dtype,
+    // float64, so its specializations are a plain load and a plain store.
+    // They are specializations rather than an `if constexpr` around the
+    // switch so that the binary32 bodies compile to the same code whether or
+    // not the binary64 kernels are built.
     template <class T>
     __device__ __forceinline__ T load_elem(const void *p, int64_t i, mptorch::GemmDtype dt)
     {
@@ -133,14 +146,14 @@ namespace mptorch::gemm_cuda
     }
 
     // Logical element (row, col) of an operand. `off` is this batch
-    // element's base offset into the operand, in elements: 0 for a 2D call
-    // and for an operand broadcast across the batch (stride 0).
+    // element's offset into the operand, in elements: 0 for a 2D call and
+    // for an operand broadcast across the batch (stride 0).
     template <class T>
     __device__ __forceinline__ T load_a(const void *A, mptorch::GemmDtype dt,
                                         int64_t M, int64_t K, bool trans_a,
                                         int64_t row, int64_t col, int64_t off)
     {
-        // logical A is M x K; trans_a means A's storage is actually K x M.
+        // Logical A is M x K; under trans_a, A is stored as K x M.
         return load_elem<T>(A, off + (trans_a ? col * M + row : row * K + col), dt);
     }
 
@@ -149,16 +162,16 @@ namespace mptorch::gemm_cuda
                                         int64_t K, int64_t N, bool trans_b,
                                         int64_t row, int64_t col, int64_t off)
     {
-        // logical B is K x N; trans_b means B's storage is actually N x K.
+        // Logical B is K x N; under trans_b, B is stored as N x K.
         return load_elem<T>(B, off + (trans_b ? col * K + row : row * N + col), dt);
     }
 
-    // What a gathered policy's thread keeps across the K-loop
-    // (common/gemm_gather.h): its batch element as (sample, group), its
+    // What a thread of a gathered policy (the conv ops; common/gemm_gather.h)
+    // keeps across the K-loop: its batch element as (sample, group), its
     // output row's part of A's offsets, its output column's part of B's, and
-    // the column of the result it stores into (not its own column in the
-    // input gradient, whose GEMMs each cover one residue class of the
-    // stride). A policy that is not gathered keeps nothing (NoConvThread).
+    // the result column it stores into. That column is its own column except
+    // in the input gradient, whose GEMMs each cover one residue class of the
+    // stride. A policy that is not gathered keeps nothing (NoConvThread).
     struct ConvThread
     {
         int64_t b;
@@ -192,8 +205,8 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    // A gathered policy's element (row, k) of A and (k, col) of B, the second
-    // zero where it falls in the convolution's padding.
+    // A gathered policy's element (row, k) of A and (k, col) of B. The
+    // element of B is zero where it falls in the convolution's padding.
     template <class T>
     __device__ __forceinline__ T gather_a(const void *A, mptorch::GemmDtype dt,
                                           const mptorch::gemm::ConvGeom &g, const ConvThread &ct,
@@ -212,10 +225,11 @@ namespace mptorch::gemm_cuda
         return off < 0 ? T(0) : load_elem<T>(B, off, dt);
     }
 
-    // A blocked policy's decode tables (common/gemm_block.h's
-    // fill_block_table), A's and then B's, in shared memory, filled by the
-    // CTA before its first tile load. Any other policy has none
-    // (NoBlockTables) and compiles to what it did.
+    // A blocked policy's decode tables (the block GEMM; filled by
+    // common/gemm_block.h's fill_block_table), A's and then B's, in shared
+    // memory, which the thread block fills before its first tile load. Any
+    // other policy has none (NoBlockTables) and compiles to the code it would
+    // without them.
     struct NoBlockTables
     {
     };
@@ -243,27 +257,28 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    // The kernel. A is logically [M, K] and B [K, N] (trans_* says the
-    // storage is the transpose); C is written densely as [batch, M, N]. The
-    // batch element is batch_base + blockIdx.z, and stride_a / stride_b are
-    // element offsets between consecutive batch elements, 0 meaning the
-    // operand is broadcast. acc_proto is the fully built Accumulator every
-    // thread copies; rng_args is read only when use_rng (RoundMode::SR). On
-    // the mixed path pal holds up to MAX_GEMM_FORMATS Mac policies and
-    // prec_idx picks one per output element through the three strides (0 for
-    // a dimension the index does not vary along).
+    // The kernel. A is logically [M, K] and B [K, N] (a trans flag says the
+    // operand is stored transposed); C is written densely as [batch, M, N].
+    // The batch element is batch_base + blockIdx.z, and stride_a and stride_b
+    // are the element offsets between consecutive batch elements, 0 meaning
+    // the operand is broadcast. acc_proto is the fully built Accumulator that
+    // every thread copies; rng_args is read only under use_rng (RoundMode::SR).
+    // On the palette path, pal holds up to MAX_GEMM_FORMATS Mac policies and
+    // prec_idx picks one per output element through the three strides (0
+    // along a dimension the index does not vary along).
     //
-    // MIXED selects whether this instantiation carries the per-element
-    // palette prologue. It is a template parameter rather than a runtime
-    // `pal.n > 0` test because a merely *possible* write to acc.mac forces
-    // the Mac policy's format constants into registers for the whole K-loop,
-    // instead of being re-read from the constant bank where acc_proto sits.
-    // That cost the split-mac kernels ~29 extra registers (109 vs 80 at
-    // BLOCKSIZE^2 threads) and roughly halved their throughput (34.7 -> 68.3
-    // ms at 1024^3 on sm_89) on every single-format launch, which is nearly
-    // all of them. Two instantiations double the kernel count, and the
-    // single-format path keeps its speed. Measured for 6bde6e9 on an RTX 4060
-    // Laptop, with a copy of this kernel, the prologue compiled in or not.
+    // MIXED selects whether this instantiation has the palette lookup before
+    // the K-loop. It is a template parameter rather than a runtime
+    // `pal.n > 0` test because a merely possible write to acc.mac forces the
+    // Mac policy's format constants into registers for the whole K-loop,
+    // where they would otherwise be read again from the constant bank that
+    // holds acc_proto. That cost the split-mac kernels about 29 extra
+    // registers (109 against 80 at BLOCKSIZE^2 threads) and roughly halved
+    // their throughput (68.3 ms against 34.7 ms at 1024^3 on sm_89) on every
+    // single-format launch, which is nearly all of them. Two instantiations
+    // double the kernel count, and the single-format path keeps its speed.
+    // Measured on an RTX 4060 Laptop GPU, with a copy of this kernel with and
+    // without the lookup compiled in.
     template <bool MIXED, class Accumulator>
     __global__ __launch_bounds__(BLOCKSIZE * BLOCKSIZE)
     void custom_matmul_kernel(
@@ -276,9 +291,9 @@ namespace mptorch::gemm_cuda
         const int32_t *__restrict__ prec_idx, int64_t idx_row_stride, int64_t idx_col_stride,
         int64_t idx_batch_stride)
     {
-        // The carrier: every operand is loaded into it, every step computed
-        // in it, and the output stored from it. The two double buffers are
-        // 4 KB of shared memory for binary32 and 8 KB for binary64.
+        // The carrier: every operand is loaded into it, every step is
+        // computed in it, and the output is stored from it. The two double
+        // buffers take 4 KB of shared memory in binary32 and 8 KB in binary64.
         using T = typename Accumulator::value_t;
         __shared__ T As[2][BLOCKSIZE * BLOCKSIZE];
         __shared__ T Bs[2][BLOCKSIZE * BLOCKSIZE];
@@ -296,47 +311,47 @@ namespace mptorch::gemm_cuda
 
         const int64_t numTiles = (K + BLOCKSIZE - 1) / BLOCKSIZE;
 
-        // The batch dimension is blockIdx.z, offset by batch_base because the
-        // launcher splits a batch larger than the 65,535 grid-z limit into
-        // several launches. The two operand offsets are computed once and
-        // added to every index: stride 0 makes an operand broadcast across
-        // the batch, and a 2D call is base 0 with both strides 0, so it
+        // The batch element is blockIdx.z, offset by batch_base because the
+        // launcher splits a batch larger than the 65,535 limit on gridDim.z
+        // into several launches. The two operand offsets are computed once and
+        // added to every index: stride 0 broadcasts an operand across the
+        // batch, and a 2D call has batch element 0 and both strides 0, so it
         // computes exactly the addresses an unbatched kernel would. The
-        // offsets stay live across the K-loop and cost +2 to +11 registers;
-        // a separate unbatched instantiation would buy back at most 3.6%
-        // for 86 more kernels and 4.7 MB more fatbin, so there is none.
+        // offsets stay live across the K-loop and cost 2 to 11 registers; a
+        // separate unbatched instantiation would gain back at most 3.6%, for
+        // 86 more kernels and 4.7 MB more fatbin, so there is none.
         const int64_t bId = batch_base + static_cast<int64_t>(blockIdx.z);
         const int64_t aOff = bId * stride_a;
         const int64_t bOff = bId * stride_b;
 
-        // A gathered policy (common/gemm_gather.h; the conv ops) reads its
+        // A gathered policy (the conv ops; common/gemm_gather.h) reads its
         // operands through the convolution's geometry instead of the two
-        // offsets above, which it is launched with at stride 0, and keeps its
+        // offsets above (it is launched with both strides 0), and keeps its
         // thread's part of the addresses here. Every use is behind
-        // `if constexpr`, and for any other policy this is an empty object:
-        // the 230 device functions the other ops run compile to the bytes
-        // they did before b16a3aa added it.
+        // `if constexpr`, and for any other policy this is an empty object,
+        // so the other ops' device functions compile to the bytes they would
+        // without it.
         constexpr bool GATHERED = mptorch::gemm::is_gathered_v<Accumulator>;
         [[maybe_unused]] const auto ct = conv_thread<GATHERED>(acc_proto, bId, rId, cId);
 
-        // A blocked policy (common/gemm_block.h; the block GEMM) decodes its
-        // packed operands in the tile loads, at the two offsets above, which
-        // are in bytes for it. Its branches follow the dense ones, behind
-        // `if constexpr`, for the reason the gathered ones do.
+        // A blocked policy (the block GEMM; common/gemm_block.h) decodes its
+        // block-format operands in the tile loads, at the two offsets above,
+        // which are in bytes for it. Its branches come after the dense ones,
+        // behind `if constexpr`, for the same reason as the gathered ones.
         constexpr bool BLOCKED = mptorch::gemm::is_blocked_v<Accumulator>;
         [[maybe_unused]] const auto blk_tables = block_tables<BLOCKED>(acc_proto);
 
         Accumulator acc = acc_proto;
 
         // RoundMode::SR: seed this output element's Philox stream once,
-        // before the K-loop. The subsequence is the element's global linear
-        // index into the whole [batch, M, N] output, so the draws it sees
-        // depend on nothing but which element it is: not on BLOCKSIZE, the
-        // grid, the chunking of the batch, or whether the product was spelled
-        // as a batched call or as a 2D call with the batch folded into M.
-        // Batch element 0 gets the subsequence the 2D call gives, which is
-        // what makes the two spellings bit-identical. A stream shared by a
-        // block's threads would make results depend on launch geometry.
+        // before the K-loop. The subsequence is the element's linear index
+        // into the whole [batch, M, N] result, so the draws it sees depend
+        // only on which element it is: not on BLOCKSIZE, the grid, how the
+        // batch was split into launches, or whether the product was written
+        // as a batched call or as a 2D call with the batch merged into M.
+        // Batch element 0 gets the subsequence the 2D call gives, which makes
+        // the two calls bit-identical. A stream shared by a block's threads
+        // would make the results depend on the launch geometry.
         if (use_rng && rId < M && cId < N)
         {
             auto seeds = at::cuda::philox::unpack(rng_args);
@@ -344,12 +359,12 @@ namespace mptorch::gemm_cuda
                          (static_cast<uint64_t>(bId) * M + rId) * N + cId, std::get<1>(seeds));
         }
 
-        // Mixed format: bind this output element's Mac policy from the
-        // palette before the K-loop, so the loop itself is the same code as
-        // the single-format path. Compiled out entirely when MIXED is false,
-        // whose instantiation does not even carry the palette argument. No
-        // emptiness test: the mixed packers require at least one format, so
-        // MIXED implies a populated palette.
+        // Palette: set this output element's Mac policy from the palette
+        // before the K-loop, so that the loop itself is the same code as on
+        // the single-format path. When MIXED is false this is compiled out,
+        // and the instantiation does not even take the palette argument.
+        // There is no test for an empty palette: the palette packers require
+        // at least one format.
         if constexpr (MIXED)
         {
             if constexpr (!GATHERED)
@@ -360,9 +375,9 @@ namespace mptorch::gemm_cuda
             }
             else
             {
-                // A gathered policy's map is indexed by the result tensor's
-                // (sample, channel, position), of which this thread's row is
-                // one group's slice.
+                // A conv op's format map is indexed by the result tensor's
+                // (sample, channel, position), and this thread's row is a
+                // channel of one group.
                 if (rId < M && cId < N)
                     acc.mac = pal.slot(prec_idx[ct.b * idx_batch_stride +
                                                 mptorch::gemm::conv_result_row(ct.grp, M, rId) * idx_row_stride +
@@ -370,7 +385,8 @@ namespace mptorch::gemm_cuda
             }
         }
 
-        // Stage the first K-tile in buffer 0; out-of-range lanes read 0.
+        // Stage the first tiles of A and B in buffer 0; a thread whose
+        // element lies outside the operand loads 0.
         if constexpr (!GATHERED && !BLOCKED)
         {
             As[0][threadRow * BLOCKSIZE + threadCol] =
@@ -406,30 +422,31 @@ namespace mptorch::gemm_cuda
             T *curAs = As[t % 2];
             T *curBs = Bs[t % 2];
 
-            // The unroll factor is where the cast bodies meet the instruction
-            // cache and the register file. With the rounding mode a template
-            // parameter only one cast body is live per step, so the full
-            // unroll (16) fits and wins 3-8% on every binary32 single-format
-            // kernel (binaryK fma RNE at 1024^3: 4.31 ms at 4, 3.97 ms at
-            // 16). The mixed kernels carry an extra Mac per output element
-            // plus the palette, reach the register cliff sooner, and lose
-            // 1.3-1.4x at 16, so they stay at 4. The full unroll is paid for
-            // in binary size, about 2.8 MB of fatbin over the extension. The
-            // binary64 kernels are bound by the device's FP64 rate rather
-            // than by instruction fetch, so their unroll is flat within 1%
-            // from 2 to 8; 2 has the fewest spills and the smallest binary.
-            // Timed on sm_89; binary64 with dev/benchmarks/timing/gemm_f64_unroll.cu.
+            // The unroll factor trades the cast bodies' size against the
+            // instruction cache and the register file. With the rounding mode
+            // a template parameter, only one cast body is live per step, so
+            // the full unroll (16) fits, and it is 3-8% faster on every
+            // binary32 single-format kernel (binaryK fma RNE at 1024^3:
+            // 4.31 ms at 4, 3.97 ms at 16). The palette kernels hold an extra
+            // Mac per output element plus the palette, run out of registers
+            // sooner, and are 1.3-1.4x slower at 16, so they stay at 4. The
+            // full unroll costs about 2.8 MB of fatbin over the extension.
+            // The binary64 kernels are limited by the device's FP64 rate
+            // rather than by instruction fetch, so their time is flat within
+            // 1% for factors from 2 to 8; 2 has the fewest spills and the
+            // smallest binary. Timed on sm_89; binary64 with
+            // dev/benchmarks/timing/gemm_f64_unroll.cu.
             //
-            // A positional accumulator (KAHAN, BLOCK, TREE;
-            // common/gemm_accumulate.h) names its own factor, takes the
-            // step's position in the slab, does not run the steps past K
-            // that the zero lanes pad the last slab with (they are free for
-            // a NAIVE sum and not for a compensated one, and a draw spent on
-            // one would part the device from the CPU's order under SR), and
-            // is told when a slab ends. All of it is behind `if constexpr`,
-            // so a NaiveAccumulator's kernel is the code it was: every one
-            // of the 230 device functions that existed before 0479b96
-            // compiled to the same bytes after it.
+            // A positional accumulator (KAHAN, BLOCK or TREE;
+            // common/gemm_accumulate.h) names its own factor, is given each
+            // step's position in its slab (16 consecutive steps of K, one
+            // tile), and is told when a slab ends. It does not run the steps
+            // past K that the zero-loaded elements pad the last slab with:
+            // those are free for a NAIVE sum, but not for a compensated one,
+            // and under SR each would spend a draw, so the device's results
+            // would no longer match the CPU's. All of it is behind
+            // `if constexpr`, so a NaiveAccumulator's kernel compiles to the
+            // code it would without it.
             constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
             constexpr int UNROLL = std::is_same_v<T, double> ? MPTORCH_GEMM_F64_UNROLL
                                    : MIXED                   ? 4
@@ -437,9 +454,9 @@ namespace mptorch::gemm_cuda
             if constexpr (POSITIONAL)
             {
                 // A whole slab runs the unrolled loop, with no test per step;
-                // the last, partial one a plain loop over the steps it has. A
-                // `k < K` guard inside one loop instead cost 5-15% on every
-                // kernel (binaryK RNE on sm_89, measured for 0479b96).
+                // the last, partial slab runs a plain loop over the steps it
+                // has. A `k < K` test inside one loop instead cost 5-15% on
+                // every kernel (binaryK RNE on sm_89).
                 const int64_t left = K - t * BLOCKSIZE;
                 if (left >= BLOCKSIZE)
                 {
@@ -466,8 +483,9 @@ namespace mptorch::gemm_cuda
                 }
             }
 
-            // Prefetch the next K-tile into the other buffer; the barrier
-            // below publishes it before the next iteration reads it.
+            // Load the next tiles into the other buffer; the barrier below
+            // makes them visible to every thread before the next iteration
+            // reads them.
             if (t + 1 < numTiles)
             {
                 int64_t nextK = (t + 1) * BLOCKSIZE;
@@ -504,10 +522,10 @@ namespace mptorch::gemm_cuda
             __syncthreads();
         }
 
-        // C is dense [batch, M, N], so its own stride needs no argument. A
-        // gathered policy's result is [batch, M, res_N], of whose columns
-        // this GEMM's are all (res_N = N) or one class of the input
-        // gradient's.
+        // C is a dense [batch, M, N], so its strides need no argument. A
+        // gathered policy's result is [batch, M, res_N]: this GEMM's columns
+        // are all of its columns (res_N = N), or, in the input gradient, the
+        // columns of one residue class of the stride.
         if constexpr (!GATHERED)
         {
             if (rId < M && cId < N)
@@ -521,20 +539,20 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    // Launches the kernel over a grid of [M, N] tiles per batch element. The
-    // stream and the Philox state arrive from the entry point:
-    // getCurrentCUDAStream() lives behind <ATen/cuda/CUDAContext.h>, which
+    // Launch the kernel over a grid of output tiles for each batch element.
+    // The stream and the Philox state come from the entry point:
+    // getCurrentCUDAStream() is declared in <ATen/cuda/CUDAContext.h>, which
     // this header must not include (see the top of the file).
     //
-    // The batch rides on gridDim.z, whose extent is capped at 65,535, two
-    // orders of magnitude below gridDim.x/y's 2^31 - 1 and reachable in
-    // practice (a per-head attention call is batch * heads). A larger batch
-    // is split into successive launches with batch_base advancing. Chunking
-    // here rather than folding the batch into gridDim.y keeps each block's
-    // (row, col) mapping and shared-memory tiling untouched, and a chunk
-    // boundary is not observable in the output: each block writes its own
-    // tile of its own batch element, and RoundMode::SR keys on the global
-    // element index, not on the launch.
+    // The batch is gridDim.z, whose extent is capped at 65,535, far below the
+    // 2^31 - 1 of gridDim.x and reachable in practice (a per-head attention
+    // call has batch * heads elements). A larger batch is split into
+    // successive launches, each with a larger batch_base. Splitting here
+    // rather than merging the batch into gridDim.y leaves each block's
+    // (row, col) mapping and shared-memory tiling unchanged, and the split is
+    // invisible in the output: each block writes its own tile of its own
+    // batch element, and RoundMode::SR keys each stream on the element's
+    // index, not on the launch.
     template <bool MIXED = false, class Accumulator>
     void launch_custom_matmul(const void *a, const void *b, void *c, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
@@ -561,13 +579,12 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    // One host body for all eight ops in carrier T. Args names which policy
-    // to build (common/gemm_args.h) and whether the op is mixed. The round
-    // mode is turned from a runtime value into a template parameter here: a
-    // runtime switch inside accumulate() kept seven cast bodies live in the
-    // unrolled K-loop and cost 1.2-2.3x of kernel time. Each of the eight
-    // .cu files explicitly instantiates this for its two Args and its
-    // carrier.
+    // One host body for every NAIVE GEMM op, in carrier T. Args names the
+    // policy to build (common/gemm_args.h) and whether the op takes a
+    // palette. dispatch_round_mode turns the round mode from a runtime value
+    // into a template parameter here: a runtime switch inside accumulate()
+    // kept seven cast bodies live in the unrolled K-loop and cost 1.2-2.3x of
+    // kernel time. Explicitly instantiated in cuda/inst/.
     template <class T, class Args>
     void CudaBackend::launch_as(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
@@ -597,9 +614,10 @@ namespace mptorch::gemm_cuda
         });
     }
 
-    // The same body for KAHAN, BLOCK and TREE, whose Args also names the
-    // algorithm its accumulator is built for. Instantiated by the six
-    // custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cu files.
+    // The same body for the GEMM ops under KAHAN, BLOCK and TREE: the
+    // algorithm ALG is a template parameter, and args builds the accumulator
+    // for it. Instantiated by the cuda/inst/custom_matmul_*_{kahan,block,tree}*
+    // units.
     template <class T, AccumulateAlgorithm ALG, class Base>
     void CudaBackend::launch_accumulated_as(const GemmShape &s,
                                             const mptorch::gemm::AccumulateArgs<Base> &args,
@@ -617,11 +635,11 @@ namespace mptorch::gemm_cuda
         });
     }
 
-    // The conv ops (common/gemm_gather.h): the policy `Inner` builds, as its
-    // GEMM op builds it, wrapped in a Gathered that carries the geometry, and
-    // launched over the pass's [batch, M, N] with no transposes and no batch
-    // strides (the gathers address the operands themselves). Instantiated by
-    // the ten custom_conv_*.cu files.
+    // The conv ops (common/gemm_gather.h): the accumulator that `Inner`
+    // builds, as its GEMM op builds it, wrapped in a Gathered that carries the
+    // geometry, and launched over the pass's [batch, M, N] with no transposes
+    // and no batch strides, since the gathered loads address the operands
+    // themselves. Instantiated by the cuda/inst/custom_conv_* units.
     template <class T, AccumulateAlgorithm ALG, class Inner>
     void CudaBackend::launch_conv_as(const GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
                                      const LaunchContext &ctx)
@@ -661,11 +679,11 @@ namespace mptorch::gemm_cuda
         });
     }
 
-    // The block GEMM (common/gemm_block.h): the policy `Inner` builds, wrapped
-    // in a Blocked that carries the two packed operands, and launched over
-    // [batch, M, N] with the operands' own trans flags and their data's batch
-    // strides in bytes. Instantiated by the four custom_matmul_block*.cu
-    // files.
+    // The block GEMM (common/gemm_block.h): the accumulator that `Inner`
+    // builds, wrapped in a Blocked that carries the two block-format
+    // operands, and launched over [batch, M, N] with the operands' own trans
+    // flags and their codes' batch strides in bytes. Instantiated by the
+    // cuda/inst/custom_matmul_block* units.
     template <class T, AccumulateAlgorithm ALG, class Inner>
     void CudaBackend::launch_block_as(const GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
                                       const LaunchContext &ctx)

@@ -1,15 +1,16 @@
 #pragma once
 
-// The host side of the block GEMM, custom_matmul_block (common/gemm_block.h):
-// the operands' checks and derivation, the output allocation, and the driver
-// that hands a BlockGemmArgs to the backend. The GEMM's own pieces are reused
-// as they are: the batch rule, the accumulation checks, the dtype-free RNG
-// draw and the launch context all come from common/gemm_host.h, and the block
-// descriptor's checks from common/block_host.h.
+// The host side of the block GEMM, custom_matmul_block (gemm_block.h): the
+// checks of the operands and the derivation of their shapes, the output
+// allocation, and the driver that hands a BlockGemmArgs to the backend. The
+// GEMM's own parts are reused unchanged: the batch rule, the accumulation
+// checks, the random-state draw and the launch context come from
+// gemm_host.h, and the checks of the block format descriptor from
+// block_host.h.
 //
-// A header of its own so that the entry points of the other GEMM ops, which
-// include gemm_host.h, compile to what they compiled before this op existed.
-// Only {cpu,cuda,mps}/custom_matmul_block_entry.cpp include it.
+// Only {cpu,cuda,mps}/custom_matmul_block_entry.cpp and meta_host.h include
+// this header, so that the entry points of the other GEMM ops, which include
+// gemm_host.h, compile exactly as they would without it.
 //
 //   custom_matmul_block(a_data, a_scales, a_cols, trans_a,
 //                       b_data, b_scales, b_cols, trans_b,
@@ -20,16 +21,16 @@
 //                       acc_subnormals_mode, acc_prng_bits, <the *_accumulated tail>,
 //                       binary64)
 //
-// computes C [batch, M, N] = A @ B^T, A logically [M, K] and B [N, K], each
-// stored as block_pack wrote it: data [.., rows, row_bytes] and scales
-// [.., row_tiles, scale_cols], rank 2 or 3. `*_cols` is the unpadded length of
-// the operand's packed axis, which row_bytes rounds up to whole blocks, and
-// `trans_*` says the operand is stored with K as its rows: A as [K, M], B as
-// [K, N]. Each operand has its own format, so any pairing is allowed. The
-// operands are codes, with no float dtype to choose a carrier by, so
-// `binary64` names it: the result is float64, decoded, multiplied and summed
-// in binary64, or float32 in binary32, and each format is held to that
-// carrier.
+// computes C [batch, M, N] = A @ B^T, where A is logically [M, K] and B
+// [N, K]. Each is stored as block_pack wrote it: data [.., rows, row_bytes]
+// and scales [.., row_tiles, scale_cols], of rank 2 or 3. `*_cols` is the
+// unpadded length of the operand's packed axis, which row_bytes rounds up to
+// whole blocks, and `trans_*` says that the operand is stored with K as its
+// rows: A as [K, M], B as [K, N]. Each operand has its own format, so any
+// pairing is allowed. The operands are codes, with no float dtype from which
+// to choose a carrier, so `binary64` chooses it: the result is float64,
+// decoded, multiplied and summed in binary64, or float32 in binary32, and
+// each format must fit the carrier.
 
 #include "block_host.h"
 #include "gemm_block.h"
@@ -39,7 +40,8 @@ namespace mptorch::gemm
 {
   using at::Tensor;
 
-  // One packed operand, checked, made contiguous and described in carrier T.
+  // One packed operand, checked, made contiguous and described in the
+  // carrier T.
   template <class T>
   struct BlockGemmOperand
   {
@@ -89,10 +91,10 @@ namespace mptorch::gemm
     return o;
   }
 
-  // Hands a launch context that asks for them the operands' scales, which
-  // the MPS kernel binds as buffers of their own (mps/gemm_backend.h): a
-  // no-op for the CPU's and CUDA's, whose kernels read them through the
-  // BlockOperand's pointer.
+  // Hands the operands' scales to a launch context that takes them: the MPS
+  // kernel takes them as buffers of their own (mps/gemm_backend.h). For the
+  // CPU's and CUDA's contexts it does nothing, since their kernels read the
+  // scales through the BlockOperandT's pointer.
   template <class Ctx>
   void bind_block_scales(Ctx &ctx, const Tensor &scales_a, const Tensor &scales_b)
   {
@@ -116,9 +118,10 @@ namespace mptorch::gemm
     bool binary64 = false;
   };
 
-  // Runs the block GEMM in carrier T on the Args of its mac (BlockSplitArgs,
-  // BinaryKFusedArgs, or an AccumulateArgs of either). The order is the GEMM
-  // driver's: the checks, the output, the empty return, the RNG draw.
+  // Runs the block GEMM in the carrier T on the Args of its mac
+  // (BlockSplitArgs, BinaryKFusedArgs, or an AccumulateArgs of either). The
+  // steps come in the GEMM driver's order: the checks, the output, the early
+  // return for an empty output, the random-state draw.
   template <class Backend, class T, class Inner>
   Tensor run_custom_matmul_block_in(const char *op_name, const Inner &inner, const BlockGemmCall &call,
                                     int64_t round_mode)
@@ -162,8 +165,9 @@ namespace mptorch::gemm
     s.K = K;
     s.N = N;
     s.batch = batch;
-    // The data's batch strides, in bytes: the blocked tile loads add them to
-    // a byte pointer. 0 broadcasts an operand, as for the GEMM.
+    // The element data's batch strides, in bytes, since the blocked tile
+    // loads add them to a byte pointer. 0 makes every batch element read the
+    // same operand, as for the GEMM.
     s.stride_a = A.batch == 1 ? 0 : A.p.rows * A.p.row_bytes;
     s.stride_b = B.batch == 1 ? 0 : B.p.rows * B.p.row_bytes;
     s.trans_a = call.trans_a;
@@ -200,14 +204,16 @@ namespace mptorch::gemm
     return c;
   }
 
-  // The carrier the call names, binary64 or binary32. A build with
-  // MPTORCH_NO_FP64 has no binary64 block kernels and says so.
+  // Runs the block GEMM in the carrier the call names, binary64 or binary32.
+  // A build with MPTORCH_NO_FP64 has no binary64 block kernels, and raises
+  // an error that says so.
   template <class Backend, class Inner>
   Tensor run_custom_matmul_block(const char *op_name, const Inner &call_inner, const BlockGemmCall &call,
                                  int64_t round_mode)
   {
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode, " is not a RoundMode");
-    // SR_B and SR_C run as SR with the variant in the formats (stochastic_host.h)
+    // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
+    // format's prng_bits (stochastic_host.h's sr_canonical_args).
     const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name);
 #if defined(MPTORCH_NO_FP64)
     TORCH_CHECK(!call.binary64, op_name, ": this build has no float64 GEMM kernels (it was built with "
@@ -219,9 +225,10 @@ namespace mptorch::gemm
     return run_custom_matmul_block_in<Backend, float>(op_name, inner, call, round_mode);
   }
 
-  // The whole schema: the mac packed from its arguments (split or fused),
-  // NAIVE run on it and KAHAN, BLOCK and TREE on its AccumulateArgs, with the
-  // accumulation checked as the *_accumulated ops check it.
+  // The entry point's body, over the whole schema. It packs the mac (split or
+  // fused) from its arguments, runs NAIVE on that and KAHAN, BLOCK and TREE
+  // on its AccumulateArgs, and checks the accumulation arguments as the
+  // *_accumulated ops do.
   template <class Backend>
   Tensor custom_matmul_block_entry(const BlockGemmCall &call, bool fused, bool accumulate_quant,
                                    int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed,

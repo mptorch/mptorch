@@ -1,12 +1,13 @@
-// _carrier_odd on an Apple GPU: carrier_odd_metal.h's primitives applied
-// elementwise, so the tests can see what the format casts after them erase
-// (zero signs, the largest finite value, subnormal parity), word for word
-// against the CPU's. A test op, binary32 only.
+// _carrier_odd on an Apple GPU: carrier_odd_metal.h's round-to-odd
+// primitives (fma, add and mul) applied elementwise, so that the tests can
+// see, word for word against the CPU, what the format casts that follow them
+// in a GEMM would erase (zero signs, the largest finite value, subnormal
+// parity). A test-only op, binary32 only.
 //
 // Compiled after prelude.metal, odd.metal and a line the backend writes
 // (mps/carrier_odd_entry.cpp): MPT_ODD_OP, 0 for fma, 1 for add, 2 for mul.
 // The operands are read and the result written as words, so that no load or
-// store of a subnormal can be a float operation the GPU flushes.
+// store of a subnormal is a float operation the GPU could flush.
 
 kernel void mpt_carrier_odd(device const uint32_t *a [[buffer(0)]],
                             device const uint32_t *b [[buffer(1)]],

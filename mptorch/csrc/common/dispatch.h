@@ -5,19 +5,22 @@
 #include <ATen/core/Tensor.h>
 #include <ATen/Dispatch.h>
 
-// Type dispatch for the GEMM and elementwise quantize entry points.
+// Type dispatch for the entry points of the elementwise quantizers and the
+// GEMMs.
 //
-// Both ops dispatch on the storage dtype and compute in its carrier
-// (carrier_t, bit_helper.h): binary64 for a float64 tensor, binary32 for the
-// other three, whose values binary32 holds exactly. Computing a float64
-// tensor in double rather than narrowing it to float first is what lets an
-// input be rounded once, directly, and lets a format finer or wider than
-// binary32 be reached at all.
+// Both dispatch on the storage dtype and compute in its carrier, the IEEE
+// format the arithmetic runs in (carrier_t, bit_helper.h): binary64 for a
+// float64 tensor, and binary32 for the other three dtypes, whose values
+// binary32 holds exactly. Computing a float64 tensor in binary64 rather than
+// narrowing it to binary32 first means each input is rounded only once,
+// directly into the target format, and makes formats finer or wider than
+// binary32 reachable at all.
 //
 // The GEMM's half of the dispatch, mptorch::GemmDtype and
-// dispatch_round_mode, lives in common/gemm_dtype.h, which carries no ATen,
-// so the .cu files can name them without paying for <ATen/core/Tensor.h>.
-// This header includes it, so every spelling resolves from here.
+// dispatch_round_mode, is in common/gemm_dtype.h, which includes no ATen
+// header, so that the .cu files can use them without paying for
+// <ATen/core/Tensor.h>. This header includes gemm_dtype.h, so all of these
+// names are available from here.
 #define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)       \
   AT_DISPATCH_SWITCH(                                       \
       TYPE, NAME,                                           \
@@ -29,16 +32,16 @@
 namespace mptorch
 {
 
-  // The dtype tag of a GEMM's operand pair, with the checks that a typed
-  // `data_ptr<scalar_t>()` used to make for free: operands that disagree, or
-  // a dtype the kernel cannot load, are rejected rather than reinterpreted
-  // through a `const void *`. A (float64, float32) pair is one of those: the
-  // two carriers are different kernels, and picking one for the pair would
-  // round the other operand in a carrier it did not ask for.
+  // The dtype tag of a GEMM's pair of operands. It makes the checks a typed
+  // `data_ptr<scalar_t>()` would make: operands whose dtypes differ, and a
+  // dtype the kernel cannot load, are rejected rather than read through a
+  // `const void *` as something they are not. A (float64, float32) pair is
+  // one of those: the two carriers are different kernels, and picking one for
+  // the pair would round the other operand in a carrier it did not ask for.
   //
-  // A build with MPTORCH_NO_FP64 has no binary64 GEMM kernels to launch, and
-  // says so here, before the RNG state is drawn, rather than narrowing in
-  // silence to a result the default build would not give.
+  // A build with MPTORCH_NO_FP64 has no binary64 GEMM kernels, and says so
+  // here, before the RNG state is drawn, rather than silently narrowing to a
+  // result the default build would not give.
   inline GemmDtype gemm_dtype_of(const at::Tensor &a, const at::Tensor &b, const char *op_name)
   {
     TORCH_CHECK(a.scalar_type() == b.scalar_type(), op_name,

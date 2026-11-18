@@ -1,13 +1,13 @@
+// Explicit instantiations of the CUDA GEMM kernel for
+// custom_matmul_binaryK_fma_odd. They accumulate under
+// AccumulateAlgorithm::NAIVE (one running sum) in the binary32 carrier
+// (float32, float16 and bfloat16 operands), and round each carrier step to odd
+// (carrier_rounding=RoundMode.RO). The entry points are in
+// ../custom_matmul_odd_entry.cpp, and ../custom_matmul_kernel.cuh explains how
+// the instantiations are divided among the files in this directory.
+
 #include "../custom_matmul_kernel.cuh"
 #include "../../common/carrier_odd.h"
-
-// binaryK formats, fused mac, carrier step rounded to odd, in binary32: the
-// kernels behind custom_matmul_binaryK_fma_odd (carrier_rounding=RoundMode.RO,
-// common/carrier_odd.h) for float32, float16 and bfloat16 operands. The kernel template is the
-// NAIVE ops' own; only the Mac it is instantiated with is new, and no
-// translation unit that existed before a13760a includes carrier_odd.h, so
-// their objects are unchanged. The binary64 kernels are custom_matmul_binaryK_fma_odd_f64.cu; the
-// entry points are in custom_matmul_odd_entry.cpp.
 
 namespace mptorch::gemm_cuda
 {

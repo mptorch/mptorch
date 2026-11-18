@@ -1,10 +1,15 @@
-// The CUDA entry points of the custom_matmul_*_odd ops
-// (carrier_rounding=RoundMode.RO): their twins' entry points with the mac's
-// carrier steps rounded to odd. N's four single-format ones have their bodies
-// in common/carrier_odd_host.h, X's palette and cross-family six and Y's six
-// *_accumulated_odd ones (KAHAN, BLOCK and TREE) in carrier_odd_gemm_host.h,
-// all shared with the other backend's file; the kernels are the
-// custom_matmul_*_odd{,_f64} files' (Y's only with MPTORCH_ODD_ACCUMULATED=1). A .cpp inside csrc/cuda/, so a CPU-only build skips it.
+// The CUDA entry points of the sixteen custom_matmul_*_odd ops
+// (carrier_rounding=RoundMode.RO): the ops of their twins without the _odd
+// suffix, except that each carrier operation whose result a format rounds
+// next is rounded to odd, so that the format's cast rounds the exact value.
+// Each entry point forwards its arguments to a body shared by every backend:
+// the four single-format ops' bodies are in common/carrier_odd_host.h, and
+// those of the four palette ops, the two cross-family ops and the six
+// *_accumulated_odd ops (KAHAN, BLOCK and TREE) in
+// common/carrier_odd_gemm_host.h. The kernels are instantiated by the
+// cuda/inst/custom_matmul_*_odd* units; those of the *_accumulated_odd ops
+// only in a build with MPTORCH_ODD_ACCUMULATED=1. This file is a .cpp inside
+// csrc/cuda/, so a CPU-only build skips it.
 
 #include "../common/carrier_odd_gemm_host.h"
 #include "../quant_ops.h"
@@ -161,8 +166,8 @@ Tensor superfp_binaryK_matmul_odd_cuda(Tensor a, Tensor b, bool trans_a, bool tr
                                                                 acc_prng_bits);
 }
 
-// Phase Y: the *_accumulated_odd ops (KAHAN, BLOCK and TREE), whose kernels
-// MPTORCH_ODD_ACCUMULATED=1 builds.
+// The *_accumulated_odd ops (KAHAN, BLOCK and TREE), whose kernels only a
+// build with MPTORCH_ODD_ACCUMULATED=1 compiles.
 
 Tensor binaryK_matmul_accumulated_odd_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits)
 {

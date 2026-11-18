@@ -1,11 +1,13 @@
-#include "../custom_matmul_kernel.cuh"
-
-// The cross-family split macs (common/gemm_cross.h) under
-// AccumulateAlgorithm::TREE (pairwise summation in blocks;
-// common/gemm_accumulate.h), in binary32: the kernels of
+// Explicit instantiations of the CUDA GEMM kernel for
 // custom_matmul_binaryK_superfp_accumulated and
-// custom_matmul_superfp_binaryK_accumulated, seven each. One of four
-// cross-family GEMM instantiation files (custom_matmul_cross.cu says why).
+// custom_matmul_superfp_binaryK_accumulated. They accumulate under
+// AccumulateAlgorithm::TREE (pairwise sums within each block of products) in
+// the binary32 carrier (float32, float16 and bfloat16 operands). The entry
+// points are in ../custom_matmul_cross_entry.cpp, and
+// ../custom_matmul_kernel.cuh explains how the instantiations are divided among
+// the files in this directory.
+
+#include "../custom_matmul_kernel.cuh"
 
 namespace mptorch::gemm_cuda
 {

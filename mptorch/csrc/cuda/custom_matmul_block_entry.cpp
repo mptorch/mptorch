@@ -1,8 +1,7 @@
 // The CUDA entry point of the block GEMM, custom_matmul_block
-// (common/gemm_block.h): its schema handed to the driver in
-// common/gemm_block_host.h. A file of its own, like
-// custom_matmul_accumulated_entry.cpp, so that the other GEMM entry points
-// compile to what they did.
+// (common/gemm_block.h), which hands its schema's arguments to the driver in
+// common/gemm_block_host.h. It has a file of its own, as the *_accumulated
+// ops do, so that the other GEMM entry points compile to what they did.
 
 #include "../common/gemm_block_host.h"
 #include "../quant_ops.h"

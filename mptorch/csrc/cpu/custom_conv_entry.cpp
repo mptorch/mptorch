@@ -1,13 +1,15 @@
-// The CPU entry points of the eight conv ops: one pass of a convolution
-// (forward, input gradient or weight gradient) as the GEMM of the op each is
-// named after, with the operands gathered from the convolution's tensors in
-// the kernel's tile loads rather than unfolded (common/gemm_gather.h).
+// The CPU entry points of the eight single-family conv ops. Each runs one
+// pass of a convolution (the forward pass, the input gradient or the weight
+// gradient) as a GEMM in the arithmetic of the GEMM op it is named after,
+// with the operands read from the convolution's tensors as the kernel loads
+// its tiles, rather than unfolded first (common/gemm_gather.h).
 //
-// Each is its GEMM twin's packer handed to the conv driver
-// (common/gemm_conv_host.h): the single-format ones take the *_accumulated
-// twin's arguments, so every AccumulateAlgorithm, and the palette ones the
-// *_mixed twin's. A file of its own, like custom_matmul_accumulated_entry.cpp,
-// so that the GEMM entry points compile to what they did.
+// Each hands its GEMM twin's packed arguments to the conv driver
+// (common/gemm_conv_host.h): a single-format op takes the arguments of its
+// *_accumulated twin, so it runs under every AccumulateAlgorithm, and a
+// palette op those of its *_mixed twin. They have a file of their own, as the
+// *_accumulated ops do, so that the GEMM entry points compile to what they
+// did.
 
 #include "../common/gemm_conv_host.h"
 #include "../quant_ops.h"

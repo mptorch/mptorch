@@ -1,36 +1,41 @@
 #pragma once
 
-// The host side of the eight conv ops (common/gemm_gather.h): the geometry's
-// checks and derivation, the output allocation, and the driver that hands a
-// ConvArgs to the backend. The GEMM's own pieces are reused as they are:
-// the precision-map resolution and its memo, the dtype tag, the RNG draw and
-// the launch context all come from common/gemm_host.h.
+// The host side of the conv ops (gemm_gather.h): the checks of the geometry
+// and the derivation of each pass's GEMM, the output allocation, and the
+// drivers that hand a ConvArgs to the backend. The single-family conv ops
+// call them directly, and the cross-family and round-to-odd ones through
+// gemm_cross_host.h and carrier_odd_conv_host.h. The GEMM's own parts are
+// reused unchanged: the resolution of the precision map and its memo, the
+// dtype tag, the random-state draw and the launch context come from
+// gemm_host.h.
 //
-// A header of its own so that the entry points of the other GEMM ops, which
-// include gemm_host.h, compile to what they compiled before these ops existed.
-// Only the conv entry files include it, and the cross-family ops'.
+// Only {cpu,cuda,mps}/custom_conv_entry.cpp, gemm_cross_host.h and
+// meta_host.h include this header, so that the entry points of the other
+// GEMM ops, which include gemm_host.h, compile exactly as they would without
+// it.
 //
-// A conv op is its GEMM twin's schema with the operand pair and the geometry
-// in front of the format arguments:
+// A conv op's schema is its GEMM twin's, with the operand pair and the
+// geometry in front of the format arguments:
 //
 //   custom_conv_<twin>(Tensor a, Tensor b, [Tensor prec_idx,] int conv_pass,
 //                      int[] out_size, int[] stride, int[] padding,
 //                      int[] dilation, int groups, <the twin's arguments>)
 //
-// where the twin is the single-format op's *_accumulated schema (so the
-// single-format conv ops take every AccumulateAlgorithm, NAIVE with a zero
-// block size and no outer format) or a palette op's (NAIVE only). Per pass:
+// where the twin is a single-format op's *_accumulated schema, so the
+// single-format conv ops take every AccumulateAlgorithm (NAIVE with a block
+// size of zero and no outer format), or a palette op's schema (NAIVE only).
+// For each pass:
 //
 //   conv_pass  a                    b                  out_size    result
 //   FWD   0    W [Cout, Cg, *k]     x [B, C, *in]      *out        y  [B, Cout, *out]
 //   IGRAD 1    W [Cout, Cg, *k]     dy [B, Cout, *out] *in         dx [B, C, *in]
 //   WGRAD 2    dy [B, Cout, *out]   x [B, C, *in]      *k          dW [Cout, Cg, *k]
 //
-// with C = groups * Cg. `out_size` is the one extent no operand carries.
+// with C = groups * Cg. `out_size` is the one extent that no operand has.
 // Nothing ties the output extent to the input's: output position o reads
-// input position o*s - p + i*d, zero outside the input, so `padding` is the
-// leading padding and the trailing one is whatever the extents imply
-// (padding="same" with an even kernel is one such case).
+// input position o*s - p + i*d, and zero outside the input, so `padding` is
+// the leading padding, and the trailing padding is whatever the extents
+// imply (padding="same" with an even kernel is one such case).
 
 #include "dispatch.h"
 #include "gemm_accumulate.h"
@@ -45,7 +50,7 @@ namespace mptorch::gemm
 {
   using at::Tensor;
 
-  // The geometry a conv call derives, and what the driver needs besides it.
+  // The geometry that a conv call derives, and what else the driver needs.
   struct ConvShape
   {
     ConvGeom geom;
@@ -55,10 +60,11 @@ namespace mptorch::gemm
     std::vector<int64_t> out_sizes;
   };
 
-  // Validates a conv call's operands and geometry and derives the GEMM each
-  // pass is. Every extent the kernels split into coordinates, and every
-  // coordinate they form, has to fit in int32 (FastDivmod's range), which is
-  // what the bounds below say; offsets into the tensors are int64 throughout.
+  // Validates a conv call's operands and geometry, and derives the GEMM that
+  // the pass computes. Every extent that the kernels split into coordinates,
+  // and every coordinate they compute, has to fit in int32 (FastDivmod's
+  // range), which is what the bounds below check; offsets into the tensors
+  // are int64 throughout.
   inline ConvShape conv_shape(const Tensor &a, const Tensor &b, int64_t conv_pass,
                               c10::IntArrayRef out_size, c10::IntArrayRef stride,
                               c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
@@ -81,7 +87,8 @@ namespace mptorch::gemm
     TORCH_CHECK(groups >= 1, op_name, ": groups must be at least 1, got ", groups);
 
     const ConvPass pass = static_cast<ConvPass>(conv_pass);
-    // The three operands' extents, by role, from whichever tensors carry them.
+    // The extents of the three tensors involved, by role, taken from
+    // whichever operands have them.
     int64_t B, C, Cout, Cg;
     std::vector<int64_t> in(nd), out(nd), k(nd);
     switch (pass)
@@ -141,8 +148,8 @@ namespace mptorch::gemm
                   ": stride and dilation must be at least 1 and padding at least 0, got ",
                   stride, ", ", dilation, " and ", padding);
       TORCH_CHECK(out_size[i] >= 0, op_name, ": out_size must not be negative, got ", out_size);
-      // The largest coordinate any pass forms: o*s + i*d (FWD, WGRAD) or
-      // h + p (IGRAD), and their difference with the padding.
+      // A bound on the largest coordinate any pass computes: o*s + i*d (FWD,
+      // WGRAD) or h + p (IGRAD), and those less the padding.
       const int64_t reach = std::max<int64_t>(out[i], 1) * stride[i] +
                             std::max<int64_t>(k[i], 1) * dilation[i] + padding[i] + in[i];
       TORCH_CHECK(reach <= LIM, op_name, ": the geometry's coordinates along dimension ", i,
@@ -175,8 +182,8 @@ namespace mptorch::gemm
     g.IN = IN;
     g.OUT = OUT;
 
-    // A divisor of 0 only arises when the extent it divides is empty too, and
-    // an empty call returns before the kernels run.
+    // A divisor of 0 arises only when the extent it divides is empty too, and
+    // an empty call returns before the kernels run, so 1 stands in for it.
     auto div = [](int64_t d) { return make_fast_divmod(static_cast<int32_t>(std::max<int64_t>(d, 1))); };
     g.by_KK = div(KK);
     g.by_k12 = div(int64_t(g.k[1]) * g.k[2]);
@@ -222,7 +229,7 @@ namespace mptorch::gemm
   }
 
   // One GEMM of the input gradient: the geometry of one residue class of the
-  // stride (common/gemm_gather.h), and its K and N.
+  // stride (gemm_gather.h), and its K and N.
   struct ConvClass
   {
     ConvGeom geom;
@@ -230,13 +237,14 @@ namespace mptorch::gemm
   };
 
   // The input gradient's residue classes, in row-major order of the residue
-  // (r0, r1, r2), leaving out any with no input positions. Per dimension, the
-  // positions h of class r are those with (h + p) mod s = r, from
-  // h0 = (r - p) mod s in steps of s, and its taps the j in [0, k) with
-  // j*d = r (mod s): none unless gcd(d, s) divides r, and otherwise every
-  // e = s/gcd(d, s)-th from the first. A class with positions and no taps
-  // still runs, with K = 0: its positions are empty sums, zeros, which the
-  // kernel writes. At s = 1 there is one class: every position, every tap.
+  // (r0, r1, r2), leaving out any class with no input positions. Per
+  // dimension, the positions h of class r are those with (h + p) mod s = r,
+  // starting from h0 = (r - p) mod s in steps of s, and its taps are the j in
+  // [0, k) with j*d = r (mod s): there are none unless gcd(d, s) divides r,
+  // and otherwise they are every e-th tap from the first, with
+  // e = s/gcd(d, s). A class with positions and no taps still runs, with
+  // K = 0: its positions are empty sums, so the kernel writes zeros there. For
+  // s = 1 there is one class, with every position and every tap.
   inline std::vector<ConvClass> conv_igrad_classes(const ConvGeom &g)
   {
     struct Dim
@@ -319,11 +327,12 @@ namespace mptorch::gemm
     return classes;
   }
 
-  // Runs a conv op on an Args its GEMM twin would run on (the single-format
+  // Runs a conv op on the Args its GEMM twin would run on (the single-format
   // op's, its AccumulateArgs, or a palette op's). `prec_idx` is null except
-  // on the palette ops, whose `n_fmt` it is checked against. The order is
-  // the GEMM driver's: shape checks, output, the empty return, the map, the
-  // dtype, the RNG draw.
+  // for the palette ops, whose `n_fmt` it is checked against. The steps come
+  // in the GEMM driver's order: the shape checks, the output, the early
+  // return for an empty output, the precision map, the dtype, the
+  // random-state draw.
   template <class Backend, class Inner>
   Tensor run_custom_conv(const char *op_name, const Inner &call_inner, Tensor a, Tensor b,
                          const Tensor *prec_idx, int64_t conv_pass, c10::IntArrayRef out_size,
@@ -332,7 +341,8 @@ namespace mptorch::gemm
   {
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
                 " is not a RoundMode");
-    // SR_B and SR_C run as SR with the variant in the formats (stochastic_host.h)
+    // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
+    // format's prng_bits (stochastic_host.h's sr_canonical_args).
     const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name);
     ConvShape cs = conv_shape(a, b, conv_pass, out_size, stride, padding, dilation, groups, op_name);
 
@@ -375,8 +385,9 @@ namespace mptorch::gemm
       Backend::launch(s, args, ctx);
       return c;
     }
-    // The input gradient: one GEMM per residue class of the stride, each a
-    // GEMM call of its own, RNG draw included (common/gemm_gather.h).
+    // The input gradient: one GEMM per residue class of the stride, each run
+    // as a GEMM call of its own, with its own random-state draw
+    // (gemm_gather.h).
     for (const ConvClass &cl : conv_igrad_classes(cs.geom))
     {
       s.K = cl.K;
@@ -390,9 +401,9 @@ namespace mptorch::gemm
     return c;
   }
 
-  // A single-format conv op: NAIVE runs on the twin's Args, KAHAN, BLOCK and
-  // TREE on its AccumulateArgs, with the accumulation checked as the
-  // *_accumulated GEMM ops check it.
+  // Runs a single-format conv op: NAIVE on the twin's Args, and KAHAN, BLOCK
+  // and TREE on its AccumulateArgs, with the accumulation arguments checked
+  // as the *_accumulated GEMM ops check them.
   template <class Backend, class Base, class Widths, class Common>
   Tensor run_custom_conv_single(const char *op_name, const Base &base,
                                 const AccumulateTail<Widths, Common> &tail, Tensor a, Tensor b,
@@ -425,9 +436,9 @@ namespace mptorch::gemm
                                     padding, dilation, groups, round_mode);
   }
 
-  // A palette conv op: NAIVE only, like its GEMM twin. `make_args` is the
-  // twin's packer, called after the algorithm and the pre-check, as the GEMM
-  // driver calls it.
+  // Runs a palette conv op, which is NAIVE only, like its GEMM twin.
+  // `make_args` is the twin's packer, called after the checks of the
+  // algorithm and the precheck, as the GEMM driver calls it.
   template <class Backend, class ArgsFactory, class Precheck = NoPrecheck>
   Tensor run_custom_conv_mixed(const char *op_name, ArgsFactory &&make_args, Tensor a, Tensor b,
                                const Tensor &prec_idx, int64_t conv_pass,
