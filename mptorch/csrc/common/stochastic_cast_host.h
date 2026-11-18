@@ -43,6 +43,7 @@ namespace mptorch::stochastic_cast
                 " format has ", lengths[family], " fields, got ", format.size());
     int variant;
     sr_canonical(stochastic_mode, variant);
+    const CarrierBits carrier = carrier_bits(std::is_same_v<T, double>);
     Job<T> j{};
     j.family = static_cast<int>(family);
     if (family == 0)
@@ -50,7 +51,9 @@ namespace mptorch::stochastic_cast
       const int K = static_cast<int>(format[0]), P = static_cast<int>(format[1]);
       j.is_signed = format[4] != 0;
       j.subnormals = static_cast<SubnormalsMode>(format[6]);
-      j.spec = sr_encode(format[3], variant, op);
+      const FormatWidths widths = float_widths(P - 1, j.is_signed ? K - P : K - P + 1);
+      check_format_widths(widths, carrier, op);
+      j.spec = sr_encode(format[3], widths, carrier, variant, op);
       // as the binaryK quantizer derives them: P - 1 mantissa bits, and
       // every bit left after the sign is the exponent's
       j.bk = make_binaryK_params<T>(P - 1, j.is_signed ? K - P : K - P + 1, static_cast<int>(format[2]),
@@ -61,7 +64,9 @@ namespace mptorch::stochastic_cast
     {
       j.is_signed = format[5] != 0;
       j.subnormals = SubnormalsMode::SUBNORMALS;
-      j.spec = sr_encode(format[4], variant, op);
+      const FormatWidths widths = float_widths(format[0], format[1]);
+      check_format_widths(widths, carrier, op);
+      j.spec = sr_encode(format[4], widths, carrier, variant, op);
       j.sf = make_superfp_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]),
                                     static_cast<int>(format[2]), static_cast<int>(format[3]),
                                     static_cast<SaturationMode>(format[6]));
@@ -70,7 +75,9 @@ namespace mptorch::stochastic_cast
     {
       j.is_signed = format[3] != 0;
       j.subnormals = SubnormalsMode::SUBNORMALS;
-      j.spec = sr_encode(format[2], variant, op);
+      const FormatWidths widths = fixedpoint_widths(format[0] - (j.is_signed ? 1 : 0));
+      check_format_widths(widths, carrier, op);
+      j.spec = sr_encode(format[2], widths, carrier, variant, op);
       j.fx = make_fixedpoint_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]), j.is_signed,
                                        format[4] != 0);
     }

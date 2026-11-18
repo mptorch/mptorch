@@ -452,6 +452,14 @@ def _with(name, call=0, **changes):
     return func, tuple(args)
 
 
+def _in_float64(name, call=0):
+    """The operands of recorded call `call` of op `name`, as float64 tensors."""
+    if _unbuilt(name):
+        return {}
+    func, args = _calls()[name][call]
+    return {"a": args[0].double(), "b": args[1].double()}
+
+
 def _gemm_cases():
     x = torch.randn
     i32 = torch.int32
@@ -504,6 +512,51 @@ def _gemm_cases():
             "custom_matmul_superfp_fma_accumulated_odd", fma_quant=False
         ),
         "odd accumulated tree size": _with("custom_matmul_superfp_accumulated_odd", block_size=3),
+        # The recorded formats have 3-bit mantissas (BK, SFP, the palettes) or
+        # 10-bit ones (BK_ACC), so binary32 has room for 20 or 13 random bits.
+        "mul prng": _with("custom_matmul_binaryK", mul_prng_bits=21),
+        "acc prng": _with("custom_matmul_superfp", acc_prng_bits=21),
+        "palette prng": _with("custom_matmul_binaryK_mixed", mul_prng_bits=21),
+        "fused palette prng": _with("custom_matmul_superfp_fma_mixed", fma_prng_bits=21),
+        "outer prng": _with(
+            "custom_matmul_binaryK_accumulated",
+            accumulate_algorithm=A.BLOCK.value,
+            block_size=16,
+            outer_quant=True,
+            outer_K=16,
+            outer_P=11,
+            outer_bias=15,
+            outer_prng_bits=14,
+        ),
+        "cross prng": _with("custom_matmul_superfp_binaryK", acc_prng_bits=14),
+        "binary64 prng": _with(
+            "custom_matmul_binaryK_fma",
+            **_in_float64("custom_matmul_binaryK_fma"),
+            fma_prng_bits=43,
+        ),
+        "odd prng": _with("custom_matmul_superfp_odd", mul_prng_bits=21),
+        "mul mantissa width": _with("custom_matmul_binaryK", mul_K=30, mul_P=25),
+        "mul exp width": _with("custom_matmul_binaryK", mul_K=35),
+        "acc exp width": _with("custom_matmul_superfp", acc_exp_bits=31),
+        "palette mantissa width": _with("custom_matmul_binaryK_mixed", mul_P=[4, 0]),
+        "fused palette exp width": _with("custom_matmul_superfp_fma_mixed", fma_exp_bits=[4, 31]),
+        "outer exp width": _with(
+            "custom_matmul_binaryK_accumulated",
+            accumulate_algorithm=A.BLOCK.value,
+            block_size=16,
+            outer_quant=True,
+            outer_K=42,
+            outer_P=11,
+            outer_bias=15,
+        ),
+        "cross exp width": _with("custom_matmul_superfp_binaryK", acc_K=42),
+        "binary64 mantissa width": _with(
+            "custom_matmul_binaryK_fma",
+            **_in_float64("custom_matmul_binaryK_fma"),
+            fma_K=58,
+            fma_P=54,
+        ),
+        "odd exp width": _with("custom_matmul_binaryK_odd", mul_K=35),
     }
 
 
@@ -541,6 +594,8 @@ def _conv_cases():
         "fma_quant odd palette": _with("custom_conv_superfp_fma_mixed_odd", fma_quant=False),
         "odd palette map": _with("custom_conv_binaryK_mixed_odd", prec_idx=torch.zeros(5, 1)),
         "odd cross groups": _with("custom_conv_binaryK_superfp_odd", groups=0),
+        "mul prng": _with("custom_conv_binaryK", mul_prng_bits=21),
+        "mul exp width": _with("custom_conv_binaryK", mul_K=35),
     }
 
 
@@ -572,6 +627,17 @@ def _block_cases():
         "gemm data dtype": _with("custom_matmul_block", b_data=x(3, 64).to(torch.int8)),
         "gemm naive block size": _with("custom_matmul_block", block_size=4),
         "gemm kahan block size": _with("custom_matmul_block", call=1, block_size=4),
+        "gemm acc prng": _with(
+            "custom_matmul_block",
+            accumulate_quant=True,
+            acc_K=16,
+            acc_P=11,
+            acc_bias=15,
+            acc_prng_bits=14,
+        ),
+        "gemm acc exp width": _with(
+            "custom_matmul_block", accumulate_quant=True, acc_K=42, acc_P=11, acc_bias=15
+        ),
     }
 
 
@@ -586,6 +652,14 @@ def _other_cases():
         "carrier_odd op": _with("_carrier_odd", op=3),
         "carrier_odd shape": _with("_carrier_odd", b=x(3)),
         "carrier_odd dtype": _with("_carrier_odd", a=x(16, 16).int()),
+        "binaryK prng": _with("binaryK_quant", prng_bits=21),
+        "superfp prng": _with("superfp_quant", prng_bits=21),
+        "fixedpoint prng": _with("fixedpoint_quant", prng_bits=18),
+        "stochastic_cast prng": _with("_stochastic_cast", format=[8, 4, 7, 21, 1, 2, 0]),
+        "binaryK exp width": _with("binaryK_quant", K=35),
+        "superfp exp width": _with("superfp_quant", exp_bits=31),
+        "fixedpoint magnitude width": _with("fixedpoint_quant", wl=26),
+        "stochastic_cast exp width": _with("_stochastic_cast", format=[35, 4, 7, 3, 1, 2, 0]),
     }
 
 
@@ -608,7 +682,10 @@ _GEMM_IDS = [
     "fma_quant palette", "fma_quant odd", "cross inner", "cross accumulated naive",
     "odd naive only", "odd palette naive only", "fma_quant odd palette", "odd palette lengths",
     "odd cross naive only", "odd accumulated naive", "fma_quant odd accumulated",
-    "odd accumulated tree size",
+    "odd accumulated tree size", "mul prng", "acc prng", "palette prng", "fused palette prng",
+    "outer prng", "cross prng", "binary64 prng", "odd prng", "mul mantissa width",
+    "mul exp width", "acc exp width", "palette mantissa width", "fused palette exp width",
+    "outer exp width", "cross exp width", "binary64 mantissa width", "odd exp width",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
@@ -616,17 +693,19 @@ _CONV_IDS = [
     "igrad channels", "wgrad samples", "palette naive only", "palette lengths", "palette map",
     "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
-    "odd cross groups",
+    "odd cross groups", "mul prng", "mul exp width",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
     "unpack data dtype", "unpack cols", "unpack dtype", "unpack batch", "quant round mode",
     "quant_ overlap", "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
-    "gemm naive block size", "gemm kahan block size",
+    "gemm naive block size", "gemm kahan block size", "gemm acc prng", "gemm acc exp width",
 ]  # fmt: skip
 _OTHER_IDS = [
     "narrow input", "narrow dtype", "binaryK in place", "superfp in place", "fixedpoint in place",
-    "carrier_odd op", "carrier_odd shape", "carrier_odd dtype",
+    "carrier_odd op", "carrier_odd shape", "carrier_odd dtype", "binaryK prng", "superfp prng",
+    "fixedpoint prng", "stochastic_cast prng", "binaryK exp width", "superfp exp width",
+    "fixedpoint magnitude width", "stochastic_cast exp width",
 ]  # fmt: skip
 
 
@@ -637,20 +716,86 @@ def test_the_error_table_names_every_case():
         assert list(g) == i
 
 
-@pytest.mark.parametrize("case", _case_ids())
-def test_a_meta_call_raises_the_cpu_message(case):
-    _, key = case.split(": ", 1)
-    group = case.split(":")[0]
+def _case(case):
+    """The (op, arguments) of an error-table case, skipping one whose op this
+    build has no kernels for."""
+    group, key = case.split(": ", 1)
     table = {"gemm": _gemm_cases, "conv": _conv_cases, "block": _block_cases, "other": _other_cases}
     entry = table[group]()[key]
     if entry is None:
         pytest.skip("this build has no kernels for it")
-    func, args = entry
+    return entry
+
+
+@pytest.mark.parametrize("case", _case_ids())
+def test_a_meta_call_raises_the_cpu_message(case):
+    func, args = _case(case)
     with pytest.raises(RuntimeError) as cpu:
         func(*args)
     with pytest.raises(RuntimeError) as meta:
         func(*_on_meta(args))
     assert str(meta.value) == str(cpu.value)
+
+
+_PRNG_CASES = [c for c in _case_ids() if c.endswith(" prng")]
+_WIDTH_CASES = [c for c in _case_ids() if c.endswith(" width")]
+
+
+@pytest.mark.parametrize("case", _PRNG_CASES)
+def test_a_format_refuses_random_bits_past_the_carrier(case):
+    """Each of the table's stochastic-rounding cases is refused for the
+    random bits it adds, not for something else: the op names the format's
+    width and the carrier it rounds in."""
+    func, args = _case(case)
+    width = r"(a \d+-bit mantissa|\d+ magnitude bits)"
+    carrier = "binary64" if case == "gemm: binary64 prng" else "binary32"
+    with pytest.raises(
+        RuntimeError, match=rf"prng_bits must be in \[0, \d+\] for {width} rounded in {carrier}"
+    ):
+        func(*args)
+
+
+@pytest.mark.parametrize("case", _WIDTH_CASES)
+def test_a_format_refuses_widths_the_parameter_builders_cannot_take(case):
+    """Each of the table's width cases is refused for the width it changes,
+    in a deterministic mode as under SR: the op names the width and the range
+    the parameter builders take."""
+    func, args = _case(case)
+    carrier = "binary64" if case == "gemm: binary64 mantissa width" else "binary32"
+    widths = (
+        r"-?\d+ exponent bits, but the kernels take 0 to 30",
+        rf"-?\d+ stored mantissa bits, but {carrier} holds 0 to \d+",
+        rf"-?\d+ magnitude bits, but {carrier} holds 1 to \d+",
+    )
+    names = [a.name for a in func._schema.arguments]
+    modes = [R.RNE.value, SR.value] if "round_mode" in names else [None]
+    for mode in modes:
+        call = list(args)
+        if mode is not None:
+            call[names.index("round_mode")] = mode
+        with pytest.raises(RuntimeError, match=rf"the format has ({'|'.join(widths)})"):
+            func(*call)
+
+
+def test_a_format_the_call_does_not_round_with_is_not_bounded():
+    """An accumulate format under accumulate_quant=False is never built, and
+    the Python layer passes it unchecked (with P = 0, and any prng_bits), so
+    the op checks neither its widths nor its prng_bits against the carrier,
+    only the prng_bits against the byte the spec stores N in. And binary64
+    has room for more random bits than binary32."""
+    cases = [
+        _with("custom_matmul_binaryK", accumulate_quant=False, acc_prng_bits=200),
+        _with("custom_matmul_block", acc_prng_bits=200),
+        _with(
+            "custom_matmul_binaryK_fma",
+            **_in_float64("custom_matmul_binaryK_fma"),
+            fma_prng_bits=42,
+        ),
+        _with("custom_matmul_binaryK", accumulate_quant=False, acc_K=0, acc_P=0),
+    ]
+    for func, args in cases:
+        func(*args)
+        func(*_on_meta(args))
 
 
 def test_a_quantizer_refuses_another_dtype_on_meta_too():

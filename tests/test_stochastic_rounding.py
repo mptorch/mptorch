@@ -569,6 +569,143 @@ def test_raw_ops_refuse_prng_bits_past_a_byte(mode):
         torch.ops.mptorch.binaryK_quant(x.to("meta"), 8, 4, 7, 300, True, mode.value, 0, 0)
 
 
+# A format per family and carrier for the raw quantizers: a 20-bit mantissa
+# (binaryK's P = 21, superfp's man_bits = 20) or 20 magnitude bits (a signed
+# 21-bit fixed point) in binary32, and 50 in binary64. The random bits are
+# drawn below the format's last bit, inside the carrier's 23 or 52 stored
+# mantissa bits (one more for fixed point, whose leading magnitude bit is the
+# carrier's implicit one), so the most that fit is 3 (4) in binary32 and 2 (3)
+# in binary64.
+def _raw_quantizer(family, dtype):
+    """(the raw op as a function of x, prng_bits and the round mode, the
+    Python wrapper over the same format, the most random bits that fit, and
+    the width the op's message names)."""
+    w = 20 if dtype == torch.float32 else 50
+    ops = torch.ops.mptorch
+    if family == "binaryK":
+        return (
+            lambda x, n, m: ops.binaryK_quant(x, w + 6, w + 1, 15, n, True, m.value, 0, 0),
+            lambda x, n, m: binaryK_quantize(x, w + 6, w + 1, 15, prng_bits=n, rounding_mode=m),
+            (23 if dtype == torch.float32 else 52) - w,
+            f"a {w}-bit mantissa",
+        )
+    if family == "superfp":
+        return (
+            lambda x, n, m: ops.superfp_quant(x, w, 4, 2, 7, n, True, m.value, 0),
+            lambda x, n, m: superfp_quantize(x, w, 4, 2, 7, prng_bits=n, rounding_mode=m),
+            (23 if dtype == torch.float32 else 52) - w,
+            f"a {w}-bit mantissa",
+        )
+    return (
+        lambda x, n, m: ops.fixedpoint_quant(x, w + 1, 10, n, True, False, m.value),
+        lambda x, n, m: fixedpoint_quantize(x, w + 1, 10, prng_bits=n, rounding_mode=m),
+        (24 if dtype == torch.float32 else 53) - w,
+        f"{w} magnitude bits",
+    )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("family", ["binaryK", "superfp", "fixedpoint"])
+def test_raw_quantizers_refuse_prng_bits_past_the_carrier(device, dtype, family):
+    """Under a stochastic mode the op boundary refuses more random bits than
+    fit beside the format in the carrier, which would shift by a negative
+    count: at the bound the Python layer sets, on every backend and on the
+    meta device. A deterministic mode reads no random bits and refuses
+    nothing."""
+    raw, wrapper, most, width = _raw_quantizer(family, dtype)
+    carrier = "binary32" if dtype == torch.float32 else "binary64"
+    x = torch.randn(64, dtype=dtype, device=device)
+    raw(x, most, R.SR)
+    wrapper(x, most, R.SR)
+    with pytest.raises(ValueError):
+        wrapper(x, most + 1, R.SR)
+    message = (
+        rf"prng_bits must be in \[0, {most}\] for {width} rounded in {carrier}, got {most + 1}"
+    )
+    for mode in STOCHASTIC:
+        with pytest.raises(RuntimeError, match=message):
+            raw(x, most + 1, mode)
+        with pytest.raises(RuntimeError, match=message):
+            raw(x.to("meta"), most + 1, mode)
+    raw(x, most + 1, R.RNE)
+
+
+def _width_cases(dtype):
+    """(raw op as a function of x and the round mode, Python wrapper, the
+    message the op refuses it with, or None for widths at the edge, which
+    both accept), for the widths the parameter builders take: 0 to 30
+    exponent bits, 0 to 23 (52) stored mantissa bits, and 1 to 24 (53)
+    magnitude bits in binary32 (binary64)."""
+    c = 23 if dtype == torch.float32 else 52
+    name = "binary32" if dtype == torch.float32 else "binary64"
+    ops = torch.ops.mptorch
+    exp = "exponent bits, but the kernels take 0 to 30"
+    cases = []
+    for K, P, refusal in (
+        (33, 3, None),  # 30 exponent bits
+        (34, 3, f"has 31 {exp}"),
+        (2, 3, f"has -1 {exp}"),
+        (c + 6, c + 1, None),  # a mantissa as wide as the carrier's
+        (c + 7, c + 2, f"has {c + 1} stored mantissa bits, but {name} holds 0 to {c}"),
+        (5, 0, f"has -1 stored mantissa bits, but {name} holds 0 to {c}"),
+    ):
+        cases.append(
+            (
+                lambda x, m, K=K, P=P: ops.binaryK_quant(x, K, P, 7, 0, True, m.value, 0, 0),
+                lambda x, m, K=K, P=P: binaryK_quantize(x, K, P, 7, rounding_mode=m),
+                refusal,
+            )
+        )
+    for exp_bits, refusal in ((30, None), (31, f"has 31 {exp}")):
+        cases.append(
+            (
+                lambda x, m, e=exp_bits: ops.superfp_quant(x, 3, e, 2, 7, 0, True, m.value, 0),
+                lambda x, m, e=exp_bits: superfp_quantize(x, 3, e, 2, 7, rounding_mode=m),
+                refusal,
+            )
+        )
+    magnitude = f"magnitude bits, but {name} holds 1 to {c + 1}"
+    for wl, signed, refusal in (
+        (c + 2, True, None),
+        (c + 3, True, f"has {c + 2} {magnitude}"),
+        (1, False, None),
+        (1, True, f"has 0 {magnitude}"),
+    ):
+        cases.append(
+            (
+                lambda x, m, wl=wl, s=signed: ops.fixedpoint_quant(x, wl, 0, 0, s, False, m.value),
+                lambda x, m, wl=wl, s=signed: fixedpoint_quantize(
+                    x, wl, 0, is_signed=s, rounding_mode=m
+                ),
+                refusal,
+            )
+        )
+    return cases
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_raw_quantizers_refuse_widths_the_parameter_builders_cannot_take(device, dtype):
+    """Past these widths the builders shift by a negative count or by more
+    than an int holds, in every rounding mode, so the op boundary refuses
+    them, on every backend and on the meta device. The bounds are the
+    Python layer's: it refuses the same formats and accepts the same edges."""
+    x = torch.randn(64, dtype=dtype, device=device)
+    for raw, wrapper, refusal in _width_cases(dtype):
+        for mode in (R.RNE, R.SR):
+            if refusal is None:
+                raw(x, mode)
+                wrapper(x, mode)
+                continue
+            with pytest.raises(RuntimeError, match=refusal):
+                raw(x, mode)
+            with pytest.raises(RuntimeError, match=refusal):
+                raw(x.to("meta"), mode)
+            with pytest.raises(ValueError):
+                wrapper(x, mode)
+
+
 @requires_odd
 def test_odd_carrier_bounds_per_variant():
     """The odd carrier step (``carrier_rounding=RO``) holds A for

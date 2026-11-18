@@ -214,7 +214,7 @@ namespace mptorch::gemm
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode, " is not a RoundMode");
     // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
     // format's prng_bits (stochastic_host.h's sr_canonical_args).
-    const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name);
+    const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name, mptorch::carrier_bits(call.binary64));
 #if defined(MPTORCH_NO_FP64)
     TORCH_CHECK(!call.binary64, op_name, ": this build has no float64 GEMM kernels (it was built with "
                                          "MPTORCH_NO_FP64=1); use binary32, or rebuild without it");

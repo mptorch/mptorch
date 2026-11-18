@@ -450,7 +450,8 @@ namespace mptorch::gemm
     check_matmul_inputs(a, b, op_name, round_mode, accumulate_algorithm);
     // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
     // format's prng_bits (stochastic_host.h's sr_canonical_args).
-    const Args args = mptorch::sr_canonical_args(call_args, round_mode, op_name);
+    const Args args = mptorch::sr_canonical_args(call_args, round_mode, op_name,
+                                                 mptorch::carrier_bits(a.scalar_type() == at::kDouble));
     check_accumulate_algorithm(args, op_name, accumulate_algorithm);
 
     int64_t M, K, N, batch, stride_a, stride_b;
@@ -516,7 +517,8 @@ namespace mptorch::gemm
 
     // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
     // format's prng_bits (stochastic_host.h's sr_canonical_args).
-    const Args args = mptorch::sr_canonical_args(make_args(), round_mode, op_name);
+    const Args args = mptorch::sr_canonical_args(make_args(), round_mode, op_name,
+                                                 mptorch::carrier_bits(a.scalar_type() == at::kDouble));
 
     Tensor a_c = a.contiguous();
     Tensor b_c = b.contiguous();

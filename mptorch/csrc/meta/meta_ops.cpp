@@ -45,61 +45,65 @@ namespace
                 "tensor, got strides ", a.sym_strides(), " for sizes ", a.sym_sizes(), ": use ",
                 out_of_place, ", which copies a strided input");
   }
-  // The quantizers' check, under a stochastic mode, that prng_bits fits in a
-  // byte (sr_encode, common/stochastic_host.h), worded as the CPU words it.
-  void check_quant_prng(int64_t prng_bits, int64_t round_mode, const char *op)
+  // The quantizers' format checks, the ones the CPU entry points make
+  // (check_quantizer_format, common/stochastic_host.h), worded as the CPU
+  // words them.
+  void check_quant_format(const Tensor &a, mptorch::FormatWidths widths, int64_t prng_bits, int64_t round_mode,
+                          const char *op)
   {
-    int variant;
-    mptorch::sr_canonical(round_mode, variant);
-    if (variant >= 0)
-      mptorch::sr_encode(prng_bits, variant, op);
+    mptorch::check_quantizer_format(widths, mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
+                                    round_mode, op);
   }
 } // namespace
 
-Tensor binaryK_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
+Tensor binaryK_quantize_meta(Tensor a, int64_t K, int64_t P, int64_t, int64_t prng_bits, bool is_signed,
                              int64_t round_mode, int64_t, int64_t)
 {
-  check_quant_prng(prng_bits, round_mode, "binaryK_quant");
+  check_quant_format(a, mptorch::float_widths(P - 1, is_signed ? K - P : K - P + 1), prng_bits, round_mode,
+                     "binaryK_quant");
   return quantized_like(a, "binaryK_quant");
 }
 
-Tensor &binaryK_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
+Tensor &binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t, int64_t prng_bits, bool is_signed,
                                int64_t round_mode, int64_t, int64_t)
 {
   check_in_place(a, "binaryK_quant_", "binaryK_quant");
-  check_quant_prng(prng_bits, round_mode, "binaryK_quant");
+  check_quant_format(a, mptorch::float_widths(P - 1, is_signed ? K - P : K - P + 1), prng_bits, round_mode,
+                     "binaryK_quant");
   check_quant_dtype(a, "binaryK_quant_");
   return a;
 }
 
-Tensor superfp_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
-                             int64_t round_mode, int64_t)
+Tensor superfp_quantize_meta(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t, int64_t, int64_t prng_bits,
+                             bool, int64_t round_mode, int64_t)
 {
-  check_quant_prng(prng_bits, round_mode, "superfp_quant");
+  check_quant_format(a, mptorch::float_widths(man_bits, exp_bits), prng_bits, round_mode, "superfp_quant");
   return quantized_like(a, "superfp_quant");
 }
 
-Tensor &superfp_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t, int64_t prng_bits,
+Tensor &superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t, int64_t, int64_t prng_bits,
                                bool, int64_t round_mode, int64_t)
 {
   check_in_place(a, "superfp_quant_", "superfp_quant");
-  check_quant_prng(prng_bits, round_mode, "superfp_quant");
+  check_quant_format(a, mptorch::float_widths(man_bits, exp_bits), prng_bits, round_mode, "superfp_quant");
   check_quant_dtype(a, "superfp_quant_");
   return a;
 }
 
-Tensor fixedpoint_quantize_meta(Tensor a, int64_t, int64_t, int64_t prng_bits, bool, bool,
+Tensor fixedpoint_quantize_meta(Tensor a, int64_t wl, int64_t, int64_t prng_bits, bool is_signed, bool,
                                 int64_t round_mode)
 {
-  check_quant_prng(prng_bits, round_mode, "fixedpoint_quant");
+  check_quant_format(a, mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)), prng_bits, round_mode,
+                     "fixedpoint_quant");
   return quantized_like(a, "fixedpoint_quant");
 }
 
-Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t prng_bits, bool, bool,
+Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t wl, int64_t, int64_t prng_bits, bool is_signed, bool,
                                   int64_t round_mode)
 {
   check_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
-  check_quant_prng(prng_bits, round_mode, "fixedpoint_quant");
+  check_quant_format(a, mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)), prng_bits, round_mode,
+                     "fixedpoint_quant");
   check_quant_dtype(a, "fixedpoint_quant_");
   return a;
 }

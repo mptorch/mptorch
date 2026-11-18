@@ -54,11 +54,12 @@
 // fast_rne cleared, which is the integer path the device and Metal take for a
 // format the gate refuses.
 //
-// Only formats mptorch.number accepts are used. In particular, man_bits plus
-// prng_bits never exceed the carrier's mantissa. The C++ ops leave that check
-// to Python: stochastic_host.h holds prng_bits to [0, 255] only. So a raw
-// torch.ops call past it still reaches a negative shift in stochastic.h's
-// make_stochastic.
+// Only formats mptorch.number accepts are used, whose widths the parameter
+// builders take: the ops refuse the others too (common/format_host.h, in
+// every mode, and stochastic_host.h's sr_encode for the random bits under a
+// stochastic mode). In particular, man_bits plus prng_bits never exceed the
+// carrier's mantissa: past that, stochastic.h's make_stochastic shifts by a
+// negative count.
 //
 // Results (2026-11-18, AMD Ryzen 9 7940HS, GCC 15.2):
 //   * Before that day's fix to cast_binaryK.h's subnormal arms, the check

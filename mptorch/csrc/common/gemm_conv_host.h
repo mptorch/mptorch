@@ -343,7 +343,8 @@ namespace mptorch::gemm
                 " is not a RoundMode");
     // SR_B and SR_C run as RoundMode::SR, with the variant recorded in each
     // format's prng_bits (stochastic_host.h's sr_canonical_args).
-    const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name);
+    const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name,
+                                                   mptorch::carrier_bits(a.scalar_type() == at::kDouble));
     ConvShape cs = conv_shape(a, b, conv_pass, out_size, stride, padding, dilation, groups, op_name);
 
     Tensor a_c = a.contiguous();
