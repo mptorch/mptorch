@@ -17,6 +17,7 @@ from ._carrier import (
     _BINARY64,
     _bottom_by_field,
     _Carrier,
+    _exponent_error,
     _Extent,
     _largest_finite,
     _pointing_wider,
@@ -183,7 +184,8 @@ def check_superfp(
 
     Raises:
         ValueError: as :func:`check_binaryK`, and also for a
-            ``normal_binades`` that leaves no supernormal codes.
+            ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, which leaves
+            the format no normal binade or no supernormal codes.
     """
     error, warning = _superfp_findings(
         man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier
@@ -255,9 +257,19 @@ def _superfp_label(man_bits: int, exp_bits: int, normal_binades: int, bias: int)
 
 
 def _superfp_regions_error(label: str, exp_bits: int, normal_binades: int) -> str | None:
-    """Return an error for the one superfp layout whose range cannot be
-    computed, or ``None``."""
+    """Return an error for a ``normal_binades`` outside ``1 .. 2**exp_bits - 1``,
+    the superfp layouts that the cast cannot work with, or ``None``."""
     binades = 1 << exp_bits
+    if normal_binades < 1:
+        # `SuperFP` rejects this in `__post_init__`, but the wrappers in
+        # `mptorch.quant.ops` that take plain integers come here unchecked.
+        # With no normal binade the top binade holds supernormals, powers of
+        # two, but the cast still saturates onto that binade's largest code
+        # with a full mantissa, which is not a value of the format.
+        return (
+            f"{label} has no normal binade: normal_binades must be at least 1, because the "
+            "format's largest finite value, which the cast saturates onto, lies in a normal binade"
+        )
     if normal_binades >= binades:
         # No codes are left for supernormals, which puts the bottom of the
         # supernormal region one binade *above* the bottom of the normal
@@ -331,8 +343,10 @@ def _superfp_findings(
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
 
     def find(c: _Carrier) -> tuple[str | None, str | None]:
-        error = _width_error(label, exp_bits, man_bits, prng_bits, c) or _superfp_regions_error(
-            label, exp_bits, normal_binades
+        error = (
+            _width_error(label, exp_bits, man_bits, prng_bits, c)
+            or _exponent_error(label, exp_bits, bias)
+            or _superfp_regions_error(label, exp_bits, normal_binades)
         )
         if error is not None:
             return error, None

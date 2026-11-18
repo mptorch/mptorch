@@ -161,9 +161,9 @@ namespace
 Tensor fixedpoint_quantize_cpu(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
                                bool is_signed, bool symmetric, int64_t round_mode)
 {
-  // The format's widths, and under SR its random bits, checked before
-  // anything is built from them (common/stochastic_host.h).
-  mptorch::check_quantizer_format(mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
+  // The format, and under SR its random bits, checked before anything
+  // is built from them (common/stochastic_host.h).
+  mptorch::check_quantizer_format(mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl),
                                   mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                   round_mode, "fixedpoint_quant");
   // The kernel reads data_ptr() in storage order, so a strided input is
@@ -183,9 +183,9 @@ Tensor &fixedpoint_quantize_cpu_(Tensor &a, int64_t wl, int64_t fl, int64_t prng
   TORCH_CHECK(a.is_contiguous(), "fixedpoint_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use fixedpoint_quant, which copies a strided input");
-  // The format's widths, and under SR its random bits, checked before
-  // anything is built from them (common/stochastic_host.h).
-  mptorch::check_quantizer_format(mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
+  // The format, and under SR its random bits, checked before anything
+  // is built from them (common/stochastic_host.h).
+  mptorch::check_quantizer_format(mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl),
                                   mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                   round_mode, "fixedpoint_quant");
   fixedpoint_quantize_into(a, a, wl, fl, prng_bits, is_signed, symmetric, round_mode);

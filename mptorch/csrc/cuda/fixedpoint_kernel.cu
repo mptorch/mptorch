@@ -188,9 +188,9 @@ namespace
 Tensor fixedpoint_quantize_cuda(
     Tensor a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode)
 {
-    // The format's widths, and under SR its random bits, checked before
-    // anything is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
+    // The format, and under SR its random bits, checked before anything
+    // is built from them (common/stochastic_host.h).
+    mptorch::check_quantizer_format(mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl),
                                     mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                     round_mode, "fixedpoint_quant");
     // The input is made contiguous, and aligned to 16 bytes for the kernel's
@@ -207,9 +207,9 @@ Tensor &fixedpoint_quantize_cuda_(
     Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode)
 {
     mptorch::check_vector_loadable_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
-    // The format's widths, and under SR its random bits, checked before
-    // anything is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
+    // The format, and under SR its random bits, checked before anything
+    // is built from them (common/stochastic_host.h).
+    mptorch::check_quantizer_format(mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl),
                                     mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                     round_mode, "fixedpoint_quant");
     fixedpoint_quantize_into(a, a, wl, fl, prng_bits, is_signed, symmetric, round_mode);

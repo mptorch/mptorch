@@ -51,39 +51,43 @@ namespace mptorch
   // cast_fixedpoint_stochastic), so the format's bits and N must fit there
   // together. Past that, the shifts that place the draw go negative, which
   // is undefined behaviour. mptorch.number refuses such formats, so this is
-  // what a direct torch.ops call meets. Not inlined, for the reason
-  // check_format_widths is not.
-  C10_NOINLINE inline void sr_check_prng(int64_t prng_bits, FormatWidths w, CarrierBits c, const char *op)
+  // what a direct torch.ops call meets. `bits` is the format's stored
+  // mantissa bits, or its magnitude bits when `magnitude` is set (a
+  // fixed-point format, format_host.h's significand_room). Not inlined, for
+  // the reason check_format is not.
+  C10_NOINLINE inline void sr_check_prng(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c,
+                                         const char *op)
   {
-    const int64_t most = significand_room(w, c) - w.bits;
+    const int64_t most = significand_room(magnitude, c) - bits;
     TORCH_CHECK(prng_bits >= 0 && prng_bits <= most, op, ": prng_bits must be in [0, ", most, "] for ",
-                w.magnitude ? "" : "a ", w.bits, w.magnitude ? " magnitude bits" : "-bit mantissa", " rounded in ",
+                magnitude ? "" : "a ", bits, magnitude ? " magnitude bits" : "-bit mantissa", " rounded in ",
                 c.name, ", got ", prng_bits);
   }
 
   // A format's prng_bits under a stochastic call, checked against the
-  // carrier (sr_check_prng) and encoded. The format's own widths are checked
-  // first, in every mode (check_format_widths).
-  inline int sr_encode(int64_t prng_bits, FormatWidths w, CarrierBits c, int variant, const char *op)
+  // carrier (sr_check_prng) and encoded. The format itself is checked
+  // first, in every mode (check_format).
+  inline int sr_encode(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c, int variant,
+                       const char *op)
   {
-    sr_check_prng(prng_bits, w, c, op);
+    sr_check_prng(prng_bits, bits, magnitude, c, op);
     return sr_encode(prng_bits, variant, op);
   }
 
   // The elementwise quantizers' format checks, which their entry points make
   // before anything else (after an in-place op's contiguity check): the
-  // format's widths in every mode, and its random bits under a stochastic
-  // mode. The body each entry calls next encodes prng_bits with the plain
-  // sr_encode above. Not inlined, for the reason check_format_widths is not;
-  // and called from the entry points rather than from that body, so that the
-  // body, which the compiler inlines its single-thread loops into, is as it
-  // was before these checks.
-  C10_NOINLINE inline void check_quantizer_format(FormatWidths w, CarrierBits c, int64_t prng_bits,
+  // format itself in every mode (check_format), and its random bits under a
+  // stochastic mode. The body each entry calls next encodes prng_bits with
+  // the plain sr_encode above. Not inlined, for the reason check_format is
+  // not; and called from the entry points rather than from that body, so
+  // that the body, which the compiler inlines its single-thread loops into,
+  // is as it was before these checks.
+  C10_NOINLINE inline void check_quantizer_format(const Format &f, CarrierBits c, int64_t prng_bits,
                                                   int64_t round_mode, const char *op)
   {
-    check_format_widths(w, c, op);
+    check_format(f, c, op);
     if (is_stochastic_mode(round_mode))
-      sr_check_prng(prng_bits, w, c, op);
+      sr_check_prng(prng_bits, f.bits, f.family == FormatFamily::FixedPoint, c, op);
   }
 
   // The widest mantissa among the formats of one role, which bounds the
@@ -104,21 +108,20 @@ namespace mptorch
   void sr_encode_args(Args &args, int variant, const char *op, CarrierBits c)
   {
     for_each_format_role(args, [&](const auto &widths, int n_fmt, auto &common, bool rounds) {
-      common.prng_bits = rounds ? sr_encode(common.prng_bits, float_widths(sr_widest_mantissa(widths, n_fmt), 0),
-                                            c, variant, op)
+      common.prng_bits = rounds ? sr_encode(common.prng_bits, sr_widest_mantissa(widths, n_fmt), false, c, variant, op)
                                 : sr_encode(common.prng_bits, variant, op);
     });
   }
 
-  // A GEMM call's Args as its kernel runs them: checks the widths of every
-  // format the call rounds with, in every mode (format_host.h), then
+  // A GEMM call's Args as its kernel runs them: checks every format the
+  // call rounds with, in every mode (format_host.h's check_args_formats), then
   // canonicalizes round_mode in place, and returns a copy of the Args whose
   // formats are encoded when the mode is stochastic. `c` is the carrier the
   // call rounds in.
   template <class Args>
   Args sr_canonical_args(const Args &args, int64_t &round_mode, const char *op, CarrierBits c)
   {
-    check_args_widths(args, c, op);
+    check_args_formats(args, c, op);
     int variant;
     round_mode = sr_canonical(round_mode, variant);
     Args out = args;

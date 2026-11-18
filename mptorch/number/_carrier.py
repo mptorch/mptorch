@@ -49,10 +49,11 @@ range exceeds its carrier still quantizes correctly over the part that fits
 legitimate use, and `tests/` uses several on purpose). It is only partial, so
 it gets a warning. An error is for a format that cannot work at all: more
 precision than the carrier has, an exponent field wider than the kernels can
-shift by, stochastic-rounding bits that do not fit in the carrier's
+shift by, a bias that takes the exponents the kernels compute out of their
+32-bit integers, stochastic-rounding bits that do not fit in the carrier's
 significand next to the mantissa, a superfp that leaves no codes for its
-supernormals, or a format with no finite normal value inside the carrier's
-range, for which every nonzero result overflows.
+supernormals or has no normal binade, or a format with no finite normal value
+inside the carrier's range, for which every nonzero result overflows.
 
 The carrier is chosen by each call, not by the format, so these findings are
 reported on each call, from `mptorch.quant.ops`, as the storage findings
@@ -107,6 +108,10 @@ _BINARY64 = _Carrier("binary64", 53, 52, 1023, -1022, -1074, -1021)
 # are never carriers: tensors of those dtypes are rounded in binary32.
 _CARRIERS: dict[torch.dtype, _Carrier] = {torch.float32: _BINARY32, torch.float64: _BINARY64}
 _MAX_EXP_BITS = 30  # the kernels compute `1 << exp_bits` in a 32-bit C++ `int`
+# The kernels compute exponents from a format's bias in a 32-bit C++ `int`
+# too, and add the carrier's exponents to them, so each must stay between
+# -2**30 and 2**30 (EXP_LIMIT in mptorch/csrc/common/format_host.h).
+_EXP_LIMIT = 1 << 30
 
 
 def _top_of_range(
@@ -189,6 +194,30 @@ def _width_error(
             f"of {carrier.name}'s mantissa"
         )
     return None
+
+
+def _exponent_error(label: str, exp_bits: int, bias: int) -> str | None:
+    """Check the exponents that the kernels compute from a binaryK or superfp format's bias.
+
+    The kernels compute the exponent of exponent field 1, ``1 - bias``, and
+    that of the top field, ``2**exp_bits - 1 - bias``, in a 32-bit C++
+    ``int``, and add the carrier's exponents to them, so both must lie
+    between ``-_EXP_LIMIT`` and ``_EXP_LIMIT``. A bias outside that range
+    leaves almost all of the format's binades outside both carriers' ranges
+    (with fewer than 30 exponent bits, all of them but a superfp's
+    supernormals). The limit is the kernels', though, so it is an error
+    rather than a range warning. Return the error message, or ``None``. Call
+    it only after `_width_error` has passed.
+    """
+    top_field = (1 << exp_bits) - 1
+    low, high = top_field - _EXP_LIMIT, _EXP_LIMIT + 1
+    if low <= bias <= high:
+        return None
+    return (
+        f"{label} has a bias outside {low} to {high}, the range the kernels take with "
+        f"{exp_bits} exponent bits: they compute `1 - bias` and `2**exp_bits - 1 - bias` "
+        "in a 32-bit int, and need both between -2^30 and 2^30"
+    )
 
 
 class _Extent(NamedTuple):

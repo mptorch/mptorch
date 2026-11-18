@@ -51,9 +51,10 @@ namespace mptorch::stochastic_cast
       const int K = static_cast<int>(format[0]), P = static_cast<int>(format[1]);
       j.is_signed = format[4] != 0;
       j.subnormals = static_cast<SubnormalsMode>(format[6]);
-      const FormatWidths widths = float_widths(P - 1, j.is_signed ? K - P : K - P + 1);
-      check_format_widths(widths, carrier, op);
-      j.spec = sr_encode(format[3], widths, carrier, variant, op);
+      const Format f = binaryK_format(format[1] - 1, j.is_signed ? format[0] - format[1] : format[0] - format[1] + 1,
+                                      format[2]);
+      check_format(f, carrier, op);
+      j.spec = sr_encode(format[3], f.bits, false, carrier, variant, op);
       // as the binaryK quantizer derives them: P - 1 mantissa bits, and
       // every bit left after the sign is the exponent's
       j.bk = make_binaryK_params<T>(P - 1, j.is_signed ? K - P : K - P + 1, static_cast<int>(format[2]),
@@ -64,9 +65,9 @@ namespace mptorch::stochastic_cast
     {
       j.is_signed = format[5] != 0;
       j.subnormals = SubnormalsMode::SUBNORMALS;
-      const FormatWidths widths = float_widths(format[0], format[1]);
-      check_format_widths(widths, carrier, op);
-      j.spec = sr_encode(format[4], widths, carrier, variant, op);
+      const Format f = superfp_format(format[0], format[1], format[2], format[3]);
+      check_format(f, carrier, op);
+      j.spec = sr_encode(format[4], f.bits, false, carrier, variant, op);
       j.sf = make_superfp_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]),
                                     static_cast<int>(format[2]), static_cast<int>(format[3]),
                                     static_cast<SaturationMode>(format[6]));
@@ -75,9 +76,9 @@ namespace mptorch::stochastic_cast
     {
       j.is_signed = format[3] != 0;
       j.subnormals = SubnormalsMode::SUBNORMALS;
-      const FormatWidths widths = fixedpoint_widths(format[0] - (j.is_signed ? 1 : 0));
-      check_format_widths(widths, carrier, op);
-      j.spec = sr_encode(format[2], widths, carrier, variant, op);
+      const Format f = fixedpoint_format(format[0] - (j.is_signed ? 1 : 0), format[1]);
+      check_format(f, carrier, op);
+      j.spec = sr_encode(format[2], f.bits, true, carrier, variant, op);
       j.fx = make_fixedpoint_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]), j.is_signed,
                                        format[4] != 0);
     }

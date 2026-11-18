@@ -42,18 +42,25 @@ namespace
     return static_cast<int64_t>(RoundMode::RO);
   }
 
+  // The format, and under SR its random bits, checked before its format
+  // lines are built (check_quantizer_format, common/stochastic_host.h), as
+  // the CPU entry points check them. `op` is the entry point's name.
+  void check_quant_format(const Tensor &a, const mptorch::Format &f, int64_t prng_bits, int64_t round_mode,
+                          const char *op)
+  {
+    mptorch::check_quantizer_format(f, mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
+                                    round_mode, op);
+  }
+
   // Launches quantize.metal over the contiguous `a` into `o`, which is `a`
   // itself for the in-place ops, with the instantiation's family and format
-  // lines in `format`, and the format's widths in `widths`.
+  // lines in `format`. The entry point has checked the format
+  // (check_quant_format above).
   void quantize_into(const char *op, const Tensor &a, const Tensor &o, int64_t round_mode,
-                     bool is_signed, int64_t prng_bits, mptorch::FormatWidths widths, const std::string &format)
+                     bool is_signed, int64_t prng_bits, const std::string &format)
   {
-    // The format's widths, and under SR its random bits, checked before the
-    // format lines are compiled (common/stochastic_host.h). SR_B and SR_C
-    // then run as SR, with the variant recorded in prng_bits, as on the CPU
-    // (sr_canonical and sr_encode).
-    mptorch::check_quantizer_format(widths, mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                    round_mode, op);
+    // SR_B and SR_C run as SR, with the variant recorded in prng_bits, as on
+    // the CPU (sr_canonical and sr_encode).
     int variant;
     round_mode = mptorch::sr_canonical(round_mode, variant);
     if (variant >= 0)
@@ -78,18 +85,18 @@ namespace
   }
 
   Tensor quantize(const char *op, const Tensor &a, int64_t round_mode, bool is_signed,
-                  int64_t prng_bits, mptorch::FormatWidths widths, const std::string &format)
+                  int64_t prng_bits, const std::string &format)
   {
     Tensor a_c = a.contiguous();
     Tensor o = at::empty_like(a_c);
-    quantize_into(op, a_c, o, round_mode, is_signed, prng_bits, widths, format);
+    quantize_into(op, a_c, o, round_mode, is_signed, prng_bits, format);
     return o;
   }
 
   // The format lines of a binaryK, a superfp and a fixed-point
   // instantiation; MPT_FORMATS selects the family in quantize.metal.
-  std::string binaryK_format(int64_t K, int64_t P, int64_t bias, bool is_signed,
-                             int64_t saturation_mode, int64_t subnormals_mode)
+  std::string binaryK_format_lines(int64_t K, int64_t P, int64_t bias, bool is_signed,
+                                   int64_t saturation_mode, int64_t subnormals_mode)
   {
     // P3109's widths, narrowed to int and converted as the CPU kernel
     // converts them: P - 1 stored mantissa bits, and the exponent field takes
@@ -107,8 +114,8 @@ namespace
            (extended ? "true" : "false") + ");\n}\n";
   }
 
-  std::string superfp_format(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
-                             int64_t bias, int64_t saturation_mode)
+  std::string superfp_format_lines(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
+                                   int64_t bias, int64_t saturation_mode)
   {
     return "#define MPT_FORMATS 1\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
            "inline SuperfpParams mpt_params()\n{\n    return make_superfp_params<float>(" +
@@ -118,7 +125,7 @@ namespace
            std::to_string(saturation_mode) + "));\n}\n";
   }
 
-  std::string fixedpoint_format(int64_t wl, int64_t fl, bool is_signed, bool symmetric)
+  std::string fixedpoint_format_lines(int64_t wl, int64_t fl, bool is_signed, bool symmetric)
   {
     return "#define MPT_FORMATS 2\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
            "inline FixedPointParams mpt_params()\n{\n    return make_fixedpoint_params<float>(" +
@@ -133,26 +140,29 @@ Tensor binaryK_quantize_mps(Tensor a, int64_t K, int64_t P, int64_t bias, int64_
                             bool is_signed, int64_t round_mode, int64_t saturation_mode,
                             int64_t subnormals_mode)
 {
+  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
+                     "binaryK_quantize_mps");
   return quantize("binaryK_quantize_mps", a, round_mode, is_signed, prng_bits,
-                  mptorch::float_widths(P - 1, is_signed ? K - P : K - P + 1),
-                  binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode));
+                  binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
 }
 
 Tensor superfp_quantize_mps(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                             int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
                             int64_t saturation_mode)
 {
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
+                     "superfp_quantize_mps");
   return quantize("superfp_quantize_mps", a, round_mode, is_signed, prng_bits,
-                  mptorch::float_widths(man_bits, exp_bits),
-                  superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+                  superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
 }
 
 Tensor fixedpoint_quantize_mps(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
                                bool is_signed, bool symmetric, int64_t round_mode)
 {
+  check_quant_format(a, mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl), prng_bits, round_mode,
+                     "fixedpoint_quantize_mps");
   return quantize("fixedpoint_quantize_mps", a, round_mode, is_signed, prng_bits,
-                  mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
-                  fixedpoint_format(wl, fl, is_signed, symmetric));
+                  fixedpoint_format_lines(wl, fl, is_signed, symmetric));
 }
 
 // mptorch::binaryK_quant_, mptorch::superfp_quant_ and
@@ -165,9 +175,10 @@ Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int
   TORCH_CHECK(a.is_contiguous(), "binaryK_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use binaryK_quant, which copies a strided input");
+  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
+                     "binaryK_quantize_mps_");
   quantize_into("binaryK_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
-                mptorch::float_widths(P - 1, is_signed ? K - P : K - P + 1),
-                binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode));
+                binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
   return a;
 }
 
@@ -178,9 +189,10 @@ Tensor &superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int
   TORCH_CHECK(a.is_contiguous(), "superfp_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use superfp_quant, which copies a strided input");
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
+                     "superfp_quantize_mps_");
   quantize_into("superfp_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
-                mptorch::float_widths(man_bits, exp_bits),
-                superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+                superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
   return a;
 }
 
@@ -190,8 +202,9 @@ Tensor &fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng
   TORCH_CHECK(a.is_contiguous(), "fixedpoint_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use fixedpoint_quant, which copies a strided input");
+  check_quant_format(a, mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl), prng_bits, round_mode,
+                     "fixedpoint_quantize_mps_");
   quantize_into("fixedpoint_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
-                mptorch::fixedpoint_widths(wl - (is_signed ? 1 : 0)),
-                fixedpoint_format(wl, fl, is_signed, symmetric));
+                fixedpoint_format_lines(wl, fl, is_signed, symmetric));
   return a;
 }

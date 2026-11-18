@@ -338,8 +338,10 @@ def binaryK_gemm_formats(
 
     Raises:
         ValueError: for a format that no carrier can hold (more than 53 bits
-            of precision, an exponent field wider than 30 bits, or too many
-            stochastic-rounding bits to fit in the significand), a
+            of precision, an exponent field wider than 30 bits, a bias that
+            puts ``1 - bias`` or ``2**exp_bits - 1 - bias`` outside -2^30 to
+            2^30, or too many stochastic-rounding bits to fit in the
+            significand), a
             ``carrier`` other than ``torch.float32``, ``torch.float64`` or
             ``None``, or a ``carrier_rounding`` other than ``RNE`` or ``RO``.
         TypeError: for a ``carrier`` that is not a ``torch.dtype``.

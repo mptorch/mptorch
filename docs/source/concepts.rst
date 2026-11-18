@@ -1749,10 +1749,12 @@ works, not which limit it misses:
 * A format that **cannot function** raises :exc:`ValueError`. This covers
   more precision than the carrier's, stochastic-rounding bits with no
   significand left to draw from, an exponent field wider than the kernels
-  shift by, a SuperFP whose ``normal_binades`` leaves no supernormal codes,
-  a FixedPoint end past the carrier's largest value, and a format whose
-  largest finite value is below the carrier's normals, where every nonzero
-  result overflows.
+  shift by, a bias that puts ``1 - bias`` or ``2**exp_bits - 1 - bias``
+  outside :math:`-2^{30}` to :math:`2^{30}` (the kernels compute these
+  exponents in a 32-bit integer), a SuperFP whose ``normal_binades`` leaves
+  no supernormal codes or no normal binade, a FixedPoint end past the
+  carrier's largest value, and a format whose largest finite value is below
+  the carrier's normals, where every nonzero result overflows.
 
 The run below shows both carriers on the same inputs and formats:
 

@@ -706,6 +706,109 @@ def test_raw_quantizers_refuse_widths_the_parameter_builders_cannot_take(device,
                 wrapper(x, mode)
 
 
+def _exponent_cases():
+    """(raw op as a function of x and the round mode, Python wrapper or None,
+    the message the op refuses it with, or None for a parameter at the edge,
+    which the op accepts), for the exponents the kernels compute from a
+    binaryK or superfp bias, from 1 - bias to 2**exp_bits - 1 - bias, or from
+    a fixed-point fl, from -fl to mag_bits - fl: each must lie between -2**30
+    and 2**30. And a superfp's normal_binades, from 1 to 2**exp_bits - 1.
+
+    The Python layer's bounds on the bias and normal_binades are the same, so
+    a wrapper raises ValueError where the op refuses and accepts the edges.
+    Its bounds on fl are far tighter (the format's ends and step must be
+    inside the carrier's range), so the fixed-point cases have no wrapper at
+    the edges."""
+    limit = 1 << 30
+    ops = torch.ops.mptorch
+    cases = []
+    for K, P, bias in (
+        (8, 4, 15 - limit),  # the top field's exponent, 15 - bias, is 2**30
+        (8, 4, 14 - limit),
+        (8, 4, -(2**31 - 1)),  # the bias whose `1 - bias` overflowed an int
+        (8, 4, -(2**40)),  # one an int cannot hold at all
+        (33, 3, limit + 1),  # 30 exponent bits: field 1's exponent, 1 - bias, is -2**30
+        (33, 3, limit + 2),
+    ):
+        exp_bits = K - P
+        low, high = (1 << exp_bits) - 1 - limit, limit + 1
+        taken = f"with {exp_bits} exponent bits the kernels take {low} to {high}"
+        refusal = None if low <= bias <= high else f"bias is {bias}, but {taken}"
+        cases.append(
+            (
+                lambda x, m, K=K, P=P, b=bias: ops.binaryK_quant(
+                    x, K, P, b, 0, True, m.value, 0, 0
+                ),
+                lambda x, m, K=K, P=P, b=bias: binaryK_quantize(x, K, P, b, rounding_mode=m),
+                refusal,
+            )
+        )
+    binades = "normal binades, but a superfp format with 4 exponent bits has 1 to 15"
+    for normal_binades, bias, refusal in (
+        (2, 15 - limit, None),
+        (2, 14 - limit, f"bias is {14 - limit}, but with 4 exponent bits"),
+        (15, 7, None),
+        (16, 7, f"has 16 {binades}"),
+        (0, 7, f"has 0 {binades}"),
+    ):
+        cases.append(
+            (
+                lambda x, m, nb=normal_binades, b=bias: ops.superfp_quant(
+                    x, 3, 4, nb, b, 0, True, m.value, 0
+                ),
+                lambda x, m, nb=normal_binades, b=bias: superfp_quantize(
+                    x, 3, 4, nb, b, rounding_mode=m
+                ),
+                refusal,
+            )
+        )
+    # wl = 8 signed has 7 magnitude bits: fl from 7 - 2**30 to 2**30
+    magnitude = "but with 7 magnitude bits the kernels take"
+    for fl, refusal in (
+        (limit, None),
+        (limit + 1, f"fl is {limit + 1}, {magnitude}"),
+        (7 - limit, None),
+        (6 - limit, f"fl is {6 - limit}, {magnitude}"),
+    ):
+        cases.append(
+            (
+                lambda x, m, fl=fl: ops.fixedpoint_quant(x, 8, fl, 0, True, False, m.value),
+                None
+                if refusal is None
+                else lambda x, m, fl=fl: fixedpoint_quantize(x, 8, fl, rounding_mode=m),
+                refusal,
+            )
+        )
+    return cases
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_raw_quantizers_refuse_exponents_past_the_kernels_int(device):
+    """Past these bounds the exponents the parameter builders compute from a
+    bias or an fl overflow an int, which is undefined behaviour, so the op
+    boundary refuses them, in every rounding mode, on every backend and on the
+    meta device. The Python layer refuses the same biases."""
+    x = torch.randn(64, device=device)
+    for raw, wrapper, refusal in _exponent_cases():
+        for mode in (R.RNE, R.SR):
+            if refusal is None:
+                raw(x, mode)
+                if wrapper is not None:
+                    wrapper(x, mode)
+                continue
+            with pytest.raises(RuntimeError, match=refusal):
+                raw(x, mode)
+            with pytest.raises(RuntimeError, match=refusal):
+                raw(x.to("meta"), mode)
+            assert wrapper is not None
+            with pytest.raises(ValueError):
+                wrapper(x, mode)
+    with pytest.raises(ValueError, match="has a bias outside -1073741809 to 1073741825"):
+        BinaryK(8, 4, bias=-(2**31 - 1))
+    with pytest.raises(ValueError, match="has a bias outside -1 to 1073741825"):
+        SuperFP(3, 30, 1, -(2**30))
+
+
 @requires_odd
 def test_odd_carrier_bounds_per_variant():
     """The odd carrier step (``carrier_rounding=RO``) holds A for

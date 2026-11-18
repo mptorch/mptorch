@@ -557,6 +557,31 @@ def _gemm_cases():
             fma_P=54,
         ),
         "odd exp width": _with("custom_matmul_binaryK_odd", mul_K=35),
+        # -(2**31 - 1) is the bias whose `1 - bias` overflowed an int before
+        # the op refused it.
+        "mul bias": _with("custom_matmul_binaryK", mul_bias=-(2**31 - 1)),
+        "acc bias": _with("custom_matmul_superfp", acc_bias=2**31 - 1),
+        "acc normal binades": _with("custom_matmul_superfp", acc_normal_binades=0),
+        "palette bias": _with("custom_matmul_binaryK_mixed", mul_bias=[8, -(2**31 - 1)]),
+        "fused palette normal binades": _with(
+            "custom_matmul_superfp_fma_mixed", fma_normal_binades=[2, 16]
+        ),
+        "outer bias": _with(
+            "custom_matmul_binaryK_accumulated",
+            accumulate_algorithm=A.BLOCK.value,
+            block_size=16,
+            outer_quant=True,
+            outer_K=16,
+            outer_P=11,
+            outer_bias=-(2**31 - 1),
+        ),
+        "cross normal binades": _with("custom_matmul_binaryK_superfp", acc_normal_binades=0),
+        "binary64 bias": _with(
+            "custom_matmul_binaryK_fma",
+            **_in_float64("custom_matmul_binaryK_fma"),
+            fma_bias=2**31 - 1,
+        ),
+        "odd bias": _with("custom_matmul_superfp_odd", mul_bias=-(2**31 - 1)),
     }
 
 
@@ -596,6 +621,7 @@ def _conv_cases():
         "odd cross groups": _with("custom_conv_binaryK_superfp_odd", groups=0),
         "mul prng": _with("custom_conv_binaryK", mul_prng_bits=21),
         "mul exp width": _with("custom_conv_binaryK", mul_K=35),
+        "mul bias": _with("custom_conv_binaryK", mul_bias=-(2**31 - 1)),
     }
 
 
@@ -638,6 +664,9 @@ def _block_cases():
         "gemm acc exp width": _with(
             "custom_matmul_block", accumulate_quant=True, acc_K=42, acc_P=11, acc_bias=15
         ),
+        "gemm acc bias": _with(
+            "custom_matmul_block", accumulate_quant=True, acc_K=16, acc_P=11, acc_bias=-(2**31 - 1)
+        ),
     }
 
 
@@ -660,6 +689,12 @@ def _other_cases():
         "superfp exp width": _with("superfp_quant", exp_bits=31),
         "fixedpoint magnitude width": _with("fixedpoint_quant", wl=26),
         "stochastic_cast exp width": _with("_stochastic_cast", format=[35, 4, 7, 3, 1, 2, 0]),
+        "binaryK bias": _with("binaryK_quant", bias=-(2**31 - 1)),
+        # an int64 bias reaches the check whole, before any narrowing to int
+        "superfp bias": _with("superfp_quant", bias=-(2**40)),
+        "superfp normal binades": _with("superfp_quant", normal_binades=0),
+        "fixedpoint fl": _with("fixedpoint_quant", fl=2**31 - 1),
+        "stochastic_cast bias": _with("_stochastic_cast", format=[8, 4, -(2**31 - 1), 3, 1, 2, 0]),
     }
 
 
@@ -685,7 +720,9 @@ _GEMM_IDS = [
     "odd accumulated tree size", "mul prng", "acc prng", "palette prng", "fused palette prng",
     "outer prng", "cross prng", "binary64 prng", "odd prng", "mul mantissa width",
     "mul exp width", "acc exp width", "palette mantissa width", "fused palette exp width",
-    "outer exp width", "cross exp width", "binary64 mantissa width", "odd exp width",
+    "outer exp width", "cross exp width", "binary64 mantissa width", "odd exp width", "mul bias",
+    "acc bias", "acc normal binades", "palette bias", "fused palette normal binades", "outer bias",
+    "cross normal binades", "binary64 bias", "odd bias",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
@@ -693,19 +730,21 @@ _CONV_IDS = [
     "igrad channels", "wgrad samples", "palette naive only", "palette lengths", "palette map",
     "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
-    "odd cross groups", "mul prng", "mul exp width",
+    "odd cross groups", "mul prng", "mul exp width", "mul bias",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
     "unpack data dtype", "unpack cols", "unpack dtype", "unpack batch", "quant round mode",
     "quant_ overlap", "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
     "gemm naive block size", "gemm kahan block size", "gemm acc prng", "gemm acc exp width",
+    "gemm acc bias",
 ]  # fmt: skip
 _OTHER_IDS = [
     "narrow input", "narrow dtype", "binaryK in place", "superfp in place", "fixedpoint in place",
     "carrier_odd op", "carrier_odd shape", "carrier_odd dtype", "binaryK prng", "superfp prng",
     "fixedpoint prng", "stochastic_cast prng", "binaryK exp width", "superfp exp width",
-    "fixedpoint magnitude width", "stochastic_cast exp width",
+    "fixedpoint magnitude width", "stochastic_cast exp width", "binaryK bias", "superfp bias",
+    "superfp normal binades", "fixedpoint fl", "stochastic_cast bias",
 ]  # fmt: skip
 
 
@@ -739,6 +778,20 @@ def test_a_meta_call_raises_the_cpu_message(case):
 
 _PRNG_CASES = [c for c in _case_ids() if c.endswith(" prng")]
 _WIDTH_CASES = [c for c in _case_ids() if c.endswith(" width")]
+_EXPONENT_CASES = [c for c in _case_ids() if c.endswith((" bias", " fl", " normal binades"))]
+
+
+def _raises_in_every_mode(func, args, pattern):
+    """Assert that the call raises a RuntimeError matching ``pattern`` under
+    RNE and under SR, when the op takes a round mode."""
+    names = [a.name for a in func._schema.arguments]
+    modes = [R.RNE.value, SR.value] if "round_mode" in names else [None]
+    for mode in modes:
+        call = list(args)
+        if mode is not None:
+            call[names.index("round_mode")] = mode
+        with pytest.raises(RuntimeError, match=pattern):
+            func(*call)
 
 
 @pytest.mark.parametrize("case", _PRNG_CASES)
@@ -767,14 +820,22 @@ def test_a_format_refuses_widths_the_parameter_builders_cannot_take(case):
         rf"-?\d+ stored mantissa bits, but {carrier} holds 0 to \d+",
         rf"-?\d+ magnitude bits, but {carrier} holds 1 to \d+",
     )
-    names = [a.name for a in func._schema.arguments]
-    modes = [R.RNE.value, SR.value] if "round_mode" in names else [None]
-    for mode in modes:
-        call = list(args)
-        if mode is not None:
-            call[names.index("round_mode")] = mode
-        with pytest.raises(RuntimeError, match=rf"the format has ({'|'.join(widths)})"):
-            func(*call)
+    _raises_in_every_mode(func, args, rf"the format has ({'|'.join(widths)})")
+
+
+@pytest.mark.parametrize("case", _EXPONENT_CASES)
+def test_a_format_refuses_what_the_kernels_int_exponents_cannot_take(case):
+    """Each of the table's bias, fl and normal_binades cases is refused for
+    the parameter it changes, in a deterministic mode as under SR: the op
+    names the parameter and the range it takes. Past the bias and fl bounds
+    the exponents the parameter builders compute overflow an int."""
+    func, args = _case(case)
+    refusals = (
+        r"the format's bias is -?\d+, but with \d+ exponent bits the kernels take -?\d+ to \d+",
+        r"the format's fl is -?\d+, but with \d+ magnitude bits the kernels take -?\d+ to \d+",
+        r"the format has -?\d+ normal binades, but a superfp format with \d+ exponent bits has 1",
+    )
+    _raises_in_every_mode(func, args, "|".join(refusals))
 
 
 def test_a_format_the_call_does_not_round_with_is_not_bounded():

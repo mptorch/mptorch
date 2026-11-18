@@ -42,24 +42,31 @@
 // The formats are edge and middle ones:
 //   * binaryK from 0 to 23 (52) mantissa bits;
 //   * exponent fields up to 30 bits;
-//   * negative biases, and biases that put the bottom of the range below the
-//     carrier's;
+//   * negative biases, biases that put the bottom of the range below the
+//     carrier's, and biases at both ends of the ops' bound (format_host.h's
+//     check_format: 1 - bias and 2^exp_bits - 1 - bias each between -2^30
+//     and 2^30);
 //   * signed and unsigned, two saturation modes, all three SubnormalsModes;
-//   * superfp from 0 to 22 (51) mantissa bits;
-//   * fixed point with negative and over-wide fraction lengths, both
-//     signednesses, symmetric or not;
+//   * superfp from 0 to 22 (51) mantissa bits, normal_binades up to
+//     2^exp_bits - 1;
+//   * fixed point with negative and over-wide fraction lengths, up to both
+//     ends of the ops' bound (-fl and mag_bits - fl each between -2^30 and
+//     2^30), both signednesses, symmetric or not;
 //   * SR with 0, 1 and the most random bits the format allows.
 // Each binary32 binaryK and superfp format runs twice: as built, which takes
 // the float-arithmetic RNE fast path where the format admits it, and with
 // fast_rne cleared, which is the integer path the device and Metal take for a
 // format the gate refuses.
 //
-// Only formats mptorch.number accepts are used, whose widths the parameter
-// builders take: the ops refuse the others too (common/format_host.h, in
-// every mode, and stochastic_host.h's sr_encode for the random bits under a
-// stochastic mode). In particular, man_bits plus prng_bits never exceed the
-// carrier's mantissa: past that, stochastic.h's make_stochastic shifts by a
-// negative count.
+// Only formats the ops accept are used: the ops refuse the others, in every
+// mode (common/format_host.h's check_format), and under a stochastic mode
+// refuse random bits that do not fit beside the format (stochastic_host.h's
+// sr_encode). For binaryK and superfp these are the formats mptorch.number
+// accepts. For fixed point the ops' bound on fl is wider than the Python
+// layer's, which refuses an fl whose step or ends the carrier cannot hold, so
+// the formats at its edges are ones only a direct op call can pass. In
+// particular, man_bits plus prng_bits never exceed the carrier's mantissa:
+// past that, stochastic.h's make_stochastic shifts by a negative count.
 //
 // Results (2026-11-18, AMD Ryzen 9 7940HS, GCC 15.2):
 //   * Before that day's fix to cast_binaryK.h's subnormal arms, the check
@@ -83,6 +90,13 @@
 //     the check passes. Only the superfp checksums moved, and only through
 //     those formats: without them they are unchanged.
 //   * The fixed-point casts never reported anything.
+//   * The formats at both ends of the ops' bound on the bias and fl, added
+//     with that bound, run clean. With formats past it added to the lists
+//     (a bias of -(2^31 - 1) or 2^31 - 1, an fl of 2^31 - 1, and a superfp
+//     with 30 exponent bits, no normal binade and a bias of -2^30), --recover
+//     reports signed overflows in the builders' `1 - bias` and `-fl`, in
+//     superfp_region_cutoffs' normal cutoff, and in the fixed-point casts'
+//     `target_exp + fl`.
 #include "common/cast_binaryK.h"
 #include "common/cast_fixedpoint.h"
 #include "common/cast_superfp.h"
@@ -368,21 +382,35 @@ int main(int argc, char **argv)
   if (!control_is_reported(recover))
     return 2;
 
-  const std::vector<BinaryKFmt> bk32 = {{0, 5, 15},  {1, 2, 1},   {2, 5, 15},  {3, 4, 7},          {3, 4, 8},
-                                        {3, 4, 21},  {7, 7, 63},  {10, 5, 15}, {13, 7, 64},        {22, 7, 63},
-                                        {2, 7, 120}, {7, 8, 127}, {0, 8, 127}, {23, 8, 127},       {5, 10, 1},
-                                        {3, 4, -20}, {3, 4, 140}, {4, 30, 1 << 29}};
-  const std::vector<BinaryKFmt> bk64 = {{2, 5, 15},   {3, 4, 7},     {10, 5, 15},   {23, 8, 127},
-                                        {51, 10, 511}, {52, 11, 1023}, {2, 10, 1000}, {7, 11, 1023},
-                                        {3, 4, -200}, {5, 30, 1 << 29}};
+  // The bias bound's edges: with 4 exponent bits a bias of 15 - 2^30 puts
+  // the top field's exponent at 2^30, and with 30 bits a bias of 2^30 + 1
+  // puts field 1's at -2^30 and one of -1 the top field's at 2^30.
+  const int edge = 1 << 30;
+  const std::vector<BinaryKFmt> bk32 = {{0, 5, 15},  {1, 2, 1},   {2, 5, 15},   {3, 4, 7},          {3, 4, 8},
+                                        {3, 4, 21},  {7, 7, 63},  {10, 5, 15},  {13, 7, 64},        {22, 7, 63},
+                                        {2, 7, 120}, {7, 8, 127}, {0, 8, 127},  {23, 8, 127},       {5, 10, 1},
+                                        {3, 4, -20}, {3, 4, 140}, {4, 30, 1 << 29}, {3, 4, 15 - edge}, {2, 30, edge + 1},
+                                        {2, 30, -1}};
+  const std::vector<BinaryKFmt> bk64 = {{2, 5, 15},   {3, 4, 7},      {10, 5, 15},      {23, 8, 127},
+                                        {51, 10, 511}, {52, 11, 1023}, {2, 10, 1000},    {7, 11, 1023},
+                                        {3, 4, -200}, {5, 30, 1 << 29}, {3, 4, 15 - edge}, {2, 30, edge + 1},
+                                        {2, 30, -1}};
   // {22, 10, 2, 1015} and binary64's {51, 4, 2, 7} have supernormal cutoffs
-  // below int's range, which make_superfp_params clamps
-  const std::vector<SuperfpFmt> sfp32 = {{3, 4, 8, 7}, {3, 4, 2, 7},  {1, 2, 1, 1},   {9, 3, 1, 3},     {3, 5, 1, 7},
-                                         {0, 4, 2, 7}, {22, 3, 1, 3}, {3, 8, 4, 100}, {22, 10, 2, 1015}};
-  const std::vector<SuperfpFmt> sfp64 = {{3, 4, 8, 7}, {3, 5, 1, 7}, {20, 6, 4, 31}, {51, 4, 2, 7}, {3, 10, 8, 500}};
+  // below int's range, which make_superfp_params clamps. The last three put
+  // the top field's exponent at 2^30 and field 1's at -2^30, and have the
+  // most normal binades their exponent fields allow.
+  const std::vector<SuperfpFmt> sfp32 = {{3, 4, 8, 7},      {3, 4, 2, 7},      {1, 2, 1, 1},   {9, 3, 1, 3},
+                                         {3, 5, 1, 7},      {0, 4, 2, 7},      {22, 3, 1, 3},  {3, 8, 4, 100},
+                                         {22, 10, 2, 1015}, {3, 4, 2, 15 - edge}, {3, 30, edge - 1, edge + 1},
+                                         {3, 4, 15, 7}};
+  const std::vector<SuperfpFmt> sfp64 = {{3, 4, 8, 7},      {3, 5, 1, 7},        {20, 6, 4, 31},
+                                         {51, 4, 2, 7},     {3, 10, 8, 500},     {3, 4, 2, 15 - edge},
+                                         {51, 30, edge - 1, edge + 1}, {3, 4, 15, 7}};
+  // The last two of each list are the fl bound's edges: -fl at -2^30, and
+  // mag_bits - fl at 2^30 for the unsigned format (8 magnitude bits).
   const std::vector<FixedPointFmt> fx32 = {{2, 1},   {4, 0},   {8, 4},   {8, -4}, {8, 20},
-                                           {12, 12}, {16, 8},  {20, 10}, {24, 12}};
-  const std::vector<FixedPointFmt> fx64 = {{8, 4}, {8, -4}, {32, 16}, {40, 20}, {53, 26}};
+                                           {12, 12}, {16, 8},  {20, 10}, {24, 12}, {8, edge}, {8, 8 - edge}};
+  const std::vector<FixedPointFmt> fx64 = {{8, 4}, {8, -4}, {32, 16}, {40, 20}, {53, 26}, {8, edge}, {8, 8 - edge}};
 
   const std::vector<float> x32 = inputs<float>(140, 32, 1 << 15);
   const std::vector<double> x64 = inputs<double>(1100, 6, 1 << 14);

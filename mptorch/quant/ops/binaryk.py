@@ -131,10 +131,11 @@ def binaryK_quantize(
     Raises:
         ValueError: if the carrier cannot hold the format (more precision than
             the carrier has, ``P - 1 + prng_bits`` above its mantissa bits, an
-            exponent field wider than 30 bits, no finite normal value in its
-            normal range), if the storage dtype can store none of the format's
-            nonzero values, or if ``carrier`` is a dtype that names no carrier
-            or is narrower than ``x``.
+            exponent field wider than 30 bits, a bias that puts ``1 - bias``
+            or ``2**exp_bits - 1 - bias`` outside -2^30 to 2^30, no finite
+            normal value in its normal range), if the storage dtype can store
+            none of the format's nonzero values, or if ``carrier`` is a dtype
+            that names no carrier or is narrower than ``x``.
         TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
         RuntimeError: if ``x`` requires grad under grad mode.
 

@@ -18,6 +18,7 @@ from ._carrier import (
     _BINARY64,
     _bottom_by_field,
     _Carrier,
+    _exponent_error,
     _Extent,
     _largest_finite,
     _pointing_wider,
@@ -99,8 +100,10 @@ class BinaryK(FloatFormat):
             with a saturation mode other than ``SAT_FINITE``. Otherwise only
             for a format that neither carrier can simulate: more than 53 bits
             of precision, ``P - 1 + prng_bits`` above 52, an exponent field
-            wider than 30 bits, a negative ``prng_bits``, or no finite normal
-            value that binary64 can hold. Building the format never warns:
+            wider than 30 bits, a bias that puts ``1 - bias`` or
+            ``2**exp_bits - 1 - bias`` outside -2^30 to 2^30 (the kernels
+            compute them in a 32-bit int), a negative ``prng_bits``, or no
+            finite normal value that binary64 can hold. Building the format never warns:
             whether binary32 or binary64 arithmetic carries it is decided by
             each call, which checks the format against its own carrier (see
             :class:`FormatRangeWarning`).
@@ -229,7 +232,9 @@ def check_binaryK(
         ValueError: for a format that cannot work in the carrier: more
             precision than the carrier has, more stochastic-rounding bits
             than fit in the carrier's significand next to the mantissa, an
-            exponent field wider than 30 bits, a negative ``prng_bits``, or no
+            exponent field wider than 30 bits, a bias that puts ``1 - bias``
+            or ``2**exp_bits - 1 - bias`` outside -2^30 to 2^30 (the kernels
+            compute them in a 32-bit int), a negative ``prng_bits``, or no
             finite normal value that the carrier can hold.
     """
     error, warning = _binaryK_findings(
@@ -488,7 +493,9 @@ def _binaryK_findings(
     label = _binaryK_label(K, P, bias, is_signed, subnormals)
 
     def find(c: _Carrier) -> tuple[str | None, str | None]:
-        error = _width_error(label, exp_bits, man_bits, prng_bits, c)
+        error = _width_error(label, exp_bits, man_bits, prng_bits, c) or _exponent_error(
+            label, exp_bits, bias
+        )
         if error is not None:
             return error, None
         ext = _binaryK_extent(label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, c)
