@@ -64,6 +64,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 | `binary_identity.py` | two builds' machine code: every ELF section, every `.nv_fatbin` member, every device function's SASS and register report, every host function | `so BASE.so NEW.so`; `obj BASE.o NEW.o` to bisect one unit; `cubin` for a benchmark built with `nvcc -cubin` |
 | `stacked_before_after.py` | two builds' op outputs (GEMMs, quantizers, SR included) word for word; `--block` adds the block ops. Its `time` and `memory` modes time two builds alternated, and measure their peak memory | `capture --out before.pt` before a change, `compare before.pt after.pt` after; seconds |
 | `layer_output_capture.py` | two builds' layer outputs, gradients and generator state, over formats, `requires_grad` patterns and biases | `capture cpu before.pt`, then `compare`; on cuda too |
+| `source_identity.py` | the C++ sources against a revision with comments removed: whether a change touched only comments, or moved code without changing it, before anything is built | `diff HEAD` (`--resolve-includes` for files moved into a subdirectory); `split HEAD OLD NEW...` for one file split into several; seconds |
 
 ### timing/
 
@@ -106,6 +107,7 @@ These come on top of what every change runs: the suite, and ruff, ty and pre-com
 | a bound in `mptorch/number/` | `format_limits.py sweep --audit`, and with `--carrier binary64` |
 | MPS code, or a header the Metal prelude includes | on the Mac: the suite, `mps_backend.py sweep` and `bench` |
 | The odd carrier step's headers (`common/carrier_odd*.h`) | on the Mac: the suite and `mps_backend.py odd-sweep` (the Metal side); on Linux: `gates/binary_identity.py so` (their host and CUDA text) |
+| only comments in C++, or code moved between files | `gates/source_identity.py diff` (or `split`) first; then the build's own gates for what a comment edit still moves (line numbers in host code, the Metal text on the Mac) |
 | a cost you are going to claim | the matching `timing/` tool, alternated as below |
 
 Run longer grids once, when a piece of work is finished, trimmed to under 20 minutes.

@@ -1061,10 +1061,12 @@ def test_every_odd_accumulated_unit_includes_the_overloads():
     that all of them see one set of the tile trait's specializations."""
     csrc = Path(__file__).resolve().parents[1] / "mptorch" / "csrc"
     stem = re.compile(r"_(kahan|block|tree)_odd(_f64)?\.(cpp|cu)$")
-    units = sorted(p for d in ("cpu", "cuda") for p in (csrc / d).iterdir() if stem.search(p.name))
+    units = sorted(
+        p for d in ("cpu", "cuda") for p in (csrc / d / "inst").iterdir() if stem.search(p.name)
+    )
     assert len(units) == 72
     for unit in units:
         text = unit.read_text()
-        assert '#include "../common/carrier_odd_accumulate.h"' in text, unit.name
-        if unit.parent.name == "cpu":
-            assert '#include "custom_matmul_odd_kernel.h"' in text, unit.name
+        assert '#include "../../common/carrier_odd_accumulate.h"' in text, unit.name
+        if unit.parent.parent.name == "cpu":
+            assert '#include "../custom_matmul_odd_kernel.h"' in text, unit.name
