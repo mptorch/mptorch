@@ -29,7 +29,7 @@ from ..ops.block import _block_format_ints
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
-#: What a ``None`` recompute flag means in :class:`CustomArithLinear`, as
+#: What a ``None`` recompute flag means in ``CustomArithLinear``, as
 #: (input, weight). The weight is quantized again in backward rather than
 #: kept, since the raw weight stays alive anyway as the layer's parameter. The
 #: input's quantized copy is kept, since a Linear's input usually comes from
@@ -181,7 +181,7 @@ class QLinear(nn.Linear):
     """``torch.nn.Linear`` with a quantizer for each tensor and custom arithmetic.
 
     It holds the same parameters as ``nn.Linear`` and computes the same
-    ``input @ weight.T + bias``, but through :class:`CustomArithLinear`. The
+    ``input @ weight.T + bias``, but through ``CustomArithLinear``. The
     input, the weight, the bias and each gradient can therefore be rounded by
     the quantizers in ``formats``, and each GEMM can run in custom arithmetic
     (see :func:`mptorch.quant.binaryK_gemm_formats`). With ``formats`` left
@@ -239,6 +239,7 @@ class QLinear(nn.Linear):
             self.formats = formats
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Apply the layer to ``input``, quantizing and computing as ``formats`` says."""
         return CustomArithLinear.apply(input, self.weight, self.bias, self.formats)
 
     def freeze_packed_(self, *, pack: bool = True) -> "QPackedLinear":
@@ -459,6 +460,8 @@ class QPackedLinear(QLinear):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Apply the layer to ``input`` with its packed weight, quantizing and computing as
+        ``formats`` says."""
         return CustomArithLinear.apply(input, self.packed_weight, self.bias, self.formats)
 
     def reset_parameters(self) -> None:

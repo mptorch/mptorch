@@ -69,6 +69,6 @@ for name, f in factories.items():
     other.load_state_dict(layer.state_dict())  # same weights, different arithmetic
     out = other(x)
     print(
-        f"{name:<26} -> {tuple(out.shape)}, cos to float32 layer: "
+        f"{name:<26} -> {tuple(out.shape)}, cos to the binaryK layer: "
         f"{torch.nn.functional.cosine_similarity(out.flatten(), layer(x).flatten(), dim=0):.4f}"
     )

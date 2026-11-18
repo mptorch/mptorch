@@ -614,7 +614,7 @@ def test_strided_igrad_blocks_count_terms_that_exist(device, geometry, alg, bloc
     # b / stride**nd terms, and more of the sum was done in the outer format;
     # now a block holds b terms, as it does in the other two passes and in a
     # GEMM. Matched block for block -- b here against b * stride**nd there --
-    # the two are as accurate (measured 0.97-0.99 of the zero-inserted error).
+    # the two are as accurate (measured 0.96-0.99 of the zero-inserted error).
     ratio = ACCURACY[geometry][-1]
     mac = SplitMac(B8, BinaryK(10, 5), accumulate_algorithm=alg, block_size=block_size, outer=B12)
     wide = SplitMac(

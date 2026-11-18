@@ -19,7 +19,7 @@ for fmt, label in ((e4m3, "E4M3"), (e5m2, "E5M2")):
             f"{(err.norm() / x.norm()):>10.4f}"
         )
 
-# Where each format stops working: relative error across nine decades.
+# Where each format stops working: relative error from 1e-7 to 1e5.
 print(f"\n{'|x|':>10}{'E4M3 rel. err':>16}{'E5M2 rel. err':>16}")
 for e in range(-7, 6):
     v = torch.full((10000,), 10.0**e) * (1 + 0.5 * torch.rand(10000))

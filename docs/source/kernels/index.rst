@@ -11,7 +11,8 @@ different results on the same operands. MPTorch's kernels simulate them.
 Every such computation runs on **one routine**: a batched matrix product in
 which every dot product is computed in the arithmetic you choose. This holds
 for a matrix product, the three products of a linear layer, the three passes
-of a convolution, and a product of two tensors in a block format. This page
+of a convolution (its forward product and its two gradients), and a product
+of two tensors in a block format. This page
 describes that routine. The pages under it cover each part and each
 operation:
 
@@ -67,32 +68,40 @@ only through its tile loads:
 Whatever the load, it gives the step the value an explicit matrix would hold
 at that position.
 
-**What a step rounds.** A *mac* specifies it. A ``SplitMac`` rounds the
-product to one format and the sum to another. A ``FusedMac`` rounds one fused
-multiply-add once. Anything the formats leave unrounded is computed in the
-operands' carrier, binary32 or binary64 (:doc:`/concepts`, "Carriers").
+**What a step rounds.** A *mac* (multiply-accumulate) specifies it. A
+``SplitMac`` rounds the product to one format and the sum to another. A
+``FusedMac`` computes a fused multiply-add and rounds it once. Anything the
+formats leave unrounded is computed in the *carrier*, the IEEE binary float
+the kernel computes in: binary32 or binary64. By default the operands' dtype
+chooses it (:doc:`/concepts`, "Carriers").
 
-**In what order the terms are summed.** The choices are one running sum
-(``NAIVE``), Kahan's compensated sum, and two-level sums over blocks or
-pairwise trees (:doc:`arithmetic`). A rounded sum depends on its order, so
-the order is part of the definition, and it is the same on every device.
+**In what order the terms are summed.** The *accumulate algorithm* sets the
+order: one running sum (``NAIVE``), Kahan's compensated sum (``KAHAN``), or
+a two-level sum over blocks (``BLOCK``) or pairwise trees (``TREE``)
+(:doc:`arithmetic`). A rounded sum depends on its order, so the order is part
+of the definition, and it is the same on every device.
 
-**What each output element has of its own.** A palette gives each element its
-own format through an index map (:doc:`arithmetic`). Under stochastic
-rounding each element draws from its own random stream, keyed on its index
-:math:`(\beta, i, j)` into the result, from one seed per call. A result
-therefore does not depend on how the work is tiled or threaded, or on the
-device. The CPU and CUDA kernels return the same bits in every deterministic
-mode. An Apple GPU returns the CPU's bits, stochastic rounding included,
-except for what the GPU's own float unit does between the roundings
-(:ref:`apple-gpu`).
+**What each output element has of its own.** A *palette* is a list of
+formats, and an integer map gives each output element one of them
+(:doc:`arithmetic`). Under stochastic rounding each element draws from its
+own random stream, keyed on its index :math:`(\beta, i, j)` into the result,
+from one seed per call. A result therefore does not depend on how the work
+is tiled or threaded, or on the device:
 
-For each step of its K-loop the kernel stages a :math:`16 \times 16` tile of
-each operand (in shared or threadgroup memory on a GPU, per task on the CPU)
-and runs the step over the tile. The operations below differ only in their
-tile loads. That is how one routine serves them all without slowing any of
-them: each is bit for bit the routine applied to the explicit matrices it
-describes. Each entry point runs the following:
+- The CPU and CUDA kernels return the same bits in every deterministic mode.
+- An Apple GPU returns the CPU's bits, stochastic rounding included, except
+  for what the GPU's own float unit does between the roundings
+  (:ref:`apple-gpu`).
+
+The kernel works on tiles of the operands. On a GPU, a group of threads
+stages a :math:`16 \times 16` tile of each operand in shared memory (CUDA)
+or threadgroup memory (an Apple GPU), 16 steps of K at a time. On the CPU,
+each task packs a :math:`32 \times 32` tile of each operand, 32 steps of K
+at a time. The step then runs over the staged tiles. The operations below differ
+only in how they load those tiles. That is how one routine serves them all
+without slowing any of them: each is bit for bit the routine applied to the
+explicit matrices it describes. Each entry point runs the following matrix
+products:
 
 .. list-table::
    :header-rows: 1
@@ -110,8 +119,8 @@ describes. Each entry point runs the following:
        :math:`G^\top x` (weight gradient)
      - dense
    * - ``QConv1d``/``2d``/``3d`` with ``conv_formats``
-     - the forward and the weight gradient, one each; the input gradient,
-       one per residue class of the stride
+     - one each for the forward pass and the weight gradient, and one per
+       residue class of the stride for the input gradient
      - gathered from the input, the weight and the gradient
    * - ``block_matmul``, ``BlockMac``, ``block_gemm_formats``
      - as the rows above, each operand packed along the dimension its product

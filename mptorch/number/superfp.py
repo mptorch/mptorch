@@ -132,9 +132,9 @@ class SuperFP(FloatFormat):
 
     @property
     def max_finite(self) -> float:
-        """The largest finite value: the top code of the top binade, or the
-        code below it when the top code is an infinity (outside the finite
-        domain). The format has no NaN code.
+        """The largest finite value. It is the top code of the top binade,
+        or the code below it when the top code is an infinity (outside the
+        finite domain). The format has no NaN code.
 
         Example::
 

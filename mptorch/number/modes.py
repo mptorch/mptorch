@@ -91,8 +91,8 @@ class Domain(Enum):
 
     #: With :math:`\pm\infty`: P3109's ``e`` formats, such as ``Binary8p4se``.
     EXTENDED = 0
-    #: Without infinities, so every code is a finite value or the NaN: P3109's
-    #: ``f`` formats, such as ``Binary8p4sf``.
+    #: Without infinities, so every code is a finite value or the NaN. These
+    #: are P3109's ``f`` formats, such as ``Binary8p4sf``.
     FINITE = 1
 
 
@@ -134,9 +134,9 @@ class SubnormalsMode(Enum):
         [0.0, 0.015625]
     """
 
-    SUBNORMALS = 0  #: Gradual underflow, the default: exponent field 0 holds the subnormals.
-    NORMALS = 1  #: No subnormals: a value below the smallest normal rounds to zero or to it.
-    #: No subnormals: exponent field 0 holds one more binade (power-of-two
+    SUBNORMALS = 0  #: Gradual underflow, the default. Exponent field 0 holds the subnormals.
+    NORMALS = 1  #: No subnormals. A value below the smallest normal rounds to zero or to it.
+    #: No subnormals. Exponent field 0 holds one more binade (power-of-two
     #: interval) of normal numbers. Its code with a zero mantissa still
     #: encodes zero (and, with the sign bit set, the NaN), so this binade has
     #: no value at its lowest power of two: its smallest value is one step
@@ -207,7 +207,7 @@ class RoundMode(Enum):
 
     @property
     def is_stochastic(self) -> bool:
-        """Whether this mode draws random bits: ``SR`` (``SR_A``), ``SR_B`` or ``SR_C``."""
+        """Whether this mode draws random bits, as ``SR`` (``SR_A``), ``SR_B`` and ``SR_C`` do."""
         return self.value >= 6
 
 

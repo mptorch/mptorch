@@ -11,7 +11,7 @@ on:
 - which arithmetic the simulation rounds in;
 - the equations the kernels follow.
 
-Every example on this page comes from a run.
+Every example on this page is a script, shown with the output of running it.
 
 The simulation model
 --------------------
@@ -39,10 +39,15 @@ output element of a matrix product, this can look like:
    s_{k} = Q_{\text{acc}}\big(s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})\big).
 
 The carrier (see Carriers_) has far more precision and range than the
-simulated format. Computing in it and rounding once therefore usually gives
-the correctly rounded result of the simulated operation, the number a machine
-working natively in :math:`F` would produce. This holds for every format the
-carrier can hold.
+simulated format. For every format the carrier can hold, the *cast*, the
+function that rounds a carrier value to :math:`F`, rounds exactly as the
+rounding mode says, so an elementwise rounding is always the correctly
+rounded result. A product or a sum inside a reduction is
+rounded twice: first to the carrier, to nearest, and then to :math:`F`. That
+usually gives the correctly rounded result of the simulated operation, the
+number a machine working natively in :math:`F` would produce.
+:doc:`kernels/arithmetic` ("What the carrier rounds") says when it does not,
+and how to make it exact.
 
 BinaryK: the IEEE P3109 formats
 -------------------------------
@@ -83,9 +88,10 @@ together with the saturation mode (below).
 
 A few consequences are worth keeping in mind:
 
-- Within one *binade* :math:`[2^q, 2^{q+1})` there are :math:`2^{P-1}`
-  representable values, spaced :math:`2^{q-P+1}` apart. This spacing is the
-  *unit in the last place* (ulp). The relative spacing is therefore between
+- A *binade* is the interval :math:`[2^q, 2^{q+1})` between two consecutive
+  powers of two. Within one binade there are :math:`2^{P-1}` representable
+  values, spaced :math:`2^{q-P+1}` apart. This spacing is the *unit in the
+  last place* (ulp). The relative spacing is therefore between
   :math:`2^{-P}` and :math:`2^{1-P}`: neighbouring values are about 6-12 %
   apart with :math:`P = 4` (E4M3's precision) and 12-25 % apart with
   :math:`P = 3` (E5M2's). Rounding to nearest moves a value by at most half
@@ -95,16 +101,17 @@ A few consequences are worth keeping in mind:
   largest finite value is
   :math:`(2 - 2^{2-P}) \cdot 2^{\,2^E - 1 - \text{bias}}`. In the finite
   domain that code is a number, and the largest finite value is
-  :math:`(2 - 2^{1-P}) \cdot 2^{\,2^E - 1 - \text{bias}}`. Both hold for a
-  signed format with :math:`P \ge 3`. `Subnormals, saturation and sign`_ says
-  how to choose the domain, and `Relation to IEEE P3109`_ gives the rules for
-  the other formats.
+  :math:`(2 - 2^{1-P}) \cdot 2^{\,2^E - 1 - \text{bias}}`. Both formulas are
+  for a signed format, and the first one needs :math:`P \ge 2`.
+  `Subnormals, saturation and sign`_ says how to choose the domain, and
+  `Relation to IEEE P3109`_ gives the rule for every format.
 - The smallest normal is :math:`2^{1 - \text{bias}}` and the smallest
   subnormal :math:`2^{1 - \text{bias} - (P-1)}`.
 - ``bias`` defaults to P3109's, the middle of the exponent range:
   :math:`2^{E-1}`, which is :math:`2^{K-P-1}` for a signed format and
-  :math:`2^{K-P}` for an unsigned one. Either way 1.0 is encoded at the
-  middle code point. For the same exponent width, IEEE 754's bias is
+  :math:`2^{K-P}` for an unsigned one. Either way, 1.0 is encoded at the
+  middle *code point*, the bit pattern halfway through the codes of the
+  non-negative values. For the same exponent width, IEEE 754's bias is
   :math:`2^{E-1} - 1`, one less. P3109 fixes the bias rather than the largest
   exponent, so that adding or removing the infinities moves no finite value.
   Pass ``bias=`` explicitly for a format outside P3109, such as the nearest
@@ -112,16 +119,17 @@ A few consequences are worth keeping in mind:
 - A BinaryK format uses every exponent code for finite values, where IEEE 754
   reserves the top one for infinities and NaNs. Take a BinaryK format with
   the IEEE bias and the same exponent and mantissa widths as an IEEE 754
-  format (float16, float32). It agrees with that format on every value up to
-  its largest finite one, and then continues for one more binade. So no
-  BinaryK format *is* float16, bfloat16 or float32 (see `The IEEE 754 dtypes
-  are not P3109 formats`_). The OCP formats compare the same way, and the
-  tutorial checks it exhaustively (see :doc:`tutorial`): E5M2 is laid out the
-  IEEE way, so its BinaryK spelling also goes a binade past it, while E4M3
-  spends its top exponent field on numbers and is matched on every finite
-  value.
+  format, such as float16 or float32. It agrees with the IEEE format on every
+  value up to the IEEE format's largest finite value, and then continues for
+  one more binade. So no BinaryK format *is* float16, bfloat16 or float32 (see
+  `The IEEE 754 dtypes are not P3109 formats`_).
+- The OCP 8-bit formats compare the same way, and the tutorial checks it
+  exhaustively (see :doc:`tutorial`). E5M2 is laid out the IEEE way, so its
+  BinaryK spelling also goes one binade past it. E4M3 spends its top exponent
+  field on numbers, and its BinaryK spelling has exactly its finite values.
 
-Some formats of interest can be approximately represented in terms of BinaryK:
+The following formats have a BinaryK spelling with the same field widths and
+bias:
 
 ===========================  ============================================  ======  ======  ======
 format                       spelling                                      E       P-1     bias
@@ -137,9 +145,9 @@ bfloat16's layout            ``BinaryK(16, 8, bias=127)``                  8    
 float32's layout             ``BinaryK(32, 24, bias=127)``                 8       23      127
 ===========================  ============================================  ======  ======  ======
 
-The last five rows have each format's field widths and bias, but none of
-them *is* the format it is laid out as: whatever its bias, a BinaryK spends
-its codes the way P3109 does.
+The first four rows are P3109 formats. The last five have the field widths
+and bias of the format they are named after, but none of them *is* that
+format: whatever its bias, a BinaryK spends its codes the way P3109 does.
 
 - The E4M3 row comes closest. It has exactly E4M3's finite values and differs
   in the special ones, and so in what an overflow returns.
@@ -153,13 +161,13 @@ with OCP's largest values and NaN codes (see `Block formats`_).
 
 The following run constructs P3109's two signed 8-bit formats with 4 and 3
 bits of precision, derives their ranges from the formulas above, and checks
-them against the quantizer in both domains. Each boundary value is a fixed
-point of the rounding in the domain that has it. For example,
-:math:`10^{30}` overflows to :math:`\infty` in the extended domain and to
-the largest finite value in the finite one. A format also gives its largest
-finite value itself, as :attr:`~mptorch.number.BinaryK.max_finite` (and
-:attr:`~mptorch.number.SuperFP.max_finite`), counted in code points as the
-quantizer counts it.
+them against the quantizer in both domains. Each boundary value comes back
+unchanged in the domain that has it, and :math:`10^{30}` overflows: to
+:math:`\infty` in the extended domain, and to the largest finite value in the
+finite one. You do not need the formulas to find the largest finite value: a
+format gives it as :attr:`~mptorch.BinaryK.max_finite` (and
+:attr:`~mptorch.SuperFP.max_finite`), counted in code points as the
+quantizer counts them.
 
 .. literalinclude:: ../snippets/formats_binaryK.py
    :language: python
@@ -299,11 +307,11 @@ of the *format*, so two formats in one computation can differ in them.
    is one step above the power of two,
    :math:`(1 + 2^{1-P})\, 2^{-\text{bias}}`.
 
-Below its smallest value every mode rounds the same way: to zero or to that
-value, as the rounding mode decides (`Relation to IEEE P3109`_ gives the
-rule). A value is flushed to zero only if the rounding mode says so. Under
-round-to-nearest, that is when it is nearer to zero than to the smallest
-value.
+Below the format's smallest value, the three modes round the same way: the
+rounding mode chooses between zero and that smallest value (`Relation to
+IEEE P3109`_ gives the rule). A value is flushed to zero only if the rounding
+mode says so. Under round-to-nearest, that is when it is nearer to zero than
+to the smallest value.
 
 :class:`~mptorch.SaturationMode` and :class:`~mptorch.Domain` decide the top.
 P3109 chooses two things here, separately:
@@ -313,19 +321,21 @@ P3109 chooses two things here, separately:
 - the *saturation mode*: what an operation does with a result beyond the
   largest finite value.
 
-The finite domain admits only ``SatFinite``, which leaves four valid pairs.
-Each pair is one member of ``SaturationMode``:
+P3109 has three saturation modes, and the finite domain admits only one of
+them, ``SatFinite``. That leaves four valid pairs, and each pair is one member
+of ``SaturationMode``:
 
 ``SAT_FINITE``
-   P3109's ``SatFinite``, in the finite domain. Everything is clamped to the
-   largest finite value, which here includes the top mantissa code. This
-   applies to a finite input that overflows and to an infinite input, so the
-   output never contains an infinity. NaN inputs pass through unchanged.
+   P3109's ``SatFinite``, in the finite domain. Every result beyond the
+   largest finite value is clamped to it, and here the largest finite value
+   includes the top mantissa code. This applies to a finite input that
+   overflows and to an infinite input, so the output never contains an
+   infinity. NaN inputs pass through unchanged.
 ``SAT_FINITE_EXTENDED``
    P3109's ``SatFinite``, in the extended domain. The format keeps its
    infinity codes, so its largest finite value is the same as under
-   ``SAT_PROPAGATE`` and ``SAT_NONE``. Everything is clamped to it, infinite
-   inputs included, as under ``SAT_FINITE``.
+   ``SAT_PROPAGATE`` and ``SAT_NONE``. Every result beyond it is clamped to
+   it, infinite inputs included, as under ``SAT_FINITE``.
 ``SAT_PROPAGATE``
    P3109's ``SatPropagate``, in the extended domain. A finite input that
    overflows is clamped to the largest finite value, which excludes the top
@@ -344,8 +354,10 @@ pair as P3109 does, with ``domain=`` next to ``saturation=``.
 ``saturation=SAT_FINITE_EXTENDED``, and the two spellings make equal formats.
 If ``domain`` is left out, it follows from the mode: finite for
 ``SAT_FINITE`` and extended otherwise. ``domain=Domain.FINITE`` with any
-other mode raises. The flat functions of the schema tier take no format
-object, so they name the pair with the ``SaturationMode`` member alone.
+other mode raises. The flat functions, such as
+:func:`~mptorch.quant.binaryK_quantize` and ``binaryK_matmul``, take no
+format object and no ``domain``, so they name the pair with the
+``SaturationMode`` member alone.
 
 .. literalinclude:: ../snippets/formats_modes.py
    :language: python
@@ -366,7 +378,9 @@ with the signed ``Binary8p4se``:
   :math:`7`.
 - Its largest finite value is :math:`1.625 \cdot 2^{15} = 53248`, against
   :math:`1.75 \cdot 2^{7} = 224`. The unsigned top binade ends in two
-  reserved codes, :math:`+\infty` and NaN, and the signed one in one.
+  reserved codes, :math:`+\infty` and NaN, and the signed one in one,
+  :math:`+\infty` (the signed format's NaN is the code that IEEE 754 would
+  read as :math:`-0.0`).
 
 The extra bit buys range, not precision. Both formats have :math:`P = 4`, so
 around :math:`3000` the unsigned format's values are 256 apart, and the run's
@@ -380,10 +394,10 @@ format after its parameters, its default bias, its two domains and its three
 saturation modes. This section puts them side by side and says in what sense
 a :class:`~mptorch.BinaryK` *is* a P3109 format. It covers, in order:
 
-- which MPTorch argument stands for which notion of the standard.
+- which MPTorch argument stands for which notion of the standard;
 - the rule for the largest finite value, which the earlier sections stated
-  only for a signed format with :math:`P \ge 3`.
-- how the correspondence is tested.
+  only for a signed format;
+- how the correspondence is tested;
 - the two ways in which MPTorch departs from the standard.
 
 Every parameter of a P3109 format, and each of its saturation and rounding
@@ -422,41 +436,51 @@ correspondence is in one table.
 The top of the range is counted in P3109's code points. The top binade has
 :math:`2^{P-1}` codes:
 
-- In the extended domain, the last one is :math:`+\infty`.
-- An unsigned format spends its last one on NaN and, in the extended domain,
+- A signed format in the extended domain spends the last one on
+  :math:`+\infty`. In the finite domain, the last one is a number.
+- An unsigned format spends the last one on NaN and, in the extended domain,
   the one below that on :math:`+\infty`.
 
 The largest finite value is the highest code left: :math:`224` for
 ``Binary8p4se``, :math:`240` for ``Binary8p4sf`` and :math:`53248` for
-``Binary8p4ue``. With :math:`P \le 2` the reserved codes can outnumber the
-top binade's, which moves the largest finite value a binade or two lower. A
-finite result above it saturates in every rounding mode.
+``Binary8p4ue``. With :math:`P \le 2` the reserved codes can fill the top
+binade or more, which moves the largest finite value one or two binades
+lower. A result that rounds above the largest finite value goes to the
+format's saturation mode, whatever the rounding mode (see `Subnormals,
+saturation and sign`_).
 
-``dev/benchmarks/formats/binaryK_values.py`` prints the whole code-point table of a
-format: every value, one per line, infinities and NaN included. With
-``--verify`` it quantizes each value and checks that the kernel returns it
-unchanged. ``dev/benchmarks/formats/superfp_values.py`` does the same for SuperFP.
+``dev/benchmarks/formats/binaryK_values.py`` prints the whole code-point
+table of a format: every value, one per line, infinities and NaN included.
+With ``--verify`` it quantizes each value and checks that the kernel returns
+it unchanged. ``dev/benchmarks/formats/superfp_values.py`` and
+``fixedpoint_values.py``, in the same folder, do the same for SuperFP and
+FixedPoint.
 
 Two test files compare the formats to the standard:
 
 - ``tests/test_binaryk_quantize.py`` checks the six deterministic modes
   against `gfloat <https://github.com/graphcore-research/gfloat>`__, a
   reference implementation of P3109, below the top of the range.
-- ``tests/test_binaryk_p3109.py`` checks the top itself, against a
+- ``tests/test_binaryk_p3109.py`` checks the two ends of the range against a
   transcription of the paper's definitions: every precision of the 3- to
-  8-bit formats, signed and unsigned, in all three saturation modes. gfloat
-  is not used there because it overflows the IEEE 754 way under directed
-  rounding.
+  8-bit formats, signed and unsigned, under all four ``SaturationMode``
+  members, and wider formats in binary64. gfloat is not used there, because
+  it overflows the IEEE 754 way under directed rounding.
 
 MPTorch departs from the standard in two ways.
 
 **By extension.** Three options describe formats that P3109 does not define:
-a ``bias`` other than the default, the ``NORMALS`` and ``EXTENDED_NORMALS``
-subnormal modes, and the widths the standard excludes (it requires
-:math:`K \ge 3`, and :math:`P < K` for a signed format). These options are
-what make E4M3's finite values reachable, as well as the nearest
-representations of E5M2 and the IEEE 754 dtypes (see `The IEEE 754 dtypes are
-not P3109 formats`_).
+
+- a ``bias`` other than the default;
+- the ``NORMALS`` and ``EXTENDED_NORMALS`` subnormal modes;
+- bitwidths below the standard's minimum, :math:`K \ge 3`. The standard also
+  requires :math:`P < K` for a signed format; MPTorch refuses
+  :math:`P = K` there too, since that format has no exponent field and so no
+  normal value.
+
+A bias other than the default is what gives E4M3's finite values exactly, as
+well as the nearest representations of E5M2 and the IEEE 754 dtypes (see `The
+IEEE 754 dtypes are not P3109 formats`_).
 
 The two extra subnormal modes change only the bottom of the range. Both
 concern the :math:`2^{P-1}` codes of each sign whose exponent field is zero.
@@ -476,8 +500,8 @@ subnormals. The other two modes use them differently:
 
 Let :math:`x_{\min}` be the smallest positive value of the format:
 :math:`2^{1-\text{bias}-(P-1)}` under ``SUBNORMALS``, and the two values in
-the list above under the other modes. Below :math:`x_{\min}` all three modes
-round the same way. An input :math:`x` with :math:`0 < |x| < x_{\min}` has
+the list above under the other modes. Below :math:`x_{\min}` all three
+subnormal modes round the same way. An input :math:`x` with :math:`0 < |x| < x_{\min}` has
 two candidates for its magnitude, zero and :math:`x_{\min}`, and the
 rounding mode picks between them (see `Rounding modes`_):
 
@@ -485,8 +509,9 @@ rounding mode picks between them (see `Rounding modes`_):
   ``RNE`` takes the zero and ``RNA`` takes :math:`x_{\min}`.
 - ``RU``, ``RD`` and ``RZ`` take the candidate in their own direction.
 - ``RO`` takes :math:`x_{\min}`, the nonzero candidate.
-- ``SR`` takes :math:`x_{\min}` with probability :math:`|x| / x_{\min}`, and
-  the zero otherwise.
+- ``SR``, ``SR_B`` and ``SR_C`` take :math:`x_{\min}` with probability
+  :math:`|x| / x_{\min}`, and the zero otherwise. The probability is resolved
+  to the format's random bits, as `Stochastic rounding`_ describes.
 
 **By simulating values rather than code points.** A result is a value of the
 carrier, not an encoding, so P3109's single NaN is whichever NaN came in.
@@ -498,16 +523,16 @@ for SuperFP.
 SuperFP: precision at the top, range below
 ------------------------------------------
 
-:class:`~mptorch.SuperFP` is the second format family the kernels implement.
-It has the same three fields as a binary float (``man_bits``, ``exp_bits``,
-``bias``), but only the top ``normal_binades`` binades carry a mantissa. The
-codes of the remaining
-:math:`2^{\mathrm{exp\_bits}} - \mathrm{normal\_binades}` binades,
-:math:`2^{\mathrm{man\_bits}}` codes each, are reinterpreted. The first is the
-zero. The others are further *powers of two* below the normal region, one per
-code: numbers with an implicit mantissa of exactly 1. With
-:math:`e_{\max} = 2^{\mathrm{exp\_bits}} - 1 - \text{bias}`, the three regions
-are
+:class:`~mptorch.SuperFP` is the second floating-point family the kernels
+implement. It has the same three fields as a binary float (``man_bits``,
+``exp_bits``, ``bias``), but only the top ``normal_binades`` binades carry a
+mantissa. The other :math:`2^{\mathrm{exp\_bits}} - \mathrm{normal\_binades}`
+binades would each have spent :math:`2^{\mathrm{man\_bits}}` codes on their
+mantissas. SuperFP uses those codes differently: the first is the zero, and
+each of the others is one more *power of two* below the normal binades, a
+number whose mantissa is exactly 1. These powers of two are the
+*supernormals*. With :math:`e_{\max} = 2^{\mathrm{exp\_bits}} - 1 -
+\text{bias}`, the three regions are
 
 .. math::
 
@@ -516,15 +541,21 @@ are
       && \text{full mantissa} \\
    \text{supernormal:} &\quad [2^{\,e_{\max} - b + 2 - n},\; 2^{\,e_{\max} - b + 1}),
       && \text{powers of two only} \\
-   \text{underflow:}   &\quad \text{below that}, && \text{flushed to zero}
+   \text{underflow:}   &\quad \text{below that}, && \text{zero or the smallest supernormal}
    \end{aligned}
 
 where :math:`b = \mathrm{normal\_binades}` and
 :math:`n = (2^{\mathrm{exp\_bits}} - b)\, 2^{\mathrm{man\_bits}}` is the number
-of reinterpreted codes, of which :math:`n - 1` are supernormals. There are no
+of codes used this way, of which :math:`n - 1` are supernormals. There are no
 subnormals. The bias has no default: it is part of the format's design and
-must be given. In the supernormal region, rounding acts on the *exponent*:
-to nearest, :math:`3 = 2^{1.58}` becomes :math:`4`.
+must be given.
+
+In the supernormal region a value rounds to one of the two powers of two
+around it. To nearest, the midpoint between :math:`2^e` and :math:`2^{e+1}`
+is :math:`1.5 \cdot 2^e`, and a tie goes to the power of two with the even
+exponent: :math:`1.5` becomes :math:`1` and :math:`3` becomes :math:`4`.
+Below the smallest supernormal, the rounding mode chooses between zero and
+the smallest supernormal, as it does below a BinaryK's smallest value.
 
 .. literalinclude:: ../snippets/formats_superfp.py
    :language: python
@@ -574,16 +605,16 @@ unsigned one), the range is
   the word has no code for one, so the format has no saturation mode.
 - A NaN passes through, a negative input to an unsigned format becomes zero,
   and the one zero is :math:`+0.0`, as for BinaryK.
-- Under ``SR`` the random bits are added directly below the step, so the
-  probability is exactly the one `Stochastic rounding`_ states, at every
-  ``prng_bits``: none gives ``RZ``.
+- Under the stochastic modes the random bits are drawn directly below the
+  step, so the probability is exactly the one `Stochastic rounding`_ states,
+  for every ``prng_bits``. With ``prng_bits=0``, ``SR`` is ``RZ``.
 - The magnitude bits must fit the carrier's precision, and with ``prng_bits``
   they share it: at most 24 bits in all in binary32 and 53 in binary64
   (Carriers_).
-- There is no fixed-point arithmetic inside a ``SplitMac`` or a
-  ``FusedMac`` yet, and they refuse a ``FixedPoint``, as a ``Palette`` does.
-  As the element of a block format, though, it is multiplied by the block
-  GEMM (`Block floating point`_).
+- There is no fixed-point arithmetic inside a matrix product yet:
+  ``SplitMac``, ``FusedMac`` and ``Palette`` raise ``TypeError`` for a
+  ``FixedPoint``. As the element of a block format, though, a ``FixedPoint``
+  is multiplied by the block GEMM (`Block floating point`_).
 
 .. literalinclude:: ../snippets/formats_fixedpoint.py
    :language: python
@@ -596,26 +627,34 @@ unsigned one), the range is
 The carrier bounds a fixed-point format the way it bounds a float format
 (`What the carrier can hold`_), with one difference: the format saturates
 onto its ends, so an end the carrier cannot hold raises rather than warns.
-In binary32 (binary64):
+In binary32 (binary64), a fixed-point format needs:
 
-- at most 24 (53) magnitude bits, and as many in all with ``prng_bits``;
+- at most 24 (53) magnitude bits, and at most as many in all with
+  ``prng_bits``. More raises.
 - both ends inside the carrier's range. In two's complement the end farther
-  out is the bottom, :math:`-2^{\,n-\text{fl}}`, so :math:`n - \text{fl} \le
-  127` (1023); a symmetric or unsigned format may reach one binade higher,
-  :math:`n - 1 - \text{fl} \le 127` (1023);
+  from zero is the bottom, :math:`-2^{\,n-\text{fl}}`, so
+  :math:`n - \text{fl} \le 127` (1023). A symmetric or unsigned format may
+  reach one binade higher: :math:`n - 1 - \text{fl} \le 127` (1023). More
+  raises.
 - a largest value at or above the carrier's smallest normal,
-  :math:`2^{-126}` (:math:`2^{-1022}`), or nothing but zero is returned;
+  :math:`2^{-126}` (:math:`2^{-1022}`). Below it the cast cannot place any of
+  the format's values, and the format raises.
 - a step of at least :math:`2^{-125}` (:math:`2^{-1021}`), the floor of
-  BinaryK's subnormals, which a fixed-point grid is placed on the same way.
-  A finer step warns: values near zero may round incorrectly.
+  BinaryK's subnormals, since the cast places a fixed-point grid the same
+  way. A finer step warns: values near zero may round incorrectly.
 
-A float16 or bfloat16 result is rounded once more when it is stored, and held
-to the rule for an elementwise result (`What a narrower tensor can store`_):
-the inputs are already the dtype's values, so only an end of the range can
-miss its grid. An end past the dtype's largest value warns, as does a largest
-value that is not one of the dtype's (a saturated result is then rounded
-again), and a largest value below the dtype's smallest raises. There is no
-fixed-point matrix product, so there is no rule for one.
+A result whose dtype is narrower than the carrier is rounded once more when
+it is stored: a float16 or bfloat16 result, and a float32 result under
+``carrier=torch.float64``. It is held to the rule for an elementwise result
+(`What a narrower tensor can store`_). The inputs are already values of the
+dtype, so only the ends of the format's range can miss the dtype's grid:
+
+- An end past the dtype's largest value warns.
+- A largest value that is not a value of the dtype warns, because a result
+  that saturates onto it is then rounded again.
+- A largest value below the dtype's smallest positive value raises.
+
+There is no fixed-point matrix product, so there is no rule for one.
 
 A ``FixedPoint`` can also be the element of a block format, which gives
 block floating point (`Block floating point`_).
@@ -626,11 +665,11 @@ Block formats
 -------------
 
 BinaryK and SuperFP give every element an exponent of its own. A *block
-format* shares one scale among a block of consecutive elements and stores
-the elements as narrow codes, so a 4-bit element can carry values over the
-whole range of a float32 tensor, one block at a time. The OCP Microscaling
-(MX) formats and NVIDIA's NVFP4 are block formats, and they are what the
-newest accelerators multiply natively. The MX formats are defined by the `OCP
+format* shares one *scale*, a multiplier, among a *block* of consecutive
+elements, and stores the elements as narrow codes. A 4-bit element can then
+carry values over the whole range of a float32 tensor, one block at a time.
+The OCP Microscaling (MX) formats and NVIDIA's NVFP4 are block formats, and
+they are what the newest accelerators multiply natively. The MX formats are defined by the `OCP
 Microscaling Formats (MX) Specification
 <https://opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>`__
 (version 1.0, September 2023) and evaluated by `Rouhani et al.
@@ -653,9 +692,10 @@ one scale code beside its element codes. Element :math:`i` of block
 
 its element value :math:`e_i` times its block's scale :math:`\sigma_\kappa`.
 
-As an example, in the MX formats the scale format is E8M0, an unsigned exponent 
-with no mantissa: code :math:`c` is the power of two :math:`2^{c - 127}`, and 
-code 255 is NaN. Writing :math:`X_\kappa` for the block's exponent,
+For example, the scale format of the MX formats is E8M0, an unsigned
+exponent with no mantissa: code :math:`c` is the power of two
+:math:`2^{c - 127}`, and code 255 is NaN. Writing :math:`X_\kappa` for the
+block's exponent,
 
 .. math::
 
@@ -663,6 +703,11 @@ code 255 is NaN. Writing :math:`X_\kappa` for the block's exponent,
 
 so the block scale alone places a block anywhere in float32's range, and the
 format needs nothing else.
+
+The rest of this section describes the arithmetic in binary32, the carrier
+of float32, float16 and bfloat16 tensors, and so speaks of float32 products
+and quotients. A float64 tensor, or a call with ``carrier=torch.float64``,
+does the same arithmetic in binary64 (see Carriers_).
 
 Tensor scales
 ~~~~~~~~~~~~~
@@ -672,10 +717,11 @@ block's largest magnitude more closely than a power of two can, but over a
 much shorter range: E4M3's positive values run from :math:`2^{-9}` to
 :math:`448`. By itself it could represent only a block whose largest magnitude
 is between :math:`2^{-9}` and :math:`448` times the element format's largest
-value. Such a format can therefore use a second scale, one float32 number
-:math:`S_t` for the whole tensor. This tensor scale can usually bring back the 
-tensor into the scale format's range, with the block scale differentiating the 
-blocks:
+value. Such a format therefore uses a second scale, one float32 number
+:math:`S_t` for the whole tensor. This *tensor scale* moves the tensor as a
+whole into the scale format's range, and the block scales then tell the
+blocks apart (`Scales with a mantissa, and the tensor scale`_ says how far
+below the tensor's largest block that reaches):
 
 .. math::
 
@@ -687,9 +733,9 @@ beside the codes (the ``tensor_scale`` of a
 :class:`~mptorch.quant.BlockPacked`), so it adds nothing to the bytes per
 element. `How a block is quantized`_ gives its default value.
 
-MPTorch currently pairs the tensor scale to the kind of block scale being
-used; it is not an option of its own. A :class:`~mptorch.BlockFormat`
-therefore can be in one of three states:
+Whether a format has a tensor scale follows from the kind of its block scale;
+it is not an option of its own. A :class:`~mptorch.BlockFormat` therefore has
+one of three kinds of scale:
 
 - **Block scale only**: a power-of-two scale, as in the MX presets. Such a
   format has no tensor scale, and passing ``tensor_scale=`` to it raises.
@@ -722,11 +768,15 @@ preset          element           block scale  tensor scale  block  largest elem
 
 "Largest element" is the format's ``elem_max``, the largest element value
 :math:`e_i`. The largest value a block can stand for is ``elem_max`` times
-its largest scale. OCP's sixth format, MXINT8, has 8-bit two's complement
-integer elements. ``bfp(8, 32)`` is its shape with sign-magnitude elements,
-which hold every MXINT8 value but one, :math:`-2`, so there is no MXINT8
-preset. The element formats use OCP's biases (IEEE 754's),
-one below P3109's default, so the presets spell them out (``E4M3 =
+its largest scale. The ``bfp`` rows' elements are
+``FixedPoint(8, 6, symmetric=True)``.
+
+OCP's sixth format, MXINT8, has 8-bit two's complement integer elements.
+``bfp(8, 32)`` has its shape with sign-magnitude elements, which hold every
+MXINT8 value but one, :math:`-2`, so there is no MXINT8 preset.
+
+The element formats use OCP's biases, which are IEEE 754's and one below
+P3109's default, so the presets give them explicitly (``E4M3 =
 BinaryK(8, 4, bias=7)``). `Relation to IEEE P3109`_ explains how
 :class:`~mptorch.BinaryK` relates to the standard.
 
@@ -753,8 +803,8 @@ time.
 The scale a block asks for
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-One scale serves the whole block, so it can put at least one element exactly
-where we want it, and the natural choice is the largest. Let
+One scale serves the whole block, so it can be chosen to put one element
+exactly where we want it. The natural choice is the largest element. Let
 :math:`a = \max_i |x_i|` be the block's largest magnitude (NaNs aside) and
 ``elem_max`` the element format's largest value: 6 for E2M1, whose
 magnitudes are 0, 0.5, 1, 1.5, 2, 3, 4 and 6, and 448 for E4M3. An element
@@ -819,10 +869,10 @@ with it. A *rule* makes this choice: given a block, it returns the lower
 candidate or the upper one. Blocks hold different values, so the same rule
 gives some blocks of a tensor the lower candidate and others the upper one.
 
-``BlockFormat(..., scale_rounding=)`` names the rule, a member of
-:class:`~mptorch.ScaleRounding`. Four of the rules choose between the two
-candidates and are described here; the other three also consider a third
-scale option (see `Four Over Six`_, below).
+``BlockFormat(..., scale_rounding=)`` names the rule, one of the seven
+members of :class:`~mptorch.ScaleRounding`. Four of the rules choose between
+the two candidates and are described here. The other three also consider a
+third scale (see `Four Over Six`_, below).
 
 A rule's answer depends on where the scale the block asks for, :math:`r`,
 lies between the block's two candidates:
@@ -1056,7 +1106,9 @@ By default :math:`S_t` is computed from the tensor :math:`x` itself:
    S_t = \frac{\max|x|}{\mathrm{elem\_max} \cdot \mathrm{scale\_max}} ,
 
 where ``scale_max`` is the scale format's largest value, so
-:math:`S_t = \max|x| / (6 \cdot 448)` for NVFP4. The block that holds the
+:math:`S_t = \max|x| / (6 \cdot 448)` for NVFP4. The maximum is taken over the
+finite elements, and a tensor with no nonzero finite element gets
+:math:`S_t = 1`. The block that holds the
 tensor's largest magnitude then asks for exactly ``scale_max``. It takes the
 largest scale and every other block a smaller one, so the scale format's
 whole range lies below the tensor's largest block. This is the NVFP4 paper's
@@ -1105,8 +1157,8 @@ of NVFP4's quantization error (its Section 2.2). If the block's largest
 element sits on 4 instead, the block gives up the value 6 but gains 3 at 75%
 of its largest value, and its other values are spaced more evenly.
 
-A block therefore has a third candidate scale, and the rule chooses per
-block between two of the three:
+The Four Over Six rules therefore give each block a choice between two
+scales:
 
 - the scale ``NEAREST`` takes, the candidate nearer to :math:`r`, under which
   the block's largest element lands on ``elem_max`` (6 for E2M1);
@@ -1114,7 +1166,7 @@ block between two of the three:
   general the factor is ``elem_max`` over the largest power of two not above
   it, so 1.875 for E2M3 (7.5 and 4).
 
-The rule quantizes the block under both scales in the call's rounding mode,
+A rule quantizes the block under both scales in the call's rounding mode,
 decodes both results, and measures each one's error against the block's
 original values. Let :math:`\hat{x}^{(6)}_i` and :math:`\hat{x}^{(4)}_i` be
 the decoded values under the first and the second scale, and
@@ -1140,10 +1192,11 @@ one per error measure, and the paper reports which worked best where:
    The largest absolute error of the block,
    :math:`E^{(k)} = \max_i \big|\hat{x}^{(k)}_i - x_i\big|`.
 
-In the paper's example (its Table 2, and the run below), the block
-:math:`[10, 20, 30, 40]` has the scale 6.5 under ``NEAREST`` and decodes as
-:math:`[9.75, 19.5, 26, 39]`. Its second candidate is the scale 10, under
-which it is exact, so every measure takes it.
+In the paper's example (its Table 2, and the run below, with a tensor scale
+of 1), the block :math:`[10, 20, 30, 40]` has the scale 6.5 under
+``NEAREST`` and decodes as :math:`[9.75, 19.5, 26, 39]`. Its second
+candidate is the scale 10, under which it is exact, so every measure takes
+it.
 
 Four things are specific to these rules:
 
@@ -1163,15 +1216,15 @@ Four things are specific to these rules:
   block's error is then exact. The CPU and a GPU add the elements up in
   different orders, and with exact errors they always choose the same scale;
   with a sum of floats they could differ at a near tie.
-- **Stochastic rounding uses one draw per element.** Under ``SR`` both
-  candidates round an element with the same random draw, the one the element
-  is stored with. The choice is made on the rounded values, as in the paper.
+- **Stochastic rounding uses one draw per element.** Under a stochastic
+  mode, both candidates round an element with the same random draw, the one
+  the element is stored with. The choice is made on the rounded values, as in the paper.
   The paper notes that this favours the smaller error and so reintroduces a
   bias (its Appendix A.3).
 
-The rule rounds every element a second time in each block whose two scales
-differ. On a CPU, ``block_quantize`` takes about 2.2 times as long as under
-``NEAREST``. For pre-training the paper recommends the rule for activations
+A Four Over Six rule rounds every element a second time in each block whose
+two scales differ. On a CPU, ``block_quantize`` takes 2.0 to 2.2 times as
+long as under ``NEAREST``. For pre-training the paper recommends the rule for activations
 only (its Appendix A.4).
 
 With `2D tiles`_ (below) the block is the whole tile. The tile has one pair
@@ -1186,12 +1239,14 @@ Rounding the elements
 ^^^^^^^^^^^^^^^^^^^^^
 
 Each element is divided by its block's scale. The division is exact for a
-power of two and is done in float32 for a scale with a mantissa. The quotient
-is rounded by the element format's cast (a :class:`~mptorch.BinaryK`'s or a
-:class:`~mptorch.SuperFP`'s) in the call's rounding mode, under
-``SaturationMode.SAT_FINITE``, and then clamped to ``elem_max``. With
-:math:`Q` for that cast and :math:`\sigma` for the block's scale (:math:`s`,
-or :math:`s\, S_t` for a scale with a mantissa):
+power of two and is rounded to float32 for a scale with a mantissa. The
+quotient is rounded by the element format's cast in the call's rounding
+mode, under ``SaturationMode.SAT_FINITE``, and then clamped to
+``elem_max``. The cast is a :class:`~mptorch.BinaryK`'s or a
+:class:`~mptorch.SuperFP`'s; a :class:`~mptorch.FixedPoint` element is cast
+as a BinaryK (`Block floating point`_). The element format's own saturation
+mode is ignored. With :math:`Q` for that cast and :math:`\sigma` for the
+block's scale (:math:`s`, or :math:`s\, S_t` for a scale with a mantissa):
 
 .. math::
 
@@ -1202,9 +1257,10 @@ Every value above ``elem_max`` lands on it, in every rounding mode. The
 rounding mode applies to the elements only; the rule for the scale never
 depends on it.
 
-The clamp is where OCP's element formats differ from P3109's. As a P3109
-format, E4M3 has the largest finite value 480, but OCP spends that code on
-NaN. ``MXFP8_E4M3`` therefore has ``elem_max=448.0`` and ``nan_code=0x7F``.
+The clamp is where OCP's element formats differ from P3109's. Under
+``SAT_FINITE``, the BinaryK spelling of E4M3 has the largest finite value
+480, but OCP spends that code on NaN. ``MXFP8_E4M3`` therefore has
+``elem_max=448.0`` and ``nan_code=0x7F``.
 
 Decoding, and the special values
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1219,15 +1275,19 @@ scale:
    \sigma = s\, S_t \ \text{ for a scale with a mantissa},
 
 where :math:`s\, S_t` is itself a float32 product, computed once per block.
-The product :math:`e_i\, \sigma` is exact for every OCP format. Two rules
-hold for every block format:
+The product :math:`e_i\, \sigma` is exact for every OCP format. The special
+values follow three rules in every block format:
 
-* **Non-finite values.** An infinity saturates to ``elem_max``. With an E8M0
-  scale its block takes the largest scale, :math:`2^{127}`. Since
-  :math:`448 \cdot 2^{127}` is past binary32, the element decodes to an
-  infinity again. A NaN takes the element's NaN code when the format has one
-  (E4M3, E5M2). Otherwise the block's *scale* becomes the scale's NaN and the
-  whole block decodes to NaN; for a 2D tile (below) that is up to 16,384
+* **Infinities.** An infinity saturates to ``elem_max``, and with an E8M0
+  scale its block takes the largest scale, :math:`2^{127}`. In binary32,
+  :math:`448 \cdot 2^{127}` is past float32's largest value, so an
+  ``MXFP8_E4M3`` element decodes to an infinity again, and so does an element
+  of any format whose ``elem_max`` is at least 2. In binary64 the same product
+  is finite, as it is in binary32 for an element whose ``elem_max`` is below 2
+  (``bfp``).
+* **NaNs.** A NaN takes the element's NaN code when the format has one
+  (E4M3, E5M2). Otherwise the block's *scale* becomes the scale's NaN, and
+  the whole block decodes to NaN; for a 2D tile (below) that is up to 16,384
   elements. With neither a NaN code nor a scale, a NaN becomes ``elem_max``
   and is lost. The OCP specification leaves the conversion of a NaN to the
   implementation for the formats without a NaN code (Sections 5.3.2 and
@@ -1248,11 +1308,19 @@ because the second pass chooses its scales from the rounded values:
   element was rounded down, the block now asks for a smaller scale, which can
   round to the next power of two down. Under that scale the element
   saturates.
-- ``UP`` with a mantissa scale can also move values, and so can any rule
-  with a mantissa scale when the element format is finer than E2M1.
-- A Four Over Six rule changes nothing the second time on NVFP4. A block
-  comes back with its largest element on the value its scale was chosen for,
-  and under that scale it has no error at all.
+- On NVFP4, every rule changes nothing the second time while the block's
+  scale is a normal E4M3 value, at least :math:`2^{-6}`. Under a Four Over
+  Six rule, for example, a block comes back with its largest element on the
+  value its scale was chosen for, and under that scale it has no error at
+  all. A block whose scale is one of E4M3's subnormals can move under every
+  rule.
+- With a mantissa scale and an element format finer than E2M1, such as E2M3,
+  every rule can move values.
+
+These cases assume that both passes use the same tensor scale. The default
+tensor scale is computed again from the rounded tensor, and if it comes out
+different by even one rounding, every block's scale can change. Pass the
+first pass's ``tensor_scale`` to the second to avoid this.
 
 The run
 ^^^^^^^
@@ -1299,8 +1367,8 @@ Its codes follow the format's own layout: zero, then the supernormals from
 code 1, then the normal binades as in a binaryK. It rounds by the superfp
 casts, so a tie between two supernormals goes to the power of two with an
 even exponent, as in :func:`~mptorch.quant.superfp_quantize`. A superfp
-scale is cast like E4M3 and multiplied by a tensor scale, and its all-ones
-code is NaN. Its default rule is ``ScaleRounding.SELECTIVE``, because below
+scale is a scale with a mantissa, like E4M3: it is rounded by its format's
+cast and multiplied by a tensor scale, and its all-ones code is NaN. Its default rule is ``ScaleRounding.SELECTIVE``, because below
 its normal binades a superfp scale holds only powers of two, and rounding
 such a scale to nearest can clip a block's largest element by up to a third.
 The paragraph after the run gives the details.
@@ -1332,32 +1400,32 @@ Block floating point
 
 A :class:`~mptorch.FixedPoint` element gives *block floating point*: integer
 elements that share an exponent. :func:`~mptorch.bfp` builds the usual
-shape, ``FixedPoint(bits, bits - 2, symmetric=True)`` elements with an E8M0
-scale. An element has a sign and ``bits - 1`` magnitude bits, one step of
-:math:`2^{-(\text{bits} - 2)}` from zero to its largest value,
-:math:`2 - 2^{-(\text{bits} - 2)}`. So ``emax`` is 0, and OCP's rule gives a
-block the scale :math:`2^{\lfloor \log_2 a \rfloor}` for its largest
-magnitude :math:`a`.
+shape: ``FixedPoint(bits, bits - 2, symmetric=True)`` elements with an E8M0
+scale. Such an element has a sign and :math:`n = \text{bits} - 1` magnitude
+bits, and its values are spaced :math:`2^{-(\text{bits} - 2)}` apart, from
+zero to its largest value, :math:`2 - 2^{-(\text{bits} - 2)}`. Its ``emax``,
+:math:`\lfloor \log_2(\mathrm{elem\_max}) \rfloor`, is therefore 0, and
+OCP's rule gives a block the scale :math:`2^{\lfloor \log_2 a \rfloor}` for
+its largest magnitude :math:`a`.
 
 - **Signed and symmetric only.** A block code is sign-magnitude. It has no
   code for a two's complement format's bottom, :math:`-2^{\,n-\text{fl}}`,
-  and an unsigned element would lose its top code. Both raise. Any other
-  ``fl`` gives the same block values and only moves ``emax``, and any scale
-  works, a cast one such as E4M3 included.
+  and an unsigned element's top code would be its layout's NaN. Both raise.
+  Any other ``fl`` gives the same block values and only moves ``emax``, and
+  any scale works, including one with a mantissa such as E4M3.
 - **One grid.** The kernels decode and round the element as the binaryK
-  layout its integer code is: one exponent bit, :math:`n - 1` mantissa bits
-  and bias :math:`2 - n + \text{fl}`, whose exponent field 0 holds the
-  codes below :math:`2^{n-1}` and field 1 the rest, one step apart. No kernel
-  has a fixed-point arm. A quantized block is therefore
+  layout that its integer code amounts to: one exponent bit, :math:`n - 1`
+  mantissa bits and bias :math:`2 - n + \text{fl}`. Exponent field 0 holds
+  the codes below :math:`2^{n-1}` and field 1 the rest, and all of them are
+  one step apart. No kernel has a fixed-point arm. A quantized block is therefore
   :func:`~mptorch.quant.fixedpoint_quantize` of each element over the
   block's scale, times that scale, in every deterministic mode, as the run
   shows.
-- **Stochastic rounding** goes through binaryK's cast on that layout. It is
-  exact on the upper half of the element's range (field 1, rounded on the
-  word). On the lower half (field 0, binaryK's ``SUBNORMALS`` arm) it adds a
-  power of two in the carrier first, so a probability can be one step of
-  :math:`2^{-N}` off just under a level (`Stochastic rounding`_).
-  :func:`~mptorch.quant.fixedpoint_quantize` itself is exact.
+- **Stochastic rounding** goes through binaryK's stochastic cast on that
+  layout. Both halves of the layout are spaced one fixed-point step apart,
+  and the cast rounds both on the word with integers, drawing its random bits
+  below that step. So it rounds with exactly the probability `Stochastic
+  rounding`_ states, as :func:`~mptorch.quant.fixedpoint_quantize` does.
 - **The block GEMM** takes element codes of up to 8 bits, so ``bfp(2)`` to
   ``bfp(8)``, paired with any block format. ``bfp(9)`` to ``bfp(16)`` pack,
   unpack and quantize only.
@@ -1378,8 +1446,9 @@ magnitude :math:`a`.
 With ``block_rows > 1`` a scale is shared by a *tile* of ``block_rows`` rows
 of ``block_size`` elements. The rows run along the axis before the packed
 one, never across a batch dimension. A tile changes only where the scale
-comes from: the codes and their layout are the 1D format's, and ``scales``
-has one row per tile. Two examples:
+comes from: the codes and their layout are the 1D format's, and a
+:class:`~mptorch.quant.BlockPacked`'s ``scales`` has one row per row of
+tiles instead of one per row of elements. Two examples:
 
 - ``dataclasses.replace(NVFP4, block_rows=16)`` is NVFP4 with 16 x 16 tiles,
   the weight format of NVIDIA's NVFP4 pretraining recipe (which scales
@@ -1445,8 +1514,8 @@ is what cheap hardware does, and it is biased toward zero. ``RO`` is not a
 mode to compute in. Its use is in two-step rounding: rounding to odd at an
 intermediate width and then to nearest at the final one avoids the *double
 rounding* error that two nearest roundings can make. The GEMMs use it that
-way: ``carrier_rounding=RoundMode.RO`` rounds each mac step to odd in the
-carrier so that the format's cast rounds the exact value
+way: ``carrier_rounding=RoundMode.RO`` rounds each multiply-accumulate step
+to odd in the carrier, so that the format's cast rounds the exact value
 (:doc:`kernels/arithmetic`, "What the carrier rounds").
 
 .. literalinclude:: ../snippets/rounding_modes.py
@@ -1460,8 +1529,8 @@ carrier so that the format's cast rounds the exact value
 Stochastic rounding
 ~~~~~~~~~~~~~~~~~~~
 
-Under ``SR`` the rounding direction is random, with a probability that
-depends on where :math:`x` sits between its two neighbours. Let
+Under stochastic rounding the rounding direction is random, with a
+probability that depends on where :math:`x` sits between its two neighbours. Let
 :math:`f = (x - \lfloor x \rfloor_F) / (\lceil x \rceil_F - \lfloor x \rfloor_F) \in [0, 1)`
 be that fraction. The ideal rule is :math:`\Pr(\text{up}) = f`, which makes
 the rounding *unbiased*: :math:`\mathbb{E}[Q(x)] = x`.
@@ -1523,23 +1592,28 @@ ignored by the deterministic modes. Three consequences of the definitions:
   The casts compute it on the input's word with integers, so nothing is
   rounded in the carrier first, and the random bits are the same :math:`N`
   bits everywhere.
-- One exception, in formats that already warn that the carrier cannot place
-  their bottom. In a SuperFP whose smallest value is itself a carrier
-  subnormal, and in a ``P = 1`` format whose floor is :math:`2^{-126}`
-  (:math:`2^{-1022}`) and whose random bits fill the carrier's mantissa, the
-  floor's draw step can be finer than the carrier's subnormal spacing. A
-  carrier subnormal below the floor then always rounds up to it, where the
-  definition would round up with probability :math:`|x| / x_{\min}`. Inputs
-  at or above the floor are unaffected. Computing the exact probability there
-  cost the CUDA stochastic GEMMs 6–8% for every format, so the casts do not.
 
-A float64 operand is rounded in binary64, and its bits are drawn there too,
-two random words per draw.
+The definition has one exception, in formats that already warn that the
+carrier cannot place their bottom. These are a SuperFP whose smallest value
+is at or below the carrier's smallest normal, :math:`2^{-126}`
+(:math:`2^{-1022}`), and a ``P = 1`` BinaryK under ``NORMALS`` or
+``EXTENDED_NORMALS`` whose smallest value is that normal and whose random
+bits fill the carrier's mantissa. In these formats the draw step below the
+smallest value :math:`x_{\min}` can be finer than the carrier's subnormal
+spacing. A carrier subnormal below :math:`x_{\min}` then always rounds away
+from zero, to :math:`x_{\min}`, where the definition would do so with
+probability :math:`|x| / x_{\min}`. Inputs at or above :math:`x_{\min}` are
+unaffected. Computing the exact probability there cost the CUDA stochastic
+GEMMs 6–8% for every format, so the casts do not.
 
-The random streams are seeded from PyTorch's default generator, so
+A float64 tensor, or a call with ``carrier=torch.float64``, rounds in
+binary64, and each stochastic rounding there draws two random words.
+
+The random bits are drawn from PyTorch's default generator (the CPU
+generator for an MPS tensor, see `On an Apple GPU`_), so
 ``torch.manual_seed`` makes a stochastic run reproducible. In a GEMM each
-output element has its own stream, keyed on its position, so the result does
-not depend on how the work is split across threads.
+output element has its own random stream, keyed on its position, so the
+result does not depend on how the work is split across threads.
 
 .. literalinclude:: ../snippets/rounding_stochastic.py
    :language: python
@@ -1562,7 +1636,8 @@ is 3. An accumulator whose increments are smaller than half its spacing
 never moves under round-to-nearest, so the ``RNE`` accumulators all stay at
 :math:`1.0`. Stochastic rounding advances the sum by the right amount *on
 average*: the ``SR`` accumulators have a mean of 2.95, and range from 2.5 to
-3.44. A small weight update applied to a large weight is the same situation (see :doc:`tutorial` for an example).
+3.44. A small weight update applied to a large weight is the same situation
+(see :doc:`tutorial` for an example).
 
 Carriers
 --------
@@ -1591,10 +1666,10 @@ exactly the float32 answer. So does a matrix product whose every product and
 sum is exact in binary32, which is usual once a quantizer has rounded its
 operands to a narrow format.
 
-Every function and object that computes takes a ``carrier`` keyword to
-override the default. Its value is the ``torch.dtype`` whose arithmetic the
-carrier uses: ``torch.float64`` for binary64, ``torch.float32`` for binary32,
-and ``None`` (the default) for the tensor's own.
+A ``carrier`` keyword overrides the default. Its value is the
+``torch.dtype`` whose arithmetic the carrier uses: ``torch.float64`` for
+binary64, ``torch.float32`` for binary32, and ``None`` (the default) for the
+tensor's own.
 
 ``carrier=torch.float64`` gives a float32, float16 or bfloat16 tensor
 binary64's arithmetic. Its operands are widened to float64, computed and
@@ -1606,13 +1681,23 @@ A carrier is never narrower than its tensor, so ``carrier=torch.float32`` on
 a float64 tensor raises: narrowing the operands would round every input once
 before the format does.
 
-The keyword is taken by the quantizers
-(:func:`~mptorch.quant.binaryK_quantize`,
-:func:`~mptorch.quant.superfp_quantize`, :class:`~mptorch.quant.Quant`), the
-matrix products (:class:`~mptorch.quant.SplitMac`,
-:class:`~mptorch.quant.FusedMac` and the flat ``*_matmul`` functions) and the
-layer factories (:func:`~mptorch.quant.binaryK_gemm_formats` and its
-siblings).
+The keyword is taken by:
+
+- the elementwise quantizers: :func:`~mptorch.quant.binaryK_quantize`,
+  :func:`~mptorch.quant.superfp_quantize`,
+  :func:`~mptorch.quant.fixedpoint_quantize`, their in-place versions, and
+  :class:`~mptorch.quant.Quant`;
+- the block functions: :func:`~mptorch.quant.block_quantize` and its
+  in-place version, :func:`~mptorch.quant.block_pack`,
+  :func:`~mptorch.quant.block_unpack`, :func:`~mptorch.quant.block_matmul`,
+  :class:`~mptorch.quant.BlockQuant` and :class:`~mptorch.quant.BlockMac`;
+- the matrix products: :class:`~mptorch.quant.SplitMac`,
+  :class:`~mptorch.quant.FusedMac` and the flat ``*_matmul`` functions;
+- the layer factories: :func:`~mptorch.quant.binaryK_gemm_formats`, its
+  siblings and ``block_gemm_formats``.
+
+:func:`~mptorch.quant.qmatmul` and ``conv_formats`` use the carrier of the
+mac they are given.
 
 ===========================================  ==========================  ==========================
 carrier                                      binary32                    binary64
@@ -1677,8 +1762,8 @@ format's own terms, with binary64's in parentheses:
     using that field. Their smallest value must be at least :math:`2^{-125}`
     (:math:`2^{-1021}`), one binade above the carrier's smallest normal. That
     is :math:`\text{bias} + P \le 127` (1023) for BinaryK, and
-    :math:`e_{\max} - b + 2 - n \ge -125` (:math:`-1021`) for SuperFP (using 
-    the notations from `SuperFP: precision at the top, range below`_).
+    :math:`e_{\max} - b + 2 - n \ge -125` (:math:`-1021`) for SuperFP, in the
+    notation of `SuperFP: precision at the top, range below`_.
   - The two non-P3109 subnormal modes, ``NORMALS`` and ``EXTENDED_NORMALS``,
     find their bottom by comparing the input's magnitude with the format's
     smallest value :math:`x_{\min}`, which reads no field. They are exact as
@@ -1727,10 +1812,12 @@ binary64 holds all four.
 The carrier depends on the tensor, not on the format, so the limits are
 checked on every call, against the carrier that the call rounds in. The
 quantizers of :doc:`quantizers`, the kernels of :doc:`kernels/index` and the
-layers built on them all do this. When a :class:`~mptorch.BinaryK` or
-:class:`~mptorch.SuperFP` is built, it checks only what neither carrier can
-do. The plain-integer wrappers never see a format object, and check the same
-thing when they resolve their format. There is one rule for both, so
+layers built on them all do this. When a format object
+(:class:`~mptorch.BinaryK`, :class:`~mptorch.SuperFP`,
+:class:`~mptorch.FixedPoint` or :class:`~mptorch.BlockFormat`) is built, it
+checks only what neither carrier can do. The flat functions take plain
+integers instead of a format object, and check the same things when they
+resolve their format. Both follow one rule, so
 ``binaryK_matmul(a, b, mul_K=16, mul_P=8)`` reports what
 ``qmatmul(a, b, BinaryK(16, 8))`` reports.
 
@@ -1746,15 +1833,24 @@ works, not which limit it misses:
   holds, and some of its values are never returned. A wide BinaryK used as a
   precision-only target is this case, so the warning can be silenced with
   :func:`warnings.simplefilter` when that is intended.
-* A format that **cannot function** raises :exc:`ValueError`. This covers
-  more precision than the carrier's, stochastic-rounding bits with no
-  significand left to draw from, an exponent field wider than the kernels
-  shift by, a bias that puts ``1 - bias`` or ``2**exp_bits - 1 - bias``
-  outside :math:`-2^{30}` to :math:`2^{30}` (the kernels compute these
-  exponents in a 32-bit integer), a SuperFP whose ``normal_binades`` leaves
-  no supernormal codes or no normal binade, a FixedPoint end past the
-  carrier's largest value, and a format whose largest finite value is below
-  the carrier's normals, where every nonzero result overflows.
+* A format that **cannot function** raises :exc:`ValueError`. This covers:
+
+  - more precision than the carrier has;
+  - a field of negative width, such as a BinaryK whose ``P`` is below 1 or
+    above ``K``;
+  - a negative ``prng_bits``, or stochastic-rounding bits that do not fit in
+    the carrier's significand beside the mantissa;
+  - an exponent field wider than 30 bits, since the kernels compute
+    ``1 << exp_bits`` in a 32-bit integer;
+  - a bias that puts ``1 - bias`` or ``2**exp_bits - 1 - bias`` outside
+    :math:`-2^{30}` to :math:`2^{30}`, since the kernels compute these
+    exponents in a 32-bit integer too;
+  - a SuperFP whose ``normal_binades`` is outside
+    ``1 .. 2**exp_bits - 1``, which leaves it no normal binade or no
+    supernormal codes;
+  - a FixedPoint end past the carrier's largest value;
+  - a format whose largest finite value is below the carrier's smallest
+    normal, so that the cast treats every nonzero result as an overflow.
 
 The run below shows both carriers on the same inputs and formats:
 
@@ -1776,11 +1872,11 @@ A ``carrier=torch.float64`` call is held to binary64's bounds even on a
 float32 tensor, because binary64 is what rounds it. Its result is also held
 to what the tensor's dtype can store, which the next section describes.
 
-``dev/benchmarks/formats/format_limits.py`` reports all of this for a given format,
-in binary32 or with ``--carrier binary64``. With ``--audit`` it checks the
-kernels against the format's value set. Its ``sweep --audit`` walks every
-bound in the table above across its edge; each was measured where this
-section puts it.
+``dev/benchmarks/formats/format_limits.py`` reports all of this for a given
+format, in binary32 or with ``--carrier binary64``. With ``--audit`` it
+checks the kernels against the format's value set. Its ``sweep --audit``
+walks every bound in the table above across its edge, and each bound was
+measured where this section puts it.
 
 What a narrower tensor can store
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1793,8 +1889,9 @@ rounds it correctly to nearest.
 
 For a float64 result stored as float16 or bfloat16, MPTorch rounds once,
 directly from float64 onto the dtype's grid. It does not use PyTorch's
-``.to()``, which converts float64 to bfloat16, and on most platforms to
-float16, in two steps: first to float32, then to the dtype. Two roundings
+``.to()``, which converts float64 to bfloat16 in two steps: first to float32,
+then to the dtype. It converts to float16 the same way on some platforms
+(an x86-64 CPU and CUDA, for example, though not an arm64 CPU). Two roundings
 can give a different result from one. Take the float64 value
 :math:`1 + 2^{-8} + 2^{-30}`. It lies just above the midpoint of the
 bfloat16 values :math:`1` and :math:`1 + 2^{-7}`, so it should become
@@ -1817,27 +1914,31 @@ format of a :class:`~mptorch.quant.SplitMac`, or the fused format of a
 sums that can land anywhere, so every value of the format can occur as a
 result, and all of them must be values of the dtype. For a BinaryK:
 
-===========  ======================================  ===============  =======================================  ========
-bound        float16                                 bfloat16         float32 (under binary64)                 severity
-===========  ======================================  ===============  =======================================  ========
-precision    :math:`P \le 11`                        :math:`P \le 8`  :math:`P \le 24`                         raises
-top          largest value below :math:`2^{16}`      float32's        largest value below :math:`2^{128}`      warns
-finest step  :math:`\text{bias} + P \le 26`          float32's        :math:`\text{bias} + P \le 151`          warns
-             (``EXTENDED_NORMALS``: :math:`\le 25`)                   (``EXTENDED_NORMALS``: :math:`\le 150`)
-===========  ======================================  ===============  =======================================  ========
+===========  ======================================  =======================================  =======================================  ========
+bound        float16                                 bfloat16                                 float32 (under binary64)                 severity
+===========  ======================================  =======================================  =======================================  ========
+precision    :math:`P \le 11`                        :math:`P \le 8`                          :math:`P \le 24`                         raises
+top          largest value below :math:`2^{16}`      largest value below :math:`2^{128}`      largest value below :math:`2^{128}`      warns
+finest step  :math:`\text{bias} + P \le 26`          :math:`\text{bias} + P \le 135`          :math:`\text{bias} + P \le 151`          warns
+             (``EXTENDED_NORMALS``: :math:`\le 25`)  (``EXTENDED_NORMALS``: :math:`\le 134`)  (``EXTENDED_NORMALS``: :math:`\le 150`)
+===========  ======================================  =======================================  =======================================  ========
 
+The finest step is bounded by the dtype's smallest subnormal: :math:`2^{-24}`
+for float16, :math:`2^{-133}` for bfloat16 and :math:`2^{-149}` for float32.
 A SuperFP is held to the same three bounds, in its own parameters. The rule
 does not depend on the carrier that rounded the result.
 
-- In binary32, only the precision bound is new for bfloat16. Its range is
-  float32's to within its precision, so a format that passes the float32
-  checks with at most eight bits of precision is inside it at both ends.
+- In binary32, only the precision bound matters for bfloat16. bfloat16 has
+  float32's exponent range, and a format that binary32 carries without a
+  warning, with at most eight bits of precision, is inside bfloat16's range
+  at both ends.
 - In binary64, the carrier accepts ranges that no narrower dtype holds, so
   every row of the table can apply.
 
-A SplitMac's multiply format is never stored, because its products are
-intermediates in the carrier. A step left unrounded stores no format's values
-at all.
+A SplitMac's multiply format is never checked against the dtype, because its
+products are intermediates in the carrier and are never stored. A running sum
+left unrounded (``acc=None``, or ``accumulate_quant=False`` in a flat
+function) holds no format's values, so its result is not checked either.
 
 **An elementwise quantizer's result** is the format's rounding of a value
 that is already a value of the dtype. Wherever the format is at least as fine
@@ -1862,12 +1963,13 @@ zero.
 scale, computed in the carrier: binary64 for a float64 tensor or
 ``carrier=torch.float64``, binary32 otherwise.
 
-- A :class:`~mptorch.BlockFormat`'s element and cast scale must be formats
-  the carrier holds entirely, and a power-of-two scale's codes must lie in
-  its range (:math:`2^{\pm 127}` in binary32, :math:`2^{\pm 1023}` in
-  binary64). Building the format checks binary64's bounds. A call that
-  rounds in binary32 checks binary32's, so an element with nine or ten
-  exponent bits is a format of float64 tensors.
+- A :class:`~mptorch.BlockFormat`'s element format, and its scale format if
+  that has a mantissa, must be formats the carrier holds entirely. A
+  power-of-two scale's values must lie in the carrier's range
+  (:math:`2^{\pm 127}` in binary32, :math:`2^{\pm 1023}` in binary64). Building the format checks binary64's bounds, and a call that
+  rounds in binary32 checks binary32's. So an element with eight to ten
+  exponent bits can be used only with float64 tensors or
+  ``carrier=torch.float64``.
 - A packed tensor remembers the carrier it was packed in, and unpacking or
   multiplying it runs in that carrier or a wider one.
 
@@ -1887,12 +1989,14 @@ when its largest element value has more significant bits than the dtype.
    binaryK_matmul_fma(x, x, fma_K=16, fma_P=12, fma_bias=8)  # ValueError: 12 bits
    qmatmul(x, x, SplitMac(BinaryK(8, 4), BinaryK(16, 11)))    # FormatRangeWarning: 2**-25
 
-Both rules were measured against the kernels, not only derived.
-``format_limits.py --dtype float16 --audit`` runs a format through a fused
-GEMM over operands of the dtype, and through the quantizer over every value
-of the dtype. ``sweep --dtype float16 --audit`` walks each boundary above.
-With ``--carrier binary64`` both also go through the widened operands and the
-narrowed result.
+Both rules were measured against the kernels, not only derived. In
+``dev/benchmarks/formats/format_limits.py``, a format's subcommand with
+``--dtype float16 --audit`` (for example
+``format_limits.py binaryK -K 8 -P 3 --bias 15 --dtype float16 --audit``)
+runs the format through a fused GEMM over operands of the dtype, and through
+the quantizer over every value of the dtype. ``sweep --dtype float16
+--audit`` walks each boundary above. With ``--carrier binary64``, both also
+go through the widened operands and the narrowed result.
 
 .. _apple-gpu:
 
@@ -1908,9 +2012,9 @@ result are refused, because the device cannot hold a float64 tensor.
 
 The results are the CPU's, bit for bit, stochastic rounding included. An MPS
 call draws its one seed from the CPU generator, as a CPU call does, and gives
-every element the same random word. ``torch.manual_seed`` therefore
-reproduces a run across the two devices, not only on one. (CUDA draws from
-its own generator.)
+every element the same random word that the CPU call gives it.
+``torch.manual_seed`` therefore reproduces a run across the two devices, not
+only on one. (CUDA draws from its own generator.)
 
 The GPU's float unit differs from the CPU's in two ways. Both affect what a
 GEMM computes *between* its roundings, not the roundings themselves:
@@ -1924,22 +2028,24 @@ GEMM computes *between* its roundings, not the roundings themselves:
   - Under ``RZ`` the CPU returns zero too.
   - Under ``RNE`` and ``RNA`` it does as well, for every format whose
     smallest value is at least :math:`2^{-125}`.
-  - Under ``RU``, ``RD``, ``RO`` and ``SR`` the CPU can round such a value to
-    the format's smallest value where the GPU gives zero.
+  - Under ``RU``, ``RD``, ``RO`` and the stochastic modes the CPU can round
+    such a value to the format's smallest value where the GPU gives zero.
   - A sum left unrounded (``accumulate_quant=False``) can hold a subnormal on
     the CPU that the GPU drops.
 
   The same holds for the compensation of ``KAHAN``, the block sums of
-  ``BLOCK`` and ``TREE``, and the products and sums of a block product. The
-  quantizers are not affected, and neither are the block formats' packing
-  and decoding. They round every input exactly, subnormal ones included, in
-  every mode. A decoded block value can itself be a subnormal (an E8M0 scale
-  reaches :math:`2^{-127}`), and it is the CPU's, in a float32 and in a
-  bfloat16 result. The odd carrier step (``carrier_rounding=RoundMode.RO``)
-  is not affected either. Its kernels compute every carrier operation
-  exactly on the GPU too, the sums a format does not round included, so an
-  odd op returns the CPU's words in every mode
-  (:doc:`kernels/arithmetic`, "What the carrier rounds").
+  ``BLOCK`` and ``TREE``, and the products and sums of a block product.
+  Two things are not affected:
+
+  - The quantizers, and the block formats' packing and decoding. They round
+    every input exactly, subnormal ones included, in every mode. A decoded
+    block value can itself be a subnormal (an E8M0 scale reaches
+    :math:`2^{-127}`), and it is the CPU's value, in a float32 and in a
+    bfloat16 result.
+  - The odd carrier step (``carrier_rounding=RoundMode.RO``). Its kernels
+    compute every carrier operation exactly on the GPU too, including the
+    sums that no format rounds, so an odd op returns the CPU's words in every
+    mode (:doc:`kernels/arithmetic`, "What the carrier rounds").
 * **NaN payloads.** A NaN that reaches a product or a sum comes out of the
   GPU's float unit as its canonical NaN, where the CPU keeps the operand's
   payload. The casts pass a NaN through unchanged on every device, so a
@@ -1960,7 +2066,8 @@ compose, and MPTorch keeps them separate on purpose:
 - :doc:`quantizers` covers the functions and objects that round a tensor:
 
   - elementwise: :func:`~mptorch.quant.binaryK_quantize`,
-    :func:`~mptorch.quant.superfp_quantize`, :class:`~mptorch.quant.Quant`
+    :func:`~mptorch.quant.superfp_quantize`,
+    :func:`~mptorch.quant.fixedpoint_quantize`, :class:`~mptorch.quant.Quant`
     and :class:`~mptorch.quant.Quantizer`, which apply one rounding per
     element;
   - by blocks: :func:`~mptorch.quant.block_quantize`,

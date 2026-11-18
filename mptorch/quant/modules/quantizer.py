@@ -105,4 +105,5 @@ class Quantizer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Round ``x`` with ``forward_quant``; its gradient is rounded with ``backward_quant``."""
         return _StraightThrough.apply(x, self.forward_quant, self.backward_quant)

@@ -21,7 +21,7 @@ import torch.nn.grad as grad
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
-#: What a ``None`` recompute flag means in :class:`CustomArithConvNd`, as
+#: What a ``None`` recompute flag means in ``CustomArithConvNd``, as
 #: (input, weight): both are quantized again in backward rather than kept. The
 #: weight stays alive anyway as the layer's parameter, and a convolution's
 #: input usually does too, as the output a ReLU keeps for its own backward or
@@ -280,7 +280,7 @@ class QConv1d(nn.Conv1d):
     """``torch.nn.Conv1d`` with a quantizer for each tensor and custom arithmetic.
 
     It holds the same parameters as ``nn.Conv1d`` and computes the same
-    convolution, but through :class:`CustomArithConvNd`. The input, the
+    convolution, but through ``CustomArithConvNd``. The input, the
     weight, the bias and each gradient can therefore be rounded by the
     quantizers in ``formats``, and each convolution can run in custom
     arithmetic. With ``formats`` left ``None``, or with a ``QAffineFormats``
@@ -366,6 +366,8 @@ class QConv1d(nn.Conv1d):
             self.formats = formats
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Convolve ``input`` with the layer's weight, quantizing and computing as
+        ``formats`` says."""
         if self.padding_mode != "zeros":
             input = F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode)
             padding = (0,)
@@ -390,7 +392,7 @@ class QConv2d(nn.Conv2d):
 
     The 2D counterpart of :class:`QConv1d`. It has the same parameters as
     ``nn.Conv2d`` and computes the same convolution, through
-    :class:`CustomArithConvNd`, so the quantizers and math hooks in
+    ``CustomArithConvNd``, so the quantizers and math hooks in
     ``formats`` apply. With empty formats it is numerically identical to
     ``nn.Conv2d``.
 
@@ -465,6 +467,8 @@ class QConv2d(nn.Conv2d):
             self.formats = formats
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Convolve ``input`` with the layer's weight, quantizing and computing as
+        ``formats`` says."""
         if self.padding_mode != "zeros":
             input = F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode)
             padding = (0, 0)
@@ -489,7 +493,7 @@ class QConv3d(nn.Conv3d):
 
     The 3D counterpart of :class:`QConv1d`. It has the same parameters as
     ``nn.Conv3d`` and computes the same convolution, through
-    :class:`CustomArithConvNd`, so the quantizers and math hooks in
+    ``CustomArithConvNd``, so the quantizers and math hooks in
     ``formats`` apply. With empty formats it is numerically identical to
     ``nn.Conv3d``.
 
@@ -564,6 +568,8 @@ class QConv3d(nn.Conv3d):
             self.formats = formats
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Convolve ``input`` with the layer's weight, quantizing and computing as
+        ``formats`` says."""
         if self.padding_mode != "zeros":
             input = F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode)
             padding = (0, 0, 0)

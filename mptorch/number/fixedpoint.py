@@ -107,7 +107,7 @@ class FixedPoint(Number):
 
     @property
     def mag_bits(self) -> int:
-        """The number of magnitude bits: ``wl`` minus the sign bit, if there is one."""
+        """The number of magnitude bits, ``wl`` less the sign bit if there is one."""
         return self.wl - (1 if self.is_signed else 0)
 
     @property
@@ -122,8 +122,8 @@ class FixedPoint(Number):
 
     @property
     def min_value(self) -> float:
-        """The smallest value: 0 if unsigned, ``-max_value`` if symmetric, and
-        one step below ``-max_value`` otherwise."""
+        """The smallest value. It is 0 if unsigned, ``-max_value`` if
+        symmetric, and one step below ``-max_value`` otherwise."""
         if not self.is_signed:
             return 0.0
         if self.symmetric:
@@ -160,7 +160,7 @@ def check_fixedpoint(
             :func:`check_binaryK`. Default: 3.
 
     Raises:
-        ValueError: for an invalid layout (see :class:`FixedPoint`), more
+        ValueError: for an invalid layout (see :class:`~mptorch.FixedPoint`), more
             magnitude bits than the carrier's significand has (``prng_bits``
             included), a largest value below the carrier's smallest normal, or
             an end of the range beyond the carrier's largest finite value.

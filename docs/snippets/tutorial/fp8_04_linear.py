@@ -8,8 +8,8 @@ from mptorch import BinaryK, FormatRangeWarning, SaturationMode
 from mptorch.quant import QAffineFormats, QLinear, Quant, binaryK_gemm_formats
 
 # An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
-# one input from another, so naming one warns (concepts, "What float32 can
-# carry"). Nothing here goes anywhere near that small.
+# one input from another, so a call that rounds to one warns (concepts, "What
+# the carrier can hold"). Nothing here goes anywhere near that small.
 warnings.simplefilter("ignore", FormatRangeWarning)
 
 torch.manual_seed(0)

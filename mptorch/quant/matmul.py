@@ -76,7 +76,7 @@ def as_matmul_formats(formats: Any, prec_idx: torch.Tensor | None = None) -> QMa
     """Convert any accepted ``formats`` value to a ``QMatmulFormats``.
 
     This is the only place that tells the five kinds of value in the module
-    docstring apart, so :func:`qmatmul` and :class:`mptorch.quant.QMatmul`
+    docstring apart, so :func:`~mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul`
     accept exactly the same values.
 
     Args:

@@ -30,8 +30,8 @@ from mptorch.quant import QAffineFormats, QLinear, Quant, Quantizer, binaryK_gem
 E4M3 = BinaryK(8, 4, bias=7)
 E5M2 = BinaryK(8, 3, bias=15)
 # An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
-# one input from another, so building one warns (concepts, "What float32 can
-# carry"). Nothing here goes anywhere near that small.
+# one input from another, so a call that rounds to one warns (concepts, "What
+# the carrier can hold"). Nothing here goes anywhere near that small.
 warnings.simplefilter("ignore", FormatRangeWarning)
 
 BF16 = BinaryK(16, 8)  # 8 exponent, 7 mantissa bits

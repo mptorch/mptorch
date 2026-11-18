@@ -163,7 +163,7 @@ class BlockFormat(Number):
     Covers OCP's Microscaling (MX) formats and NVIDIA's NVFP4, and the same
     construction with :class:`SuperFP` elements or scales, or with
     :class:`FixedPoint` elements (block floating point, see
-    :func:`~mptorch.number.bfp`). A tensor is split into blocks of
+    :func:`~mptorch.bfp`). A tensor is split into blocks of
     ``block_size`` consecutive elements along one axis, the *packed* axis,
     which the functions that take a block format select with ``axis``. Each
     block stores one ``scale`` code and ``block_size`` element codes, and an

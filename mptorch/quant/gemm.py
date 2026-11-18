@@ -258,7 +258,7 @@ def binaryK_gemm_formats(
 
     The returned container sets ``fwd_math``, ``bwd_igrad_math`` and
     ``bwd_wgrad_math``, so a Linear layer's forward product and both of its
-    gradient products run through :func:`mptorch.quant.ops.binaryK_matmul`,
+    gradient products run through :func:`~mptorch.quant.binaryK_matmul`,
     which takes these same arguments. Every product is rounded to the
     multiply format (the ``mul_*`` arguments). When ``accumulate_quant`` is
     set, every partial sum is rounded to the accumulate format (the ``acc_*``
@@ -474,7 +474,7 @@ def binaryK_gemm_formats_fma(
 
     Each step of the dot product is one fused multiply-add,
     ``round_fma(s + a * b)``, rounded once to the fused format (the ``fma_*``
-    arguments; :func:`mptorch.quant.ops.binaryK_matmul_fma`), in place of a
+    arguments; :func:`~mptorch.quant.binaryK_matmul_fma`), in place of a
     rounded product followed by a separately rounded sum. Otherwise it works
     as :func:`binaryK_gemm_formats` does: the formats are resolved when it is
     called, and each pass checks them against its carrier and warns.
@@ -635,7 +635,7 @@ def superfp_gemm_formats(
 ) -> QAffineFormats:
     """The superfp version of :func:`binaryK_gemm_formats`.
 
-    The matrix products run through :func:`mptorch.quant.ops.superfp_matmul`.
+    The matrix products run through :func:`~mptorch.quant.superfp_matmul`.
     Products are rounded to the superfp multiply format (the ``mul_*``
     arguments). When ``accumulate_quant`` is set, partial sums are rounded to
     the superfp accumulate format (the ``acc_*`` arguments). A superfp format
@@ -831,7 +831,7 @@ def superfp_gemm_formats_fma(
     """The superfp version of :func:`binaryK_gemm_formats_fma`.
 
     Each step of the dot product is one fused multiply-add, rounded once to
-    the superfp fused format (:func:`mptorch.quant.ops.superfp_matmul_fma`).
+    the superfp fused format (:func:`~mptorch.quant.superfp_matmul_fma`).
     The arguments are the multiply-format arguments of
     :func:`superfp_gemm_formats` with the prefix ``fma_``, plus ``fma_quant``,
     as in :func:`binaryK_gemm_formats_fma`.
@@ -998,7 +998,7 @@ def binaryK_superfp_gemm_formats(
     """A version of :func:`binaryK_gemm_formats` with binaryK products and superfp sums.
 
     The matrix products run through
-    :func:`mptorch.quant.ops.binaryK_superfp_matmul`, which documents every
+    :func:`~mptorch.quant.binaryK_superfp_matmul`, which documents every
     argument. Products are rounded to the binaryK multiply format (the
     ``mul_*`` arguments) and partial sums to the superfp accumulate format
     (the ``acc_*`` arguments). The accumulate format is required: for an
@@ -1006,7 +1006,7 @@ def binaryK_superfp_gemm_formats(
     ``accumulate_quant=False``. Under ``BLOCK`` or ``TREE`` the outer format
     is a superfp format too. ``carrier_rounding=RoundMode.RO`` rounds each
     operation in the carrier to odd, in every pass, as for
-    :func:`mptorch.quant.ops.binaryK_superfp_matmul`.
+    :func:`~mptorch.quant.binaryK_superfp_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -1144,7 +1144,7 @@ def superfp_binaryK_gemm_formats(
     """A version of :func:`superfp_gemm_formats` with superfp products and binaryK sums.
 
     The matrix products run through
-    :func:`mptorch.quant.ops.superfp_binaryK_matmul`, which documents every
+    :func:`~mptorch.quant.superfp_binaryK_matmul`, which documents every
     argument. Products are rounded to the superfp multiply format (the
     ``mul_*`` arguments) and partial sums to the binaryK accumulate format
     (the ``acc_*`` arguments). The accumulate format is required: for an
@@ -1152,7 +1152,7 @@ def superfp_binaryK_gemm_formats(
     ``accumulate_quant=False``. Under ``BLOCK`` or ``TREE`` the outer format
     is a binaryK format too. ``carrier_rounding=RoundMode.RO`` rounds each
     operation in the carrier to odd, in every pass, as for
-    :func:`mptorch.quant.ops.superfp_binaryK_matmul`.
+    :func:`~mptorch.quant.superfp_binaryK_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -1334,7 +1334,7 @@ def matmul_formats(
 
     Args:
         mac (SplitMac or FusedMac): the dot-product arithmetic, resolved once
-            through :func:`mptorch.quant.mac.spec_for_mac`.
+            through ``mptorch.quant.mac.spec_for_mac``.
         prec_idx (Tensor, optional): integer map selecting a palette entry for
             each element of the forward pass's output, shaped like ``a @ b``
             (``[M, N]``, ``[M, 1]`` or ``[1, N]``, optionally batched). A

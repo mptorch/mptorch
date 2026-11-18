@@ -1,4 +1,4 @@
-"""The seven rounding modes on the same inputs (Binary8p4: 3 mantissa bits)."""
+"""The nine rounding modes on the same inputs (Binary8p4: 3 mantissa bits)."""
 
 import torch
 

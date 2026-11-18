@@ -736,11 +736,12 @@ class SplitMac:
             ordinary multiply and add, rounded to nearest. ``RoundMode.RO``
             rounds both to odd instead, so that each format rounds the exact
             product and the exact sum (see :doc:`/kernels/arithmetic`, "What
-            the carrier rounds"). That holds only for formats narrow enough:
-            ``P`` at most 22 under ``RNE`` and ``RNA``, at most 23 under the
-            directed modes and ``RO``, and ``P + prng_bits`` at most 23 under
-            the stochastic modes, in binary32 (51, 52 and 52 in binary64),
-            the ``outer`` format included; a call with a wider format raises.
+            the carrier rounds"). That holds only for formats narrow enough,
+            the ``outer`` format included, and a call with a wider format
+            raises. In binary32, ``P`` must be at most 22 under ``RNE`` and
+            ``RNA`` and at most 23 under the directed modes and ``RO``, and
+            ``P + prng_bits`` at most 23 under ``SR`` and 22 under ``SR_B``
+            and ``SR_C``. binary64's bounds are 29 higher.
             ``RO`` is implemented on CPU and CUDA tensors in both carriers,
             and on MPS tensors in binary32. It covers palettes under
             ``NAIVE``, and every other mac under every algorithm: under

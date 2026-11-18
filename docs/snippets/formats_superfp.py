@@ -25,8 +25,8 @@ print(f"  below 2^{super_lo - 1} = {2.0 ** (super_lo - 1):g}: flushed to zero")
 x = torch.tensor([128.0, 144.0, 160.0, 176.0, 300.0, 448.0, 511.0])
 print("\nnormal region     ", x.tolist())
 print("quantized         ", q(x).tolist())
-# ... below it only the power of two survives (3 is rounded to 4: round to
-# nearest is taken on the exponent, and 3 = 2**1.58 is nearer to 2**2) ...
+# ... below it only the power of two survives. 1.5 and 3 are ties, halfway
+# between two powers of two, and round to the even exponent: 1 and 4 ...
 x = torch.tensor([1.0, 1.5, 3.0, 100.0, 2.0**-20, 3.0 * 2**-50])
 print("\nsupernormal region", x.tolist())
 print("quantized         ", q(x).tolist())

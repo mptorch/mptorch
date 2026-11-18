@@ -3,7 +3,7 @@
 import torch
 from torch import nn
 
-from mptorch import BinaryK
+from mptorch import BinaryK, RoundMode
 from mptorch.quant import QMatmul, QMatmulFormats, Quant, Quantizer, SplitMac, matmul_formats
 
 torch.manual_seed(0)
@@ -28,7 +28,8 @@ binary8p4 = BinaryK(8, 4)
 formats = matmul_formats(SplitMac(binary8p4, None))  # Binary8p4 products, float32 sums
 formats.a_quant = Quant(binary8p4)  # round both operands to Binary8p4 on the way in
 formats.b_quant = Quant(binary8p4)
-formats.agrad_quant = Quantizer(BinaryK(8, 3, prng_bits=8))  # stochastic Binary8p3 on the gradient
+# stochastic Binary8p3 on the gradient
+formats.agrad_quant = Quantizer(Quant(BinaryK(8, 3, prng_bits=8), RoundMode.SR))
 formats.bgrad_quant = formats.agrad_quant
 
 head = QAttention(64, formats)

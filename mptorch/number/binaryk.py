@@ -205,7 +205,7 @@ def check_binaryK(
 
     A format that cannot work in the carrier raises an error. A format whose
     range merely exceeds the carrier's is quantized partially but not wrongly,
-    and gets a :class:`FormatRangeWarning`. :class:`BinaryK` calls this with
+    and gets a :class:`~mptorch.FormatRangeWarning`. :class:`~mptorch.BinaryK` calls this with
     ``carrier=torch.float64`` and ``warn=False``, which raises only for what
     no carrier can do and never warns, because the carrier is chosen by each
     call; the call checks the format against its own carrier with
@@ -302,7 +302,7 @@ def check_binaryK_storage(
     result the storage dtype does not hold. A GEMM's sums can take every value
     of the binaryK format, so all of them must be values of the storage dtype.
     The storage dtype is chosen by the call, not by the binaryK format, so
-    :mod:`mptorch.quant.ops` runs this check on each call, on the format whose
+    ``mptorch.quant.ops`` runs this check on each call, on the format whose
     values the result holds, and attributes the warning to the first stack
     frame outside mptorch and torch.
 

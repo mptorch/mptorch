@@ -60,7 +60,7 @@ def _reduce(grad: torch.Tensor, shape: tuple[int, ...], was_1d: bool, dim: int) 
     return grad.squeeze(dim) if was_1d else grad
 
 
-#: What a ``None`` recompute flag means in :class:`CustomArithMatmul`, as
+#: What a ``None`` recompute flag means in ``CustomArithMatmul``, as
 #: (a, b): the quantized copies of both are kept. A matmul's operands are
 #: activations, and whether anything else keeps one alive depends on the
 #: model. In attention's ``softmax(...) @ V``, ``a`` could be recomputed,
@@ -226,4 +226,6 @@ class QMatmul(torch.nn.Module):
         self.formats = as_matmul_formats(formats)
 
     def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Multiply ``a`` and ``b`` as ``torch.matmul`` does, quantizing and computing as
+        ``formats`` says."""
         return CustomArithMatmul.apply(a, b, self.formats)

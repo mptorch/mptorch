@@ -251,7 +251,7 @@ def conv_formats(
 
     Args:
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,
-            resolved once through :func:`mptorch.quant.mac.spec_for_mac`. A
+            resolved once through ``mptorch.quant.mac.spec_for_mac``. A
             bare ``Number`` means ``SplitMac(fmt, fmt)``. Every
             ``accumulate_algorithm`` applies, and a ``SplitMac`` may round
             its products and its sums to formats of two different families,
