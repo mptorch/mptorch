@@ -706,7 +706,7 @@ namespace mptorch::meta
     split.acc = g::binaryK_widths(acc_K, acc_P, acc_bias, acc_is_signed);
     split.acc_c = g::BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
                                    static_cast<SubnormalsMode>(acc_subnormals_mode),
-                                   static_cast<int>(acc_prng_bits)};
+                                   g::narrow_to_int(acc_prng_bits)};
     return run(split);
   }
 

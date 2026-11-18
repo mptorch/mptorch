@@ -624,12 +624,12 @@ namespace mptorch::gemm
     args.mul = binaryK_widths(mul_K, mul_P, mul_bias, mul_is_signed);
     args.mul_c = BinaryKCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
                                static_cast<SubnormalsMode>(mul_subnormals_mode),
-                               static_cast<int>(mul_prng_bits)};
+                               narrow_to_int(mul_prng_bits)};
     args.accumulate_quant = accumulate_quant;
     args.acc = binaryK_widths(acc_K, acc_P, acc_bias, acc_is_signed);
     args.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
                                static_cast<SubnormalsMode>(acc_subnormals_mode),
-                               static_cast<int>(acc_prng_bits)};
+                               narrow_to_int(acc_prng_bits)};
     return args;
   }
 
@@ -650,11 +650,11 @@ namespace mptorch::gemm
     args.n_fmt = static_cast<int>(n);
     args.mul_c = BinaryKCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
                                static_cast<SubnormalsMode>(mul_subnormals_mode),
-                               static_cast<int>(mul_prng_bits)};
+                               narrow_to_int(mul_prng_bits)};
     args.accumulate_quant = accumulate_quant;
     args.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
                                static_cast<SubnormalsMode>(acc_subnormals_mode),
-                               static_cast<int>(acc_prng_bits)};
+                               narrow_to_int(acc_prng_bits)};
     for (int64_t i = 0; i < n; ++i)
     {
       args.mul[i] = binaryK_widths(mul_K[i], mul_P[i], mul_bias[i], mul_is_signed);
@@ -672,7 +672,7 @@ namespace mptorch::gemm
     args.fma = binaryK_widths(fma_K, fma_P, fma_bias, fma_is_signed);
     args.fma_c = BinaryKCommon{fma_is_signed, static_cast<SaturationMode>(fma_saturation_mode),
                                static_cast<SubnormalsMode>(fma_subnormals_mode),
-                               static_cast<int>(fma_prng_bits)};
+                               narrow_to_int(fma_prng_bits)};
     return args;
   }
 
@@ -689,7 +689,7 @@ namespace mptorch::gemm
     args.n_fmt = static_cast<int>(n);
     args.fma_c = BinaryKCommon{fma_is_signed, static_cast<SaturationMode>(fma_saturation_mode),
                                static_cast<SubnormalsMode>(fma_subnormals_mode),
-                               static_cast<int>(fma_prng_bits)};
+                               narrow_to_int(fma_prng_bits)};
     for (int64_t i = 0; i < n; ++i)
       args.fma[i] = binaryK_widths(fma_K[i], fma_P[i], fma_bias[i], fma_is_signed);
     return args;
@@ -705,11 +705,11 @@ namespace mptorch::gemm
     SuperfpSplitArgs args;
     args.mul = superfp_widths(mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias);
     args.mul_c = SuperfpCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
-                               static_cast<int>(mul_prng_bits)};
+                               narrow_to_int(mul_prng_bits)};
     args.accumulate_quant = accumulate_quant;
     args.acc = superfp_widths(acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias);
     args.acc_c = SuperfpCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
-                               static_cast<int>(acc_prng_bits)};
+                               narrow_to_int(acc_prng_bits)};
     return args;
   }
 
@@ -733,10 +733,10 @@ namespace mptorch::gemm
     SuperfpSplitMixedArgs args;
     args.n_fmt = static_cast<int>(n);
     args.mul_c = SuperfpCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
-                               static_cast<int>(mul_prng_bits)};
+                               narrow_to_int(mul_prng_bits)};
     args.accumulate_quant = accumulate_quant;
     args.acc_c = SuperfpCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
-                               static_cast<int>(acc_prng_bits)};
+                               narrow_to_int(acc_prng_bits)};
     for (int64_t i = 0; i < n; ++i)
     {
       args.mul[i] = superfp_widths(mul_man_bits[i], mul_exp_bits[i], mul_normal_binades[i],
@@ -755,7 +755,7 @@ namespace mptorch::gemm
     args.fma_quant = fma_quant;
     args.fma = superfp_widths(fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias);
     args.fma_c = SuperfpCommon{fma_is_signed, static_cast<SaturationMode>(fma_saturation_mode),
-                               static_cast<int>(fma_prng_bits)};
+                               narrow_to_int(fma_prng_bits)};
     return args;
   }
 
@@ -772,7 +772,7 @@ namespace mptorch::gemm
     SuperfpFusedMixedArgs args;
     args.n_fmt = static_cast<int>(n);
     args.fma_c = SuperfpCommon{fma_is_signed, static_cast<SaturationMode>(fma_saturation_mode),
-                               static_cast<int>(fma_prng_bits)};
+                               narrow_to_int(fma_prng_bits)};
     for (int64_t i = 0; i < n; ++i)
       args.fma[i] = superfp_widths(fma_man_bits[i], fma_exp_bits[i], fma_normal_binades[i],
                                    fma_bias[i]);
@@ -792,7 +792,7 @@ namespace mptorch::gemm
     tail.outer = binaryK_widths(outer_K, outer_P, outer_bias, outer_is_signed);
     tail.outer_c = BinaryKCommon{outer_is_signed, static_cast<SaturationMode>(outer_saturation_mode),
                                  static_cast<SubnormalsMode>(outer_subnormals_mode),
-                                 static_cast<int>(outer_prng_bits)};
+                                 narrow_to_int(outer_prng_bits)};
     return tail;
   }
 
@@ -808,7 +808,7 @@ namespace mptorch::gemm
     tail.outer_quant = outer_quant;
     tail.outer = superfp_widths(outer_man_bits, outer_exp_bits, outer_normal_binades, outer_bias);
     tail.outer_c = SuperfpCommon{outer_is_signed, static_cast<SaturationMode>(outer_saturation_mode),
-                                 static_cast<int>(outer_prng_bits)};
+                                 narrow_to_int(outer_prng_bits)};
     return tail;
   }
 

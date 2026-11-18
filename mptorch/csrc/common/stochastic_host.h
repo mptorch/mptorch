@@ -53,42 +53,45 @@ namespace mptorch
   // is undefined behaviour. mptorch.number refuses such formats, so this is
   // what a direct torch.ops call meets. `bits` is the format's stored
   // mantissa bits, or its magnitude bits when `magnitude` is set (a
-  // fixed-point format, format_host.h's significand_room). Not inlined, for
-  // the reason check_format is not.
-  C10_NOINLINE inline void sr_check_prng(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c,
-                                         const char *op)
+  // fixed-point format, format_host.h's significand_room). `narrowed` says
+  // that a GEMM's packer has narrowed the value to int with saturation, as
+  // for format_host.h's Format. Defined out of line (format_checks.cpp), for
+  // the reason check_format is.
+  void sr_check_prng(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c, const char *op,
+                     bool narrowed = false);
+
+  // The plain sr_encode above for a GEMM's value, which its packer has
+  // narrowed to int with saturation: the refusal prints a value at int's
+  // limit as "or more" or "or less" (format_host.h's Shown). It is a
+  // function of its own because the elementwise quantizers' bodies inline
+  // the plain one, and adding a parameter to it changed their code.
+  inline int sr_encode_narrowed(int64_t prng_bits, int variant, const char *op)
   {
-    const int64_t most = significand_room(magnitude, c) - bits;
-    TORCH_CHECK(prng_bits >= 0 && prng_bits <= most, op, ": prng_bits must be in [0, ", most, "] for ",
-                magnitude ? "" : "a ", bits, magnitude ? " magnitude bits" : "-bit mantissa", " rounded in ",
-                c.name, ", got ", prng_bits);
+    TORCH_CHECK(prng_bits >= 0 && prng_bits <= 255, op, ": prng_bits must be in [0, 255], got ",
+                Shown{prng_bits, true});
+    return sr_spec(static_cast<int>(prng_bits), variant);
   }
 
   // A format's prng_bits under a stochastic call, checked against the
   // carrier (sr_check_prng) and encoded. The format itself is checked
   // first, in every mode (check_format).
   inline int sr_encode(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c, int variant,
-                       const char *op)
+                       const char *op, bool narrowed = false)
   {
-    sr_check_prng(prng_bits, bits, magnitude, c, op);
-    return sr_encode(prng_bits, variant, op);
+    sr_check_prng(prng_bits, bits, magnitude, c, op, narrowed);
+    return narrowed ? sr_encode_narrowed(prng_bits, variant, op) : sr_encode(prng_bits, variant, op);
   }
 
   // The elementwise quantizers' format checks, which their entry points make
   // before anything else (after an in-place op's contiguity check): the
   // format itself in every mode (check_format), and its random bits under a
   // stochastic mode. The body each entry calls next encodes prng_bits with
-  // the plain sr_encode above. Not inlined, for the reason check_format is
-  // not; and called from the entry points rather than from that body, so
-  // that the body, which the compiler inlines its single-thread loops into,
-  // is as it was before these checks.
-  C10_NOINLINE inline void check_quantizer_format(const Format &f, CarrierBits c, int64_t prng_bits,
-                                                  int64_t round_mode, const char *op)
-  {
-    check_format(f, c, op);
-    if (is_stochastic_mode(round_mode))
-      sr_check_prng(prng_bits, f.bits, f.family == FormatFamily::FixedPoint, c, op);
-  }
+  // the plain sr_encode above. Defined out of line (format_checks.cpp), for
+  // the reason check_format is, and called from the entry points rather than
+  // from that body, so that the body, which the compiler inlines its
+  // single-thread loops into, is as it was before these checks.
+  void check_quantizer_format(const Format &f, CarrierBits c, int64_t prng_bits, int64_t round_mode,
+                              const char *op);
 
   // The widest mantissa among the formats of one role, which bounds the
   // prng_bits they share: the first n_fmt slots of a palette op, or the one
@@ -104,12 +107,15 @@ namespace mptorch
   // Encodes every format of a GEMM's Args (for_each_format_role names the
   // roles). A role's prng_bits is checked against the carrier when the call
   // rounds with its formats, and only against the byte when it does not.
+  // The packers have narrowed it to int with saturation (gemm_args.h's
+  // narrow_to_int), so the refusals print it as narrowed.
   template <class Args>
   void sr_encode_args(Args &args, int variant, const char *op, CarrierBits c)
   {
     for_each_format_role(args, [&](const auto &widths, int n_fmt, auto &common, bool rounds) {
-      common.prng_bits = rounds ? sr_encode(common.prng_bits, sr_widest_mantissa(widths, n_fmt), false, c, variant, op)
-                                : sr_encode(common.prng_bits, variant, op);
+      common.prng_bits = rounds ? sr_encode(common.prng_bits, sr_widest_mantissa(widths, n_fmt), false, c, variant,
+                                            op, true)
+                                : sr_encode_narrowed(common.prng_bits, variant, op);
     });
   }
 

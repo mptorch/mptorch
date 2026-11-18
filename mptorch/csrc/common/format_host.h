@@ -14,10 +14,11 @@
 // makes is refused here.
 
 #include "bit_helper.h"
-#include <c10/macros/Macros.h>
 #include <c10/util/Exception.h>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <ostream>
 
 namespace mptorch
 {
@@ -55,12 +56,17 @@ namespace mptorch
     FixedPoint
   };
 
-  // A format's parameters, as the checks read them: the schema's int64
-  // values, before the builders narrow them to int. `bits` is a binaryK or
+  // A format's parameters, as the checks read them. `bits` is a binaryK or
   // superfp format's stored mantissa bits, or a fixed-point format's
   // magnitude bits (its word length less the sign bit, if it has one). The
   // carrier stores the leading one of a fixed-point value's magnitude bits
   // implicitly, so it holds one more of them than mantissa bits.
+  //
+  // The quantizers pass the schema's int64 values. A GEMM's packers have
+  // already narrowed its values to int, saturating a value past int's range
+  // to INT_MIN or INT_MAX (gemm_args.h's narrow_to_int), and set `narrowed`:
+  // every check refuses those limits, and a message prints a value at one of
+  // them as "or less" or "or more" (Shown, below).
   struct Format
   {
     FormatFamily family;
@@ -69,6 +75,7 @@ namespace mptorch
     int64_t bias;           // binaryK and superfp
     int64_t normal_binades; // superfp
     int64_t fl;             // fixed point: the last bit stands for 2^-fl
+    bool narrowed = false;
   };
 
   inline Format binaryK_format(int64_t man_bits, int64_t exp_bits, int64_t bias)
@@ -84,6 +91,25 @@ namespace mptorch
   inline Format fixedpoint_format(int64_t mag_bits, int64_t fl)
   {
     return Format{FormatFamily::FixedPoint, mag_bits, 0, 0, 0, fl};
+  }
+
+  // A parameter as a refusal prints it. A value narrowed with saturation
+  // that sits at int's limit is that limit or any value past it, so it is
+  // printed as "2147483647 or more" or "-2147483648 or less".
+  struct Shown
+  {
+    int64_t value;
+    bool narrowed;
+  };
+
+  inline std::ostream &operator<<(std::ostream &o, Shown s)
+  {
+    o << s.value;
+    if (s.narrowed && s.value >= INT_MAX)
+      o << " or more";
+    else if (s.narrowed && s.value <= INT_MIN)
+      o << " or less";
+    return o;
   }
 
   // How many bits of the carrier's significand a format's bits may take:
@@ -103,36 +129,14 @@ namespace mptorch
   //   * a superfp format's normal_binades, from 1 to 2^exp_bits - 1, the
   //     Python layer's bound.
   // Each bound is compared with the parameter itself, so the check computes
-  // nothing from a parameter that could overflow an int64. Not inlined: the
-  // messages' code would grow each caller, and the compiler's inlining of
-  // the callers' own code with it.
-  C10_NOINLINE inline void check_format(const Format &f, CarrierBits c, const char *op)
-  {
-    const bool magnitude = f.family == FormatFamily::FixedPoint;
-    const int64_t room = significand_room(magnitude, c);
-    if (magnitude)
-    {
-      TORCH_CHECK(f.bits >= 1 && f.bits <= room, op, ": the format has ", f.bits, " magnitude bits, but ",
-                  c.name, " holds 1 to ", room);
-      TORCH_CHECK(f.fl >= f.bits - EXP_LIMIT && f.fl <= EXP_LIMIT, op, ": the format's fl is ", f.fl,
-                  ", but with ", f.bits, " magnitude bits the kernels take ", f.bits - EXP_LIMIT, " to ",
-                  EXP_LIMIT, ": they compute -fl and mag_bits - fl in an int, and need both between -2^30 and 2^30");
-      return;
-    }
-    TORCH_CHECK(f.exp_bits >= 0 && f.exp_bits <= MAX_EXP_BITS, op, ": the format has ", f.exp_bits,
-                " exponent bits, but the kernels take 0 to ", MAX_EXP_BITS, ": they compute 1 << exp_bits in an int");
-    TORCH_CHECK(f.bits >= 0 && f.bits <= room, op, ": the format has ", f.bits, " stored mantissa bits, but ",
-                c.name, " holds 0 to ", room);
-    const int64_t top_field = (int64_t(1) << f.exp_bits) - 1;
-    TORCH_CHECK(f.bias >= top_field - EXP_LIMIT && f.bias <= EXP_LIMIT + 1, op, ": the format's bias is ", f.bias,
-                ", but with ", f.exp_bits, " exponent bits the kernels take ", top_field - EXP_LIMIT, " to ",
-                EXP_LIMIT + 1,
-                ": they compute 1 - bias and 2^exp_bits - 1 - bias in an int, and need both between -2^30 and 2^30");
-    if (f.family == FormatFamily::Superfp)
-      TORCH_CHECK(f.normal_binades >= 1 && f.normal_binades <= top_field, op, ": the format has ",
-                  f.normal_binades, " normal binades, but a superfp format with ", f.exp_bits,
-                  " exponent bits has 1 to ", top_field);
-  }
+  // nothing from a parameter that could overflow an int64. Defined out of
+  // line, in format_checks.cpp, like the other checks of this header and of
+  // stochastic_host.h. As inline functions compiled into each caller's
+  // translation unit, edits to them changed the code GCC generated for the
+  // quantizer loops beside them: the superfp quantizer's single-thread loop
+  // ran from 3% slower to 7% faster, by dtype and mode (2026-11-18). Out of
+  // line, those loops compile to the bytes they did before the checks.
+  void check_format(const Format &f, CarrierBits c, const char *op);
 
   // Calls f(widths, n_fmt, common, rounds) for each format role of a GEMM's
   // Args: the multiply, accumulate and fused formats of the plain, palette
@@ -194,17 +198,20 @@ namespace mptorch
   // Checks every format a GEMM call rounds with (check_format), in the
   // carrier it rounds in. A role's widths are a BinaryKWidths or a
   // SuperfpWidths (gemm_args.h), whose fields the packers have narrowed to
-  // int.
+  // int with saturation (narrow_to_int), so each Format is marked narrowed.
   template <class Args>
   void check_args_formats(const Args &args, CarrierBits c, const char *op)
   {
     for_each_format_role(args, [&](const auto &widths, int n_fmt, const auto &, bool rounds) {
       if (rounds)
         for_each_slot(widths, n_fmt, [&](const auto &w) {
+          Format f;
           if constexpr (requires { w.normal_binades; })
-            check_format(superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias), c, op);
+            f = superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias);
           else
-            check_format(binaryK_format(w.man_bits, w.exp_bits, w.bias), c, op);
+            f = binaryK_format(w.man_bits, w.exp_bits, w.bias);
+          f.narrowed = true;
+          check_format(f, c, op);
         });
     });
   }

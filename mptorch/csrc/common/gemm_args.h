@@ -28,6 +28,7 @@
 #include "modes.h"
 #if !defined(__METAL_VERSION__)
 #include "gemm_dtype.h"
+#include <climits>
 #include <cstdint>
 #endif
 
@@ -97,26 +98,39 @@ namespace mptorch::gemm
     int man_bits = 0, exp_bits = 0, normal_binades = 0, bias = 0;
   };
 
+#if !defined(__METAL_VERSION__)
+  // Narrows a schema integer to int for the packers, saturating: a value
+  // past int's range becomes INT_MIN or INT_MAX. Every check of a format
+  // (format_host.h's check_format, stochastic_host.h's sr_encode) refuses
+  // those, whereas a plain conversion would wrap the value to one a check
+  // could accept: a bias of 2^32 + 7 would become 7. The checks therefore
+  // print a narrowed value at int's limit as "or more" or "or less". It
+  // takes a __int128 so that binaryK_widths can narrow K - P computed
+  // exactly, since that difference can overflow an int64.
+  inline int narrow_to_int(__int128 v) { return v < INT_MIN ? INT_MIN : v > INT_MAX ? INT_MAX : static_cast<int>(v); }
+
   // The schemas give a binaryK format as (K, P), its total number of bits
   // and its precision, the two parameters by which IEEE P3109 names its
   // binaryK formats, while the policies take (man_bits, exp_bits). The
   // precision counts the implicit leading bit, so man_bits = P - 1, and the
   // exponent gets the bits left after the significand and, in a signed
-  // format, the sign bit.
+  // format, the sign bit. Both are computed in 128 bits and narrowed with
+  // narrow_to_int, as is the bias.
   inline BinaryKWidths binaryK_widths(int64_t K, int64_t P, int64_t bias, bool is_signed)
   {
-    return BinaryKWidths{static_cast<int>(P - 1),
-                         static_cast<int>(is_signed ? K - P : K - P + 1),
-                         static_cast<int>(bias)};
+    const __int128 k = K, p = P;
+    return BinaryKWidths{narrow_to_int(p - 1), narrow_to_int(is_signed ? k - p : k - p + 1), narrow_to_int(bias)};
   }
 
-  // A superfp format's widths, as the schema gives them, narrowed to int.
+  // A superfp format's widths, as the schema gives them, narrowed to int
+  // with narrow_to_int.
   inline SuperfpWidths superfp_widths(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                                       int64_t bias)
   {
-    return SuperfpWidths{static_cast<int>(man_bits), static_cast<int>(exp_bits),
-                         static_cast<int>(normal_binades), static_cast<int>(bias)};
+    return SuperfpWidths{narrow_to_int(man_bits), narrow_to_int(exp_bits), narrow_to_int(normal_binades),
+                         narrow_to_int(bias)};
   }
+#endif
 
   // The four policy constructors, in carrier T and rounding mode RM, from a
   // slot's widths and the op's shared settings. Each policy computes its

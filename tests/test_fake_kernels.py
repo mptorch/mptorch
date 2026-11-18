@@ -582,6 +582,29 @@ def _gemm_cases():
             fma_bias=2**31 - 1,
         ),
         "odd bias": _with("custom_matmul_superfp_odd", mul_bias=-(2**31 - 1)),
+        # Values an int cannot hold, which the packers used to wrap (a bias
+        # of 2**40 became 0) and now saturate to int's limit.
+        "mul bias past int": _with("custom_matmul_binaryK", mul_bias=2**40),
+        "palette bias past int": _with("custom_matmul_binaryK_mixed", mul_bias=[8, -(2**40)]),
+        "mul mantissa past int": _with("custom_matmul_binaryK", mul_K=2**32 + 8, mul_P=2**32 + 4),
+        # K - P overflows an int64 too
+        "mul exp past int": _with("custom_matmul_binaryK", mul_K=2**63 - 1, mul_P=-(2**63)),
+        "acc normal binades past int": _with("custom_matmul_superfp", acc_normal_binades=2**32 + 2),
+        "outer bias past int": _with(
+            "custom_matmul_binaryK_accumulated",
+            accumulate_algorithm=A.BLOCK.value,
+            block_size=16,
+            outer_quant=True,
+            outer_K=16,
+            outer_P=11,
+            outer_bias=2**40,
+        ),
+        "cross bias past int": _with("custom_matmul_superfp_binaryK", acc_bias=2**40),
+        "mul prng past int": _with("custom_matmul_binaryK", mul_prng_bits=2**32 + 3),
+        # a format the call does not round with: only the byte is checked
+        "unused acc prng past int": _with(
+            "custom_matmul_binaryK", accumulate_quant=False, acc_prng_bits=2**32 + 3
+        ),
     }
 
 
@@ -622,6 +645,7 @@ def _conv_cases():
         "mul prng": _with("custom_conv_binaryK", mul_prng_bits=21),
         "mul exp width": _with("custom_conv_binaryK", mul_K=35),
         "mul bias": _with("custom_conv_binaryK", mul_bias=-(2**31 - 1)),
+        "mul bias past int": _with("custom_conv_binaryK", mul_bias=2**40),
     }
 
 
@@ -666,6 +690,17 @@ def _block_cases():
         ),
         "gemm acc bias": _with(
             "custom_matmul_block", accumulate_quant=True, acc_K=16, acc_P=11, acc_bias=-(2**31 - 1)
+        ),
+        "gemm acc bias past int": _with(
+            "custom_matmul_block", accumulate_quant=True, acc_K=16, acc_P=11, acc_bias=2**40
+        ),
+        "gemm acc prng past int": _with(
+            "custom_matmul_block",
+            accumulate_quant=True,
+            acc_K=16,
+            acc_P=11,
+            acc_bias=15,
+            acc_prng_bits=2**32 + 3,
         ),
     }
 
@@ -722,7 +757,10 @@ _GEMM_IDS = [
     "mul exp width", "acc exp width", "palette mantissa width", "fused palette exp width",
     "outer exp width", "cross exp width", "binary64 mantissa width", "odd exp width", "mul bias",
     "acc bias", "acc normal binades", "palette bias", "fused palette normal binades", "outer bias",
-    "cross normal binades", "binary64 bias", "odd bias",
+    "cross normal binades", "binary64 bias", "odd bias", "mul bias past int",
+    "palette bias past int", "mul mantissa past int", "mul exp past int",
+    "acc normal binades past int", "outer bias past int", "cross bias past int",
+    "mul prng past int", "unused acc prng past int",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
@@ -730,14 +768,14 @@ _CONV_IDS = [
     "igrad channels", "wgrad samples", "palette naive only", "palette lengths", "palette map",
     "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
-    "odd cross groups", "mul prng", "mul exp width", "mul bias",
+    "odd cross groups", "mul prng", "mul exp width", "mul bias", "mul bias past int",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
     "unpack data dtype", "unpack cols", "unpack dtype", "unpack batch", "quant round mode",
     "quant_ overlap", "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
     "gemm naive block size", "gemm kahan block size", "gemm acc prng", "gemm acc exp width",
-    "gemm acc bias",
+    "gemm acc bias", "gemm acc bias past int", "gemm acc prng past int",
 ]  # fmt: skip
 _OTHER_IDS = [
     "narrow input", "narrow dtype", "binaryK in place", "superfp in place", "fixedpoint in place",
@@ -779,6 +817,7 @@ def test_a_meta_call_raises_the_cpu_message(case):
 _PRNG_CASES = [c for c in _case_ids() if c.endswith(" prng")]
 _WIDTH_CASES = [c for c in _case_ids() if c.endswith(" width")]
 _EXPONENT_CASES = [c for c in _case_ids() if c.endswith((" bias", " fl", " normal binades"))]
+_PAST_INT_CASES = [c for c in _case_ids() if c.endswith(" past int")]
 
 
 def _raises_in_every_mode(func, args, pattern):
@@ -830,12 +869,26 @@ def test_a_format_refuses_what_the_kernels_int_exponents_cannot_take(case):
     names the parameter and the range it takes. Past the bias and fl bounds
     the exponents the parameter builders compute overflow an int."""
     func, args = _case(case)
+    # A GEMM's bias of 2**31 - 1 is int's limit, which it prints as "or more"
+    # (test_a_gemm_value_past_an_int_is_refused_not_wrapped).
     refusals = (
-        r"the format's bias is -?\d+, but with \d+ exponent bits the kernels take -?\d+ to \d+",
+        r"the format's bias is -?\d+( or more)?, but with \d+ exponent bits the kernels take -?\d+ "
+        r"to \d+",
         r"the format's fl is -?\d+, but with \d+ magnitude bits the kernels take -?\d+ to \d+",
         r"the format has -?\d+ normal binades, but a superfp format with \d+ exponent bits has 1",
     )
     _raises_in_every_mode(func, args, "|".join(refusals))
+
+
+@pytest.mark.parametrize("case", _PAST_INT_CASES)
+def test_a_gemm_value_past_an_int_is_refused_not_wrapped(case):
+    """A GEMM's packers narrow each format value to int, saturating: a value
+    past int's range reaches the checks as int's limit, which every check
+    refuses and prints as "or more" or "or less". A plain narrowing wrapped
+    it to a value a check could accept instead (a bias of 2**40 became 0)."""
+    func, args = _case(case)
+    with pytest.raises(RuntimeError, match=r"(2147483647 or more|-2147483648 or less)"):
+        func(*args)
 
 
 def test_a_format_the_call_does_not_round_with_is_not_bounded():
@@ -853,6 +906,8 @@ def test_a_format_the_call_does_not_round_with_is_not_bounded():
             fma_prng_bits=42,
         ),
         _with("custom_matmul_binaryK", accumulate_quant=False, acc_K=0, acc_P=0),
+        # not even past an int's range, which it narrows with saturation
+        _with("custom_matmul_binaryK", accumulate_quant=False, acc_K=2**40, acc_bias=-(2**40)),
     ]
     for func, args in cases:
         func(*args)
