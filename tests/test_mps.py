@@ -74,7 +74,7 @@ from mptorch.quant.ops import (
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
 )
-from tests.markers import requires_mps, requires_odd, requires_odd_accumulated
+from tests.markers import HAS_ODD_ACCUMULATED, requires_mps, requires_odd, requires_odd_accumulated
 
 pytestmark = requires_mps
 
@@ -1277,8 +1277,10 @@ def test_the_odd_step_does_not_flush():
     multiply format's cast (handed it as formed, not times 1) rounds up to
     binary8p4's smallest value under RU; a fused step's is the same. A
     subnormal operand times a large one is a normal product. And an
-    unquantized sum (accumulate_quant=False), plain or under KAHAN, of two
-    format values 2^-137 apart is that subnormal difference, exact."""
+    unquantized sum (accumulate_quant=False) of two format values 2^-137
+    apart is that subnormal difference, exact: plain, and under KAHAN in a
+    build with MPTORCH_ODD_ACCUMULATED=1, the only one that has the odd
+    step's KAHAN kernels."""
     tiny = torch.full((1, 1), 2.0**-70)
     for fn in (
         lambda x, y: binaryK_matmul(
@@ -1310,7 +1312,10 @@ def test_the_odd_step_does_not_flush():
     )  # fmt: skip
     a = torch.tensor([[2.0**-126 * (1 + 2.0**-11), -(2.0**-126)]])
     one = torch.ones(2, 1)
-    for extra in ({}, dict(accumulate_algorithm=KAHAN)):
+    algorithms: list[dict[str, Any]] = [{}]
+    if HAS_ODD_ACCUMULATED:
+        algorithms.append(dict(accumulate_algorithm=KAHAN))
+    for extra in algorithms:
         ref, got = _on_both(lambda x, y, extra=extra: binaryK_matmul(x, y, **fmt, **extra), a, one)
         assert ref.item() == 2.0**-137
         _assert_same_words(ref, got)
