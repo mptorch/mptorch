@@ -23,6 +23,7 @@ also importable from :mod:`mptorch.quant`.
 #   _accumulate  KAHAN, BLOCK and TREE: the arguments of the *_accumulated ops
 #   _odd         the carrier step rounded to odd: the checks of the *_odd ops
 #   _operands    torch.matmul's operand rules, mapped onto the rank-2 and rank-3 ops
+#   _conv        the conv ops: the table from each GEMM op to its conv op, and the call
 #
 # A new family is a module of its own (its wrappers and their spec builders),
 # a line in this table, and its public names imported below. Code inside
