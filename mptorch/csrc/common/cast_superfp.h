@@ -33,11 +33,16 @@ struct SuperfpCutoffs
 // region spans (2^exp_bits - normal_binades) * 2^man_bits binades, which
 // overflows `int` once exp_bits + man_bits reaches 31 (exp_bits 9 with
 // binary32's 23 mantissa bits already does, and with binary64's 52 it always
-// would). So the span is computed in 64 bits, and a cutoff below `int`'s
-// range is clamped to one above INT_MIN, so that `supernormal_cutoff - 1`
-// can still be represented. The clamp changes no result: every exponent a
-// carrier word can hold is above either value, so the underflow region is
-// empty both ways. Cutoffs that fit in `int` are unaffected.
+// would). So the span is computed in 64 bits, and a cutoff below -2^30 is
+// clamped to -2^30 or -2^30 + 1, whichever has the cutoff's parity:
+//   * every exponent a carrier word can hold is above -1100, so no region
+//     test changes, and the underflow region is empty both ways;
+//   * the casts' `supernormal_cutoff - 1`, and cast_superfp_odd's
+//     `target_exp - supernormal_cutoff + 1` for every such exponent, stay
+//     inside int, which a cutoff near INT_MIN would overflow;
+//   * cast_superfp_odd reads the parity of a code's index from the cutoff,
+//     so the parity has to survive.
+// Cutoffs at or above -2^30 are unaffected.
 CUDA_HOST_DEVICE_INLINE SuperfpCutoffs superfp_region_cutoffs(int man_bits, int exp_bits,
                                                                int normal_binades, int bias)
 {
@@ -45,8 +50,8 @@ CUDA_HOST_DEVICE_INLINE SuperfpCutoffs superfp_region_cutoffs(int man_bits, int 
     c.normal_cutoff = ((1 << exp_bits) - 1 - bias) - normal_binades + 1;
     const int64_t span = ((int64_t)1 << exp_bits) - normal_binades;
     const int64_t cutoff = (int64_t)c.normal_cutoff - span * ((int64_t)1 << man_bits) + 1;
-    const int64_t floor = (int64_t)INT32_MIN + 1;
-    c.supernormal_cutoff = (int)((cutoff < floor) ? floor : cutoff);
+    const int64_t floor = -((int64_t)1 << 30);
+    c.supernormal_cutoff = (int)((cutoff < floor) ? floor + ((cutoff - floor) & 1) : cutoff);
     return c;
 }
 
@@ -595,6 +600,9 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
     }
     else if (supernormal)
     {
+        // The code's index, counted from 1 at the smallest supernormal. Only
+        // its parity is read. superfp_region_cutoffs keeps that parity when
+        // it clamps a deep cutoff, and keeps this subtraction inside int.
         int stored_index = target_exp - p.supernormal_cutoff + 1;
         word_t mask = F::MAN_MASK;
         bool sticky = (target & mask) != 0;

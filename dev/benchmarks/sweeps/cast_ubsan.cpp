@@ -17,7 +17,7 @@
 // report end the run with a non-zero exit, naming the file and line;
 // UBSAN_OPTIONS=print_stacktrace=1 adds the cast that called it.
 //
-// No argument: the gate, ~3.5 s. It runs in two parts:
+// No argument: the gate, ~3 s. It runs in two parts:
 //   1. The negative control, in a child process: it calls
 //      round_bitwise_nearest_even with a man_bits below its documented
 //      bound, which shifts by more than the word's width. It must be reported.
@@ -67,18 +67,21 @@
 //     down helpers shifted by up to 149 bits in binary32 and 1059 in
 //     binary64, and overflowed their masks' `- 1`. All of these calls came
 //     from binaryK's three subnormal arms, with a man_bits far below -1.
-//   * After the fix, binaryK in both carriers and superfp in binary32 run
-//     clean, their checksums unchanged. The check stops in superfp binary64,
-//     at cast_superfp_odd's supernormal arm. SuperFP(51, 4, 2, 7)'s
-//     supernormal cutoff lies below int's range, and superfp_region_cutoffs
-//     clamps it to INT_MIN + 1. `target_exp - supernormal_cutoff + 1` then
-//     overflows.
-//   * The clamp also flips the parity of that code index. So round to odd
-//     returns the wrong neighbour for every inexact supernormal input of
-//     such a format (1.5 rounds to 2, not 1), on the CPU and on CUDA alike.
-//     reference_casts.h calls the same superfp_region_cutoffs, so the sweeps
-//     agree with it.
-//   * Under --recover, the fixed-point casts run clean too.
+//   * After it, binaryK ran clean, every checksum unchanged. The check then
+//     stopped in superfp, at cast_superfp_odd's supernormal arm. Formats
+//     such as SuperFP(51, 4, 2, 7) and SuperFP(22, 10, 2, 1015) have a
+//     supernormal cutoff below int's range, which superfp_region_cutoffs
+//     clamped to INT_MIN + 1, and `target_exp - supernormal_cutoff + 1`
+//     overflowed.
+//   * The clamp also flipped the parity of that code index. So round to odd
+//     returned the wrong neighbour for every inexact supernormal input of
+//     such a format (1.5 rounded to 2, not 1), on the CPU and on CUDA alike.
+//     reference_casts.h took its index from the same clamped cutoff, so the
+//     sweeps agreed with it.
+//   * Since the second fix, which clamps to -2^30 with the cutoff's parity,
+//     the check passes. Only the superfp checksums moved, and only through
+//     those formats: without them they are unchanged.
+//   * The fixed-point casts never reported anything.
 #include "common/cast_binaryK.h"
 #include "common/cast_fixedpoint.h"
 #include "common/cast_superfp.h"
@@ -291,12 +294,15 @@ namespace
   }
 
   // Names the family before running it, so that a report, which ends the
-  // run, follows the name of the family it came from.
+  // run, follows the name of the family it came from. Each family's draws
+  // start from the same seed, so its checksum does not depend on the other
+  // families' format lists.
   template <class Run>
   void report(const char *family, const char *carrier, Run run)
   {
     std::printf("  %-11s %-8s ", family, carrier);
     std::fflush(stdout);
+    rng_state = 0x2545F4914F6CDD1Dull;
     const Digest d = run();
     std::printf("%11llu casts  checksum %016llx\n", (unsigned long long)d.casts, (unsigned long long)d.h);
   }
@@ -368,8 +374,10 @@ int main(int argc, char **argv)
   const std::vector<BinaryKFmt> bk64 = {{2, 5, 15},   {3, 4, 7},     {10, 5, 15},   {23, 8, 127},
                                         {51, 10, 511}, {52, 11, 1023}, {2, 10, 1000}, {7, 11, 1023},
                                         {3, 4, -200}, {5, 30, 1 << 29}};
-  const std::vector<SuperfpFmt> sfp32 = {{3, 4, 8, 7}, {3, 4, 2, 7},  {1, 2, 1, 1},  {9, 3, 1, 3},
-                                         {3, 5, 1, 7}, {0, 4, 2, 7},  {22, 3, 1, 3}, {3, 8, 4, 100}};
+  // {22, 10, 2, 1015} and binary64's {51, 4, 2, 7} have supernormal cutoffs
+  // below int's range, which make_superfp_params clamps
+  const std::vector<SuperfpFmt> sfp32 = {{3, 4, 8, 7}, {3, 4, 2, 7},  {1, 2, 1, 1},   {9, 3, 1, 3},     {3, 5, 1, 7},
+                                         {0, 4, 2, 7}, {22, 3, 1, 3}, {3, 8, 4, 100}, {22, 10, 2, 1015}};
   const std::vector<SuperfpFmt> sfp64 = {{3, 4, 8, 7}, {3, 5, 1, 7}, {20, 6, 4, 31}, {51, 4, 2, 7}, {3, 10, 8, 500}};
   const std::vector<FixedPointFmt> fx32 = {{2, 1},   {4, 0},   {8, 4},   {8, -4}, {8, 20},
                                            {12, 12}, {16, 8},  {20, 10}, {24, 12}};

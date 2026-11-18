@@ -1175,9 +1175,20 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, int man_bits, int exp
         // parity used by nearest-even, and different again from the
         // *target format's own* biased exponent parity used in the normal-
         // region man_bits==0 case below.
-        int stored_index = target_exp - co.supernormal_cutoff + 1;
+        //
+        // The index from the code layout, without the region's cutoff, which
+        // superfp_region_cutoffs clamps once it is below -2^30: the
+        // region has codes = (2^exp_bits - normal_binades) 2^man_bits codes,
+        // the zero's included, and its largest, codes - 1, is
+        // 2^(normal_cutoff - 1). So 2^target_exp is code
+        // target_exp - normal_cutoff + codes. codes overflows 64 bits in the
+        // widest formats, and only the index's parity is needed, so this
+        // adds parities: codes is odd only when man_bits is 0 and
+        // 2^exp_bits - normal_binades is odd.
+        const int64_t normal_cutoff = ((int64_t(1) << exp_bits) - 1 - bias) - normal_binades + 1;
+        const bool codes_odd = man_bits == 0 && (((int64_t(1) << exp_bits) - normal_binades) & 1) != 0;
         bool sticky = (target & R::MAN_MASK) != 0;
-        bool already_odd = (stored_index & 1) != 0;
+        bool already_odd = ((((int64_t)target_exp - normal_cutoff) & 1) != 0) != codes_odd;
         quantize_bits = target & ~R::MAN_MASK;
         if (sticky && !already_odd)
             quantize_bits += R::ONE << R::MAN;

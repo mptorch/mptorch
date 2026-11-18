@@ -35,7 +35,7 @@
 //       -I mptorch/csrc -I dev/benchmarks/sweeps -x c++ dev/benchmarks/sweeps/cast_all_modes_sweep.cu \
 //       -o /tmp/cast_all_modes_sweep_host && /tmp/cast_all_modes_sweep_host host
 // Those host flags are setup.py's, which is what makes the host run a check of
-// the build that ships. Pass `short` (~40 edge and middle formats, the gate for
+// the build that ships. Pass `short` (~50 edge and middle formats, the gate for
 // a change; `short-host` for the host build), `spot` (the grid below),
 // `spot-pairs` (its axes covered pairwise, 96, for `spot`'s record in a
 // quarter of the time beside `short`), `sweep`
@@ -1304,7 +1304,11 @@ static void short_list()
     sf(2, 4, 16, 7, true, O);     // none left: the regions invert
     sf(3, 4, 1, 21, true, O);     // the supernormal floor at 2^-125
     sf(3, 4, 1, 22, false, F);    // a binade below it
-    sf(13, 8, 2, 127, true, O);   // a cutoff far past int, clamped (superfp_region_cutoffs, 90beb61)
+    sf(13, 8, 2, 127, true, O);   // a cutoff far below binary32's range, -2080640
+    // A cutoff below int's range, 8 - 1022 * 2^22, which
+    // superfp_region_cutoffs clamps. It is even, which a clamp to an odd value
+    // would flip, and round to odd reads it.
+    sf(22, 10, 2, 1015, true, O);
     sf(2, 3, 1, -120, true, F);   // the top at binary32's
     sf(2, 3, 1, -121, true, P);   // past it
     // the supernormal floor 2^c between binary32's smallest subnormal and its

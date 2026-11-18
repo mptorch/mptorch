@@ -744,7 +744,10 @@ static void short_list()
     run_case(sf(3, 4, 1, superfp_bias_for_cutoff(3, 4, 1, -1060), true, O));     // sh = -17
     run_case(sf(0, 6, 2, superfp_bias_for_cutoff(0, 6, 2, -1072), false, F));    // sh = -29, the window's bottom
     run_case(sf(2, 4, 16, 7, true, O));                                           // no supernormal codes
-    run_case(sf(23, 11, 1, 1023, true, O));                                       // wide mantissas
+    // wide mantissas, whose supernormal cutoffs are below int's range and
+    // clamped (superfp_region_cutoffs): odd, then twice even, which a clamp
+    // to an odd value would flip, and round to odd reads it
+    run_case(sf(23, 11, 1, 1023, true, O));
     run_case(sf(42, 11, 2, 1023, false, F));
     run_case(sf(52, 11, 1, 1024, true, P));
     run_case(sf(2, 3, 1, -1016, true, F));                                        // the top at 2^1023,

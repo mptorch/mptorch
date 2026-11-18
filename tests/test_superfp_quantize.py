@@ -287,6 +287,45 @@ def test_ro_normal_region_zero_man_bits(device):
 
 
 # ---------------------------------------------------------------------------
+# A supernormal region too deep for an `int`. Once its (2^exp_bits -
+# normal_binades) 2^man_bits binades pass 2^31, the cast's params clamp the
+# exponent of its smallest supernormal (superfp_region_cutoffs in
+# cast_superfp.h), and RO, which counts a code's index from there, must not
+# read the clamped value. Both formats have their normal binades at [2^7, 2^9)
+# and an even number of supernormal binades, so the smallest supernormal is
+# 2^c with c = 8 - (that number) even, and 2^e's index e - c + 1 is odd
+# exactly when e is even. An inexact 1.5 * 2^e therefore rounds to 2^e when
+# e is even, and to 2^(e + 1) when e is odd. The clamped value, INT_MIN + 1,
+# is odd, which picked the other neighbour every time.
+DEEP_SUPERNORMAL_CASES = [
+    (1.5, 1.0),
+    (3.0, 4.0),
+    (6.0, 4.0),
+    (12.0, 16.0),
+    (0.75, 1.0),
+    (0.375, 0.25),
+    (1.5 * 2**-100, 2**-100),
+    (1.5 * 2**-101, 2**-100),
+    (2.0, 2.0),  # exact: unchanged
+    (2**-90, 2**-90),
+]
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "man_bits,exp_bits,bias,dtype",
+    [(22, 10, 1015, torch.float32), (51, 4, 7, torch.float64)],
+    ids=["binary32", "binary64"],
+)
+def test_ro_supernormal_index_past_int(device, man_bits, exp_bits, bias, dtype):
+    """RO's supernormal parity in a format whose region cutoff is clamped."""
+    cfg = dict(man_bits=man_bits, exp_bits=exp_bits, normal_binades=2, bias=bias)
+    for value, expected in DEEP_SUPERNORMAL_CASES:
+        assert _quantize(value, RoundMode.RO, device, dtype=dtype, cfg=cfg) == expected, value
+        assert _quantize(-value, RoundMode.RO, device, dtype=dtype, cfg=cfg) == -expected, -value
+
+
+# ---------------------------------------------------------------------------
 # The saturation modes at the overflow boundary, in every rounding mode. Under
 # SAT_NONE the top code of the reference format, 31 (011111), is +Inf, so the
 # largest finite value is 1.5 (code 30); SAT_FINITE keeps the whole top binade
