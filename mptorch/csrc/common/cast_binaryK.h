@@ -321,16 +321,21 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_nearest_even(T origin_float, bool is_sign
     // round to the subnormal grid, whose step is 2^(min_exp - man_bits).
     // exp_diff is the number of bits the value keeps below its leading bit:
     // 0 for a value in [step, 2 * step), -1 for one in [step / 2, step), and
-    // less below that, where not_uflow makes the result zero. The clip then
-    // lifts the values that round up onto the step.
+    // less below that, where the value underflows to zero. The round is
+    // called only where it does not: further down exp_diff falls far below
+    // -1 (a zero's is man_bits - min_exp - 127 in binary32, -118 for E4M3),
+    // and round_bitwise_nearest_even's shifts would pass the word's width.
+    // The clip then lifts the values that round up onto the step.
     if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         int exp_diff = p.man_bits - (p.min_exp - target_exp);
         int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << (F::EXP_BITS + 1)) > 0));
-        word_t rounded_val = (p.man_bits > 0)
-                                 ? round_bitwise_nearest_even(target, exp_diff)
-                                 : round_bitwise_nearest_even(target);
-        quantize_bits = not_uflow * rounded_val;
+        if (!not_uflow)
+            quantize_bits = 0;
+        else if (p.man_bits > 0)
+            quantize_bits = round_bitwise_nearest_even(target, exp_diff);
+        else
+            quantize_bits = round_bitwise_nearest_even(target);
         quantize_bits = clip_subnormal_range_exponent(target, quantize_bits, p.subnormal_min_exponent_store);
         quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
@@ -379,7 +384,7 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_nearest_away(T origin_float, bool is_sign
     {
         int exp_diff = p.man_bits - (p.min_exp - target_exp);
         int not_uflow = exp_diff >= -1;
-        quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
+        quantize_bits = not_uflow ? round_bitwise_nearest_away(target, exp_diff) : word_t(0);
         quantize_bits = clip_subnormal_range_exponent(target, quantize_bits, p.subnormal_min_exponent_store);
         quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
@@ -522,7 +527,7 @@ CUDA_HOST_DEVICE_INLINE T cast_absolute_down(T origin_float, SubnormalsMode subn
     {
         int exp_diff = p.man_bits - (p.min_exp - target_exp);
         int not_uflow = exp_diff > -1;
-        quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
+        quantize_bits = not_uflow ? round_bitwise_down(target, exp_diff) : word_t(0);
         quantize_bits = clip_subnormal_range_exponent(target, quantize_bits, p.subnormal_min_exponent_store);
         quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }

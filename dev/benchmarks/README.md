@@ -40,6 +40,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 |---|---|---|
 | `cast_all_modes_sweep.cu` | every cast in every rounding mode against `reference_casts.h`, over all 2^32 binary32 inputs: mismatches and `-0.0` results per mode; fixed point; `image64*` carries it to the binary64 instantiation; `sr-mean` holds SR's distribution to P3109 exactly, `sr-mean-old` is its negative control (`old_sr_casts.h`) | `short` on CUDA (42 configurations, ~3 min) and `short-host` on the host are the gate for a change; `spot-pairs` and `sweep` when the work is finished |
 | `cast_double_sweep.cu` | the binary64 casts against the reference on structured inputs (every exponent field, the format's grid ± an ulp, ties, random words) | `short` (38 configurations, ~2 min), `short-host` |
+| `cast_ubsan.cpp` | every cast in every rounding mode, in both carriers, under the undefined behaviour sanitizer (a shift by the word's width or more, a signed overflow, an out-of-range float-to-int conversion), over a sample that reaches every arm, with formats at the edges of what `mptorch.number` accepts; a negative control in a child process fails the run when the sanitizer is off | no argument (~3.5 s), the gate; `--recover` on a build without `-fno-sanitize-recover` lists every report |
 | `gemm_cast_float_arith.cu` | binaryK's float-arithmetic RNE fast path, three ways: reference, integer path, shipped; `gemm` times the two paths | `spot` on the host and the GPU; `coarse`/`sweep` for the format grid |
 | `gemm_cast_superfp_arith.cu` | the same for superfp; the device and the host spell it differently | `coarse` on the GPU, `spot` and `coarse` on the host |
 | `gemm_cast_sr_arith.cu` | SR's magnitude-compare clip against the integer clip and the reference | `spot` |
@@ -98,7 +99,7 @@ These come on top of what every change runs: the suite, and ruff, ty and pre-com
 | the change touches | run |
 |---|---|
 | any header a native tool includes | `check_native.sh` |
-| a cast (`cast_binaryK.h`, `cast_superfp.h`, `cast_fixedpoint.h`, `stochastic.h`, `bit_helper.h`) | `cast_all_modes_sweep` `short` and `short-host`, `cast_double_sweep short`, and the `gemm_cast_*_arith` program whose fast path it reaches, in its gate mode; `format_limits.py` if a range moves |
+| a cast (`cast_binaryK.h`, `cast_superfp.h`, `cast_fixedpoint.h`, `stochastic.h`, `bit_helper.h`) | `cast_all_modes_sweep` `short` and `short-host`, `cast_double_sweep short`, `cast_ubsan.cpp`, and the `gemm_cast_*_arith` program whose fast path it reaches, in its gate mode; `format_limits.py` if a range moves |
 | GEMM, conv or block kernels, policies or drivers | `binary_identity.py so` against the build before; `stacked_before_after.py capture`/`compare`, with `--block` for anything that reaches `block_decode.h` or the pack kernels |
 | layers, their autograd Functions, `_saved.py` | `layer_output_capture.py` on cpu and cuda |
 | the CPU's vector tiles | `cpu_rne_tile_sweep.cpp` and `cpu_odd_tile_sweep.cpp` at each ISA; `cpu_gemm_ab.cpp` for the cost |

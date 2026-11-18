@@ -11,8 +11,9 @@
 #
 # The host half runs `-fsyntax-only` with setup.py's host flags (the fast-cast
 # pairing, -ffp-contract=off and -DMPTORCH_FAST_CAST=1) on every file that has
-# a host build: the five cast sweeps as C++, the CPU tile sweeps, the CPU GEMM
-# A/B harness (against torch's headers) and old_sr_casts.h. ~20 s.
+# a host build: the five cast sweeps as C++, the CPU tile sweeps, the UBSan
+# cast check, the CPU GEMM A/B harness (against torch's headers) and
+# old_sr_casts.h. ~20 s.
 #
 # The CUDA half, skipped when nvcc is not on PATH, compiles each .cu at -O0
 # into a temporary directory, with the language standard and include paths
@@ -67,6 +68,7 @@ done
 check sweeps/old_sr_casts.h $CXX $HOST -fsyntax-only -x c++ "$B/sweeps/old_sr_casts.h" || FAILED=1
 check sweeps/cpu_rne_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_rne_tile_sweep.cpp" || FAILED=1
 check sweeps/cpu_odd_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_odd_tile_sweep.cpp" || FAILED=1
+check sweeps/cast_ubsan.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cast_ubsan.cpp" || FAILED=1
 if [ -n "$TI" ]; then
     check timing/cpu_gemm_ab.cpp $CXX $HOST $TI -fsyntax-only "$B/timing/cpu_gemm_ab.cpp" || FAILED=1
     check "timing/cpu_gemm_ab.cpp -DMPTORCH_AB_ODD" $CXX $HOST $TI -DMPTORCH_AB_ODD -fsyntax-only "$B/timing/cpu_gemm_ab.cpp" || FAILED=1

@@ -369,9 +369,13 @@ CUDA_HOST_DEVICE_INLINE W unsigned_zero_bits(W w)
 // which is odd, so a tie always rounds up (the carry lands in the exponent).
 // A man_bits at or above the carrier's makes this the identity. The casts
 // call this with a per-value man_bits (exp_diff) in their subnormal arms,
-// which is why this spelling is used beside the precomputed one below. A
-// man_bits so negative that the mask's shift reaches the word's width is
-// undefined behaviour; the casts that can pass one discard the result.
+// which is why this spelling is used beside the precomputed one below.
+// man_bits must be at least MAN_BITS - WORD_BITS + 2 (-7 in binary32, -10 in
+// binary64), here and in the nearest-away, up, down and odd helpers below
+// that take it: below that the mask's shift reaches the word's width, or its
+// `- 1` overflows, which is undefined behaviour even when the result is then
+// discarded. The casts never pass less than -1: they skip the call for a
+// value that underflows, or, rounding up and to odd, pass at least 0.
 template <class W>
 CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_even(W target, int man_bits)
 {
