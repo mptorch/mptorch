@@ -3,7 +3,12 @@
 import torch
 
 from mptorch import RoundMode
-from mptorch.number.fixedpoint import check_fixedpoint_carrier, check_fixedpoint_storage
+from mptorch.number.fixedpoint import (
+    _fixedpoint_findings,
+    _fixedpoint_storage_findings,
+    check_fixedpoint_carrier,
+    check_fixedpoint_storage,
+)
 
 from ._checks import (
     _BELOW_BINARY64,
@@ -14,6 +19,7 @@ from ._checks import (
     _quantizer_operand,
     _refuse_widening_in_place,
 )
+from ._spec import _quant_spec, _QuantSpec
 
 
 def fixedpoint_quantize(
@@ -182,4 +188,30 @@ def fixedpoint_quantize_(
         is_signed,
         symmetric,
         rounding_mode.value,
+    )
+
+
+def _fixedpoint_quant_spec(
+    wl: int,
+    fl: int,
+    prng_bits: int,
+    is_signed: bool,
+    symmetric: bool,
+    rounding_mode: RoundMode,
+    *,
+    carrier: torch.dtype | None,
+    in_place: bool,
+) -> _QuantSpec:
+    """Resolve a :func:`fixedpoint_quantize` call (or a
+    :func:`fixedpoint_quantize_` one) once, for :class:`mptorch.quant.Quant`."""
+    op = torch.ops.mptorch.fixedpoint_quant_ if in_place else torch.ops.mptorch.fixedpoint_quant
+    fields = (wl, fl, is_signed, symmetric)
+    return _quant_spec(
+        op.default,
+        (wl, fl, prng_bits, is_signed, symmetric, rounding_mode.value),
+        "fixedpoint_quantize",
+        in_place,
+        carrier,
+        lambda c: _fixedpoint_findings(*fields, prng_bits, c),
+        lambda dtype: _fixedpoint_storage_findings(*fields, dtype, True),
     )

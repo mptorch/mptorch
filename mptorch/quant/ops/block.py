@@ -45,8 +45,15 @@ from mptorch.number import (
     SubnormalsMode,
     SuperFP,
 )
+from mptorch.number.base import _report_per_call
 from mptorch.number.binaryk import _binaryK_findings, check_binaryK_storage
-from mptorch.number.block import _block_label, _minifloat, check_block_carrier, check_block_storage
+from mptorch.number.block import (
+    _block_label,
+    _block_storage_findings,
+    _minifloat,
+    check_block_carrier,
+    check_block_storage,
+)
 
 from ._accumulate import _checked_block_size
 from ._checks import (
@@ -552,8 +559,18 @@ def _quantize(
     carrier: torch.dtype | None,
     in_place: bool,
 ) -> torch.Tensor:
+    wide = _prologue(x, fmt, carrier, "block_quantize")
+    widen = _quantizable(x, wide, in_place)
+    if x.dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
+        check_block_storage(fmt, storage=x.dtype)
+    ints = _block_format_ints(fmt)
+    return _quantize_checked(x, fmt, ints, axis, rounding, tensor_scale, wide, widen, in_place)
+
+
+def _quantizable(x: torch.Tensor, wide: bool, in_place: bool) -> bool:
+    """Check that ``x`` can be quantized as asked, and return whether it must
+    be widened to float64 first."""
     op = "block_quantize"
-    wide = _prologue(x, fmt, carrier, op)
     if x.dim() == 0:
         raise ValueError(f"{op} needs a tensor with at least one dimension")
     widen = wide and x.dtype is not torch.float64
@@ -562,13 +579,29 @@ def _quantize(
             f"{op}_ with carrier=torch.float64 on a {x.dtype} tensor would round a float64 "
             f"copy and leave the tensor as it was: use {op}, which returns the result"
         )
-    if x.dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
-        check_block_storage(fmt, storage=x.dtype)
+    return widen
+
+
+def _quantize_checked(
+    x: torch.Tensor,
+    fmt: BlockFormat,
+    ints: tuple[int, ...],
+    axis: int,
+    rounding: RoundMode,
+    tensor_scale: float | None,
+    wide: bool,
+    widen: bool,
+    in_place: bool,
+) -> torch.Tensor:
+    """What :func:`block_quantize` and :func:`block_quantize_` do once the
+    format and the tensor have passed their checks. ``ints`` is the format's
+    descriptor, :func:`_block_format_ints`."""
+    op = "block_quantize"
     axis = axis % x.dim()
     src = x.double() if widen else x
     ts = _tensor_scale(src, fmt, tensor_scale, wide)
     v = _storage_view(src, axis, op, in_place=in_place)
-    args = (_block_format_ints(fmt), fmt.elem_max, fmt.scale_max, ts, rounding.value)
+    args = (ints, fmt.elem_max, fmt.scale_max, ts, rounding.value)
     if in_place:
         torch.ops.mptorch.block_quant_.default(v, *args)
         return x
@@ -644,6 +677,67 @@ def block_quantize_(
         True
     """
     return _quantize(x, fmt, axis, rounding, tensor_scale, carrier, in_place=True)
+
+
+class _BlockQuantSpec(NamedTuple):
+    """One block quantizer call along the last axis, resolved once, for
+    :class:`mptorch.quant.Quant`.
+
+    It is the block counterpart of ``_QuantSpec`` (``ops/_spec.py``): the
+    format's descriptor, binary32's refusal of the format (the message
+    :func:`mptorch.number.check_block_carrier` raises, or ``None``), and the
+    findings on storing a result in each dtype narrower than each carrier,
+    keyed by that dtype and only where there is something to say.
+    """
+
+    fmt: BlockFormat
+    ints: tuple[int, ...]
+    rounding: RoundMode
+    carrier: torch.dtype | None
+    in_place: bool
+    binary32_error: str | None
+    stored: tuple[dict[torch.dtype, tuple[str | None, str | None]], ...]
+
+
+def _block_quant_spec(
+    fmt: BlockFormat, rounding: RoundMode, carrier: torch.dtype | None, in_place: bool
+) -> _BlockQuantSpec:
+    """Resolve a :func:`block_quantize` call along the last axis once."""
+    try:
+        check_block_carrier(fmt, carrier=torch.float32)
+        binary32_error = None
+    except ValueError as e:
+        binary32_error = str(e)
+    stored = tuple(
+        {
+            dtype: pair
+            for dtype in narrower
+            if (pair := _block_storage_findings(fmt, dtype, True)) != (None, None)
+        }
+        for narrower in (_NARROW_STORAGE, _BELOW_BINARY64)
+    )
+    ints = _block_format_ints(fmt)
+    return _BlockQuantSpec(fmt, ints, rounding, carrier, in_place, binary32_error, stored)
+
+
+def _run_block_quant(spec: _BlockQuantSpec, x: torch.Tensor) -> torch.Tensor:
+    """:func:`block_quantize` (or :func:`block_quantize_`) of ``x`` along its
+    last axis, with the format's checks resolved once; the checks run in the
+    flat function's order and raise or warn as it does."""
+    dtype = x.dtype
+    if spec.carrier is None:
+        wide = dtype is torch.float64
+    else:
+        wide, _ = _call_carrier(spec.carrier, dtype)
+    if not wide and spec.binary32_error is not None:
+        raise ValueError(spec.binary32_error)
+    widen = _quantizable(x, wide, spec.in_place)
+    stored = spec.stored[wide].get(dtype)
+    if stored is not None:
+        _report_per_call(*stored)
+    return _quantize_checked(
+        x, spec.fmt, spec.ints, -1, spec.rounding, None, wide, widen, spec.in_place
+    )
 
 
 # --- the GEMM -------------------------------------------------------------------

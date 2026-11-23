@@ -189,7 +189,10 @@ packed storage`_).
 
 Formats and Quants are frozen dataclasses, so they compare and hash by value.
 This lets a layer resolve its format once, and lets the library memoize on
-it. Build them once and keep them, instead of constructing one per call.
+it. A ``Quant`` also resolves its own format when it is built: it works out
+the op's arguments and what each carrier and each storage dtype finds in the
+format, so that a call makes only the checks that depend on the tensor's
+dtype. Build them once and keep them, instead of constructing one per call.
 
 In place
 --------
@@ -246,6 +249,47 @@ mapped fresh from the system on every call pays for its pages when they are
 first written, which can cost more than the rounding: on a 32 MiB float64
 tensor and one thread, the out-of-place call took nearly three times as long
 (``dev/benchmarks/timing/cpu_quantize_elementwise.py`` compares the two).
+
+ScaledQuant: scaling into the format's range
+--------------------------------------------
+
+An 8-bit format spans a few dozen binades, so a tensor of small values, as a
+gradient usually is, loses most of them to zero. FP8 training therefore
+scales each tensor first: it multiplies the tensor so that its largest
+magnitude lands on the format's largest value, rounds, and divides the scale
+back out. :class:`~mptorch.quant.ScaledQuant` is that step as a quantizer,
+for any ``*_quant`` slot. Its options are:
+
+- ``target``: where the largest magnitude lands; by default the format's
+  ``max_finite``. OCP's E4M3 and E5M2 stop at 448 and 57344, below the
+  largest values of the binaryK layouts, which count code points as P3109
+  does; pass those to simulate OCP's formats.
+- ``margin``: binades of headroom below ``target``.
+- ``pow2``: round the scale down to a power of two, so that multiplying and
+  dividing by it are exact and only the format rounds.
+- ``granularity``: one scale for the whole tensor, one per row along
+  ``axis``, or one per block of ``block_size`` elements along it.
+
+.. literalinclude:: ../snippets/quantizers_scaled.py
+   :language: python
+   :caption: docs/snippets/quantizers_scaled.py
+
+.. literalinclude:: ../snippets/quantizers_scaled.out
+   :language: text
+   :caption: output
+
+Every step runs in the carrier. A float16 or bfloat16 tensor is copied to
+float32 first, so the scale is not limited by float16's range and the scaled
+values are not rounded to the narrow dtype before the format rounds them,
+and the result is converted back once. A tensor, row or block whose largest
+magnitude is zero, infinite or NaN is scaled by 1. The scale is chosen on
+the tensor's device, with no wait for its value, so a ``ScaledQuant``
+compiles. Scale into a saturating format (``SaturationMode.SAT_FINITE``):
+its largest magnitude then rounds onto ``target`` in every rounding mode,
+where a directed or stochastic rounding of a ``SAT_NONE`` format can carry
+it to infinity. Like ``Quant``, it holds no state, so a layer may quantize
+an operand again in backward instead of keeping the copy (:doc:`layers`,
+"What a layer keeps for backward").
 
 Block quantization and packed storage
 -------------------------------------

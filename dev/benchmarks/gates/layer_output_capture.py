@@ -36,8 +36,9 @@ import sys
 
 import torch
 
-from mptorch.number import BinaryK, RoundMode
+from mptorch.number import MXFP8_E4M3, BinaryK, FixedPoint, RoundMode, SuperFP
 from mptorch.quant import (
+    BlockMac,
     QAffineFormats,
     QConv1d,
     QConv2d,
@@ -50,6 +51,8 @@ from mptorch.quant import (
     SplitMac,
     binaryK_gemm_formats,
     binaryK_quantize,
+    block_gemm_formats,
+    block_matmul_formats,
     conv_formats,
     matmul_formats,
     superfp_quantize,
@@ -81,6 +84,10 @@ LINEAR_FORMATS += ["q_rne", "q_sr", "q_sr_gemm"]
 # The last two run the three convolution passes on the GEMM core as implicit
 # GEMMs (mptorch.quant.conv_formats); added with it, so a capture taken before
 # b16a3aa has 162 fewer tensors on the CPU.
+# Quant over each of the other three families, and a Linear layer whose
+# products are block GEMMs; added after c895842, so a capture taken before has
+# none of them.
+LINEAR_FORMATS += ["q_sfp", "q_fxp", "q_blk", "blk_gemm"]
 CONV_FORMATS = ["identity", "bk_rne", "sfp_rne", "bk_sr", "bk_conv", "bk_sr_conv"]
 CONV_FORMATS += ["q_rne", "q_sr", "q_sr_conv"]
 # QMatmul and the straight-through Quantizer, the two autograd Functions the
@@ -89,6 +96,8 @@ CONV_FORMATS += ["q_rne", "q_sr", "q_sr_conv"]
 # the all-True one first; a Quantizer's input always requires one.
 MATMUL_PATTERNS = [(True, True), (True, False), (False, True)]
 MATMUL_FORMATS = ["identity", "bk_sr", "q_rne", "q_sr_gemm"]
+# A matmul whose three products are block GEMMs; added after c895842.
+MATMUL_FORMATS += ["blk_mm"]
 QUANTIZER_FORMATS = ["q_rne", "q_sr"]
 # The patterns in which every gradient path is requested: a difference there is
 # never the documented exception (`compare`).
@@ -170,6 +179,14 @@ def make_formats(name):
             BinaryK(8, 4, prng_bits=8), BinaryK(10, 5, prng_bits=8), rounding=RoundMode.SR
         )
         return _with(conv_formats(mac), q_sr)
+    if name == "q_sfp":
+        return _with(QAffineFormats(), Quant(SuperFP(3, 4, 2, 7)))
+    if name == "q_fxp":
+        return _with(QAffineFormats(), Quant(FixedPoint(8, 4)))
+    if name == "q_blk":
+        return _with(QAffineFormats(), Quant(MXFP8_E4M3))
+    if name == "blk_gemm":
+        return block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3, acc=BinaryK(16, 11))
     raise ValueError(name)
 
 
@@ -193,6 +210,8 @@ def make_matmul_formats(name):
             BinaryK(8, 4, prng_bits=8), BinaryK(10, 5, prng_bits=8), rounding=RoundMode.SR
         )
         return slots(matmul_formats(mac), Quant(BinaryK(8, 4, prng_bits=8), RoundMode.SR))
+    if name == "blk_mm":
+        return block_matmul_formats(BlockMac(MXFP8_E4M3, acc=BinaryK(16, 11)))
     raise ValueError(name)
 
 
@@ -297,6 +316,8 @@ def capture(device, out_path):
     for fname in MATMUL_FORMATS:
         for rg in MATMUL_PATTERNS:
             for a_shape, b_shape in (((5, 12), (12, 7)), ((3, 5, 12), (12, 7)), ((12,), (12, 7))):
+                if fname == "blk_mm" and len(a_shape) == 1:
+                    continue  # the block GEMM takes operands of rank 2 or more
                 torch.manual_seed(7)
                 mm = QMatmul(make_matmul_formats(fname)).to(device)
                 a = torch.randn(*a_shape, device=device)

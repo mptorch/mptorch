@@ -1,0 +1,19 @@
+module  type    kind    formats                                                                                                             action
+0       Conv2d  conv    mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  to convert
+3       Conv2d  conv    mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  to convert
+7       Linear  linear  plain torch                                                                                                         kept: the recipe gives it None
+2 to convert, 1 kept
+
+largest difference to the float32 model: 0.0041
+
+layer  kind    batch   M     N    K       MACs  arithmetic
+0      conv        8  16  1024   27  3,538,944  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+3      conv        8  32   256  144  9,437,184  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+7      linear      1   8    10   32      2,560  torch
+
+SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)): 12,976,128 MACs (100.0%), cost 1.29761e+07
+torch: 2,560 MACs (0.0%), cost 10,240
+total cost 1.29864e+07
+(layers only: products computed by function calls, such as torch.matmul, are not counted)
+
+QConv2d, then 3 layers back: Conv2d

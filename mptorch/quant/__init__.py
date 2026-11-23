@@ -3,11 +3,14 @@
 The names below are grouped as the documentation groups them: elementwise
 quantizers, the low-level GEMM functions (one per kernel op), the format
 objects that describe a dot product's arithmetic, block formats, the
-differentiable matmul functions, and the layers with the factories that
-configure them.
+differentiable matmul functions, the layers with the factories that
+configure them, and the conversion of a whole model from a recipe
+(``presets`` holds ready-made recipes).
 """
 
+from . import presets
 from .conv import conv_formats
+from .convert import ConvertReport, ConvertRow, convert, convert_, register, unconvert_
 from .gemm import (
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
@@ -57,6 +60,9 @@ from .ops import (
     superfp_quantize,
     superfp_quantize_,
 )
+from .profile import Profile, ProfileRecord, profile
+from .recipe import GemmFormats, Recipe, Rule
+from .scaled import ScaledQuant
 
 __all__ = [
     # elementwise quantization
@@ -67,6 +73,7 @@ __all__ = [
     "superfp_quantize_",
     "fixedpoint_quantize_",
     "Quant",
+    "ScaledQuant",
     "Quantizer",
     # the low-level GEMMs: one function per kernel op, every op argument spelled out
     "binaryK_matmul",
@@ -116,4 +123,18 @@ __all__ = [
     "conv_formats",
     "block_matmul_formats",
     "block_gemm_formats",
+    # converting a model from a recipe, and counting its products
+    "GemmFormats",
+    "Rule",
+    "Recipe",
+    "presets",
+    "register",
+    "convert_",
+    "convert",
+    "unconvert_",
+    "ConvertReport",
+    "ConvertRow",
+    "profile",
+    "Profile",
+    "ProfileRecord",
 ]

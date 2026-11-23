@@ -430,9 +430,10 @@ quantized again:
 
 - **A quantizer of your own.** Under a ``None`` flag, only these quantizers
   are run twice: a :class:`~mptorch.quant.Quant` that is not in place, a
+  :class:`~mptorch.quant.ScaledQuant`, a
   :class:`~mptorch.quant.BlockQuant` called as a function (which returns
   the decoded values, not the packing), and a
-  :class:`~mptorch.quant.Quantizer` over either. A callable with state, such
+  :class:`~mptorch.quant.Quantizer` over any of them. A callable with state, such
   as an observer that records statistics for quantization-aware training,
   would update that state a second time in the backward pass, and could
   round differently there. Setting the flag to ``True`` runs any callable
@@ -537,7 +538,7 @@ A mixed-precision model is a set of decisions per layer:
    exact reference. Use ``carrier=torch.float64`` where a float32 (or
    half-precision) model should compute in binary64 and keep its dtype.
 1. Choose the format of each **signal**: a ``Quant`` (or a ``Quantizer``, or
-   a scaled quantizer of your own) for ``input_quant``, ``weight_quant``,
+   a :class:`~mptorch.quant.ScaledQuant`) for ``input_quant``, ``weight_quant``,
    ``bias_quant`` and the three gradient paths.
 2. Choose the **arithmetic** of each matrix product and convolution: a
    ``*_gemm_formats`` factory, :func:`~mptorch.quant.conv_formats` or
@@ -549,3 +550,51 @@ A mixed-precision model is a set of decisions per layer:
 
 The :doc:`tutorial` goes through these steps for the 8-bit formats, training
 a network with each combination and comparing them.
+
+Converting a model
+------------------
+
+A model that already exists need not be rebuilt from mptorch's layers. A
+*recipe* says what each part of it computes in, and
+:func:`~mptorch.quant.convert` converts a copy of the model, or
+:func:`~mptorch.quant.convert_` the model itself, in place.
+
+- :class:`~mptorch.quant.GemmFormats` holds one layer's formats: the
+  operand and gradient quantizers, a rounding of the output, and one mac
+  for each pass (the forward product, the input gradient and the weight
+  gradient), any of them ``None`` for PyTorch's own arithmetic.
+  ``GemmFormats.uniform(mac, quant)`` fills them all.
+- :class:`~mptorch.quant.Recipe` gives formats to the *kinds* ``linear``,
+  ``conv`` and ``matmul`` (``gemm`` names the three), and
+  ``override(where, ...)`` changes them for the modules ``where`` chooses: a
+  glob over their names (``"encoder.*"``), a type, or a predicate. The last
+  rule that matches wins, and ``None`` keeps a module PyTorch's.
+- ``mptorch.quant.presets`` holds three recipes: ``uniform(fmt)``,
+  ``fp8()`` (E4M3 operands and E5M2 gradients, each scaled per tensor) and
+  ``mx()`` (OCP MX block formats).
+
+``recipe.plan(model)`` shows what a conversion would do. Each ``nn.Linear``
+and ``nn.Conv1d/2d/3d`` that the recipe gives formats to becomes a
+:class:`~mptorch.quant.QLinear` or a ``QConv*d``: the same object with its
+class changed, so its parameters, buffers, hooks and ``state_dict`` keys stay
+as they were, and an optimizer built before the conversion still trains it.
+Only those exact classes convert. A subclass, a parametrized module among
+them, is listed and kept, and ``strict=True`` raises instead.
+:func:`~mptorch.quant.unconvert_` turns the layers back, and
+:func:`~mptorch.quant.register` adds a class of your own.
+:func:`~mptorch.quant.profile` runs one forward pass and counts each layer's
+multiply-accumulates by the arithmetic it ran in, priced by a cost per MAC.
+
+.. literalinclude:: ../snippets/layers_convert.py
+   :language: python
+   :caption: docs/snippets/layers_convert.py
+
+.. literalinclude:: ../snippets/layers_convert.out
+   :language: text
+   :caption: output
+
+A converted model is saved and loaded through its ``state_dict``, which is
+the float model's: the layers' formats hold closures, which the recipe
+rebuilds. Only modules convert, so a product that a model's code computes
+with a function, such as a ``torch.matmul`` in an attention block, keeps
+PyTorch's arithmetic, and ``profile`` does not count it.

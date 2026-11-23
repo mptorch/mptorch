@@ -20,6 +20,7 @@ import torch.nn.grad as grad
 
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
+from .linear import _from_float
 
 #: What a ``None`` recompute flag means in ``CustomArithConvNd``, as
 #: (input, weight): both are quantized again in backward rather than kept. The
@@ -180,6 +181,12 @@ class CustomArithConvNd(torch.autograd.Function):
                     output = F.conv3d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
                 else:
                     raise ValueError(f"Unsupported nd: {nd}")
+                if input.dim() == nd + 1:
+                    # An unbatched input's result is a view F.conv*d squeezed
+                    # from a batched one, and autograd refuses an in-place op
+                    # (an inplace ReLU after the layer) on a view a custom
+                    # Function returns; detached, it is a tensor of its own.
+                    output = output.detach()
 
             save(ctx, saved_input, saved_weight)
             ctx.needs_bias_grad = bias is not None
@@ -365,6 +372,16 @@ class QConv1d(nn.Conv1d):
         else:
             self.formats = formats
 
+    @classmethod
+    def from_float(cls, conv: nn.Conv1d, formats: QAffineFormats | None = None) -> "QConv1d":
+        """A ``QConv1d`` over ``conv``'s own parameters, with ``formats``, as
+        :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
+
+        Raises:
+            TypeError: unless ``conv`` is exactly an ``nn.Conv1d``.
+        """
+        return _from_float(conv, cls, nn.Conv1d, formats)
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """Convolve ``input`` with the layer's weight, quantizing and computing as
         ``formats`` says."""
@@ -466,6 +483,16 @@ class QConv2d(nn.Conv2d):
         else:
             self.formats = formats
 
+    @classmethod
+    def from_float(cls, conv: nn.Conv2d, formats: QAffineFormats | None = None) -> "QConv2d":
+        """A ``QConv2d`` over ``conv``'s own parameters, with ``formats``, as
+        :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
+
+        Raises:
+            TypeError: unless ``conv`` is exactly an ``nn.Conv2d``.
+        """
+        return _from_float(conv, cls, nn.Conv2d, formats)
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """Convolve ``input`` with the layer's weight, quantizing and computing as
         ``formats`` says."""
@@ -566,6 +593,16 @@ class QConv3d(nn.Conv3d):
             self.formats = QAffineFormats()
         else:
             self.formats = formats
+
+    @classmethod
+    def from_float(cls, conv: nn.Conv3d, formats: QAffineFormats | None = None) -> "QConv3d":
+        """A ``QConv3d`` over ``conv``'s own parameters, with ``formats``, as
+        :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
+
+        Raises:
+            TypeError: unless ``conv`` is exactly an ``nn.Conv3d``.
+        """
+        return _from_float(conv, cls, nn.Conv3d, formats)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """Convolve ``input`` with the layer's weight, quantizing and computing as

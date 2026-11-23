@@ -29,6 +29,11 @@ hit is cheaper than the resolve it replaces, so this table is the gate for it
 -- "memoized" has to land at or under "resolved once" plus a dict lookup, not
 near "per call".
 
+The elementwise quantizers have the same three points: the bare op, a
+`Quant`, which since c895842 resolves its format once when it is made (before
+that it called the flat quantizer, which looks its format's findings up on
+every call), and the flat quantizer itself, on a one-element tensor.
+
 and then the same three hooks inside a training step, against a plain
 `nn.Linear` one -- because that is the number that says what the saving is
 worth. Microseconds off a hook are real, and they are still a rounding error
@@ -49,7 +54,7 @@ from collections.abc import Callable
 import torch
 from torch import nn
 
-from mptorch import MXFP8_E4M3, BinaryK, SuperFP
+from mptorch import MXFP8_E4M3, BinaryK, FixedPoint, RoundMode, SuperFP
 from mptorch.quant import (
     BlockQuant,
     QAffineFormats,
@@ -63,9 +68,19 @@ from mptorch.quant import (
 from mptorch.quant.gemm import _gemm_formats, binaryK_gemm_formats, block_gemm_formats
 from mptorch.quant.mac import FusedMac, spec_for_mac
 from mptorch.quant.modules._saved import quantize_operand
-from mptorch.quant.ops import binaryK_matmul, binaryK_matmul_fma, superfp_matmul, superfp_matmul_fma
+from mptorch.quant.ops import (
+    binaryK_matmul,
+    binaryK_matmul_fma,
+    binaryK_quantize,
+    block_quantize,
+    fixedpoint_quantize,
+    superfp_matmul,
+    superfp_matmul_fma,
+    superfp_quantize,
+)
 from mptorch.quant.ops._spec import _GemmSpec, _run_gemm
 from mptorch.quant.ops.binaryk import _binaryK_fma_spec, _binaryK_spec
+from mptorch.quant.ops.block import _block_format_ints
 from mptorch.quant.ops.superfp import _superfp_fma_spec, _superfp_spec
 
 # Each case twice over: once resolved into a spec, once as the keyword call
@@ -105,6 +120,43 @@ CASES: list[tuple[str, _GemmSpec, Call2D, object]] = [
             a, b, fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=1, fma_bias=7
         ),
         FusedMac(SFP),
+    ),
+]
+
+
+FXP = FixedPoint(8, 4)
+RNE = RoundMode.RNE.value
+SAT, SUB = BK.saturation.value, BK.subnormals.value
+_E = MXFP8_E4M3
+
+# name, the bare op on a tensor, the Quant, and the flat quantizer. The block
+# op takes a rank-2 view, as block_quantize hands it one.
+QUANTIZERS: list[tuple[str, Callable, Callable, Callable]] = [
+    (
+        "binaryK",
+        lambda x: torch.ops.mptorch.binaryK_quant.default(x, 8, 4, 8, 0, True, RNE, SAT, SUB),
+        Quant(BK),
+        lambda x: binaryK_quantize(x, 8, 4),
+    ),
+    (
+        "superfp",
+        lambda x: torch.ops.mptorch.superfp_quant.default(x, 3, 4, 1, 7, 0, True, RNE, SAT),
+        Quant(SFP),
+        lambda x: superfp_quantize(x, 3, 4, 1, 7),
+    ),
+    (
+        "fixedpoint",
+        lambda x: torch.ops.mptorch.fixedpoint_quant.default(x, 8, 4, 0, True, False, RNE),
+        Quant(FXP),
+        lambda x: fixedpoint_quantize(x, 8, 4),
+    ),
+    (
+        "block",
+        lambda x: torch.ops.mptorch.block_quant.default(
+            x.view(1, -1), _block_format_ints(_E), _E.elem_max, _E.scale_max, 1.0, RNE
+        ),
+        Quant(_E),
+        lambda x: block_quantize(x, _E),
     ),
 ]
 
@@ -158,6 +210,14 @@ def main() -> None:
         each = run(lambda c=keyword_call: c(a, b))
         memo = run(lambda m=mac: _run_gemm(spec_for_mac(m), a, b, False, False))
         print(f"{name:<14}{floor:>11.2f}{once:>15.2f}{each:>11.2f}{memo:>11.2f}{each - once:>9.2f}")
+
+    x1 = torch.randn(1, device=args.device)
+    print(f"\n{'quantizer':<14}{'torch.ops':>11}{'Quant':>15}{'flat':>11}")
+    for name, floor_call, quant, flat in QUANTIZERS:
+        floor = run(lambda c=floor_call: c(x1))
+        q = run(lambda c=quant: c(x1))
+        each = run(lambda c=flat: c(x1))
+        print(f"{name:<14}{floor:>11.2f}{q:>15.2f}{each:>11.2f}")
 
     # The same difference where it is actually paid: a Linear layer's math
     # hooks, whose format is fixed when the QAffineFormats is built.

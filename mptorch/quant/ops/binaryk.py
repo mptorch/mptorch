@@ -13,7 +13,12 @@ from typing import Any
 import torch
 
 from mptorch import AccumulateAlgorithm, RoundMode, SaturationMode, SubnormalsMode
-from mptorch.number.binaryk import _binaryK_findings, check_binaryK_carrier, check_binaryK_storage
+from mptorch.number.binaryk import (
+    _binaryK_findings,
+    _binaryK_storage_findings,
+    check_binaryK_carrier,
+    check_binaryK_storage,
+)
 
 from ._accumulate import _accumulated, _binaryK_accumulation
 from ._checks import (
@@ -40,7 +45,15 @@ from ._odd import (
     _palette_slots,
 )
 from ._operands import _gemm_mixed_nd, _gemm_nd
-from ._spec import _binaryK_bias, _binaryK_palette_bias, _GemmSpec, _palette_list_or, _palette_pair
+from ._spec import (
+    _binaryK_bias,
+    _binaryK_palette_bias,
+    _GemmSpec,
+    _palette_list_or,
+    _palette_pair,
+    _quant_spec,
+    _QuantSpec,
+)
 
 # --- elementwise quantizers --------------------------------------------------
 
@@ -282,6 +295,44 @@ def binaryK_quantize_(
         rounding_mode.value,
         saturation_mode.value,
         subnormals_mode.value,
+    )
+
+
+def _binaryK_quant_spec(
+    K: int,
+    P: int,
+    bias: int,
+    prng_bits: int,
+    is_signed: bool,
+    rounding_mode: RoundMode,
+    saturation_mode: SaturationMode,
+    subnormals_mode: SubnormalsMode,
+    *,
+    carrier: torch.dtype | None,
+    in_place: bool,
+) -> _QuantSpec:
+    """Resolve a :func:`binaryK_quantize` call (or a :func:`binaryK_quantize_`
+    one) once, for :class:`mptorch.quant.Quant`. ``bias`` is the resolved bias."""
+    op = torch.ops.mptorch.binaryK_quant_ if in_place else torch.ops.mptorch.binaryK_quant
+    args = (
+        K,
+        P,
+        bias,
+        prng_bits,
+        is_signed,
+        rounding_mode.value,
+        saturation_mode.value,
+        subnormals_mode.value,
+    )
+    fields = (K, P, bias, is_signed, saturation_mode, subnormals_mode)
+    return _quant_spec(
+        op.default,
+        args,
+        "binaryK_quantize",
+        in_place,
+        carrier,
+        lambda c: _binaryK_findings(*fields, prng_bits, c),
+        lambda dtype: _binaryK_storage_findings(*fields, dtype, True),
     )
 
 

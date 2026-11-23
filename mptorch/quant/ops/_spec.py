@@ -1,4 +1,4 @@
-"""Format defaults, the resolved GEMM call (`_GemmSpec`), and running it.
+"""Format defaults, the resolved GEMM and quantizer calls, and running them.
 
 Every GEMM wrapper works out the same few things: a binaryK format's default
 exponent bias, the accumulate format's fallback to the multiply format, and
@@ -17,6 +17,13 @@ once.
 A GEMM call with its formats resolved is a `_GemmSpec`, which
 `mptorch.quant.gemm`'s factories build once per layer, and `_run_gemm` and
 `_run_gemm_mixed` call its op on operands of rank 2 or 3.
+
+An elementwise quantizer call with its format resolved is a `_QuantSpec`,
+which `mptorch.quant.Quant` builds once, when it is made, and `_run_quant`
+calls its op. A flat quantizer such as `binaryK_quantize` looks its format's
+findings up on every call instead; the two must give the same results, the
+same warnings and the same errors, which `tests/test_quant_resolved.py`
+checks.
 """
 
 from collections.abc import Callable, Sequence
@@ -24,13 +31,18 @@ from typing import Any, NamedTuple
 
 import torch
 
+from mptorch.number.base import _report_per_call
+
 from ._checks import (
     _BELOW_BINARY64,
+    _CARRIER,
     _NARROW_STORAGE,
     _call_carrier,
     _check_stored,
     _Findings,
     _narrowed,
+    _quantizer_operand,
+    _refuse_widening_in_place,
     _report_findings,
     _Stored,
 )
@@ -243,3 +255,94 @@ def _run_gemm_mixed(
     b, trans_b = _packed(b, trans_b)
     out = spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
     return out if narrow is None else _narrowed(out, narrow)
+
+
+# One finding on one format, as `(error, warning)`: what `mptorch.number`'s
+# findings functions return, with `(None, None)` when there is nothing to say.
+_Pair = tuple[str | None, str | None]
+
+
+class _QuantSpec(NamedTuple):
+    """One elementwise quantizer call's format, resolved into its op's arguments.
+
+    ``op`` is the quantize op, out of place or in place (``in_place``), and
+    ``args`` every op argument after the tensor, in the op's order, with the
+    modes already converted to their integer values. ``name`` is the flat
+    function the call stands for, which the in-place op's refusal of a
+    widening carrier names.
+
+    ``findings`` holds binary32's finding on the format, then binary64's, and
+    ``stored`` the findings on storing a result in a dtype narrower than each
+    of those carriers, keyed by that dtype. A finding with nothing to say is
+    ``None`` in ``findings`` and absent from ``stored``, so a call on a format
+    both carriers hold pays two tests and a dictionary lookup. They are found
+    once, when the spec is built, from the memoized functions that the flat
+    quantizers' ``check_*_carrier`` and ``check_*_storage`` calls read on
+    every call, and they are raised or issued on each call, for the carrier
+    and the dtype of that call.
+    """
+
+    op: Callable[..., torch.Tensor]
+    args: tuple[Any, ...]
+    name: str
+    in_place: bool
+    carrier: torch.dtype | None
+    findings: tuple[_Pair | None, _Pair | None]
+    stored: tuple[dict[torch.dtype, _Pair], dict[torch.dtype, _Pair]]
+
+
+def _said(pair: _Pair) -> _Pair | None:
+    """``pair``, or ``None`` when it holds neither an error nor a warning."""
+    return None if pair[0] is None and pair[1] is None else pair
+
+
+def _quant_spec(
+    op: Callable[..., torch.Tensor],
+    args: tuple[Any, ...],
+    name: str,
+    in_place: bool,
+    carrier: torch.dtype | None,
+    finding: Callable[[torch.dtype], _Pair],
+    storage: Callable[[torch.dtype], _Pair],
+) -> _QuantSpec:
+    """Build a ``_QuantSpec``, finding the format's verdicts once.
+
+    ``finding(carrier)`` is the format's finding in a carrier dtype, and
+    ``storage(dtype)`` its finding on storing a result in ``dtype``; each
+    family's builder passes its own two. Every carrier and every storage dtype
+    narrower than it is looked up, since a call's dtype is not known yet.
+    """
+    findings = (_said(finding(_CARRIER[0])), _said(finding(_CARRIER[1])))
+    stored = tuple(
+        {dtype: pair for dtype in narrower if (pair := _said(storage(dtype))) is not None}
+        for narrower in (_NARROW_STORAGE, _BELOW_BINARY64)
+    )
+    return _QuantSpec(op, args, name, in_place, carrier, findings, (stored[0], stored[1]))
+
+
+def _run_quant(spec: _QuantSpec, x: torch.Tensor) -> torch.Tensor:
+    """Call a resolved quantizer on ``x``.
+
+    It makes the flat quantizer's checks in the flat quantizer's order: the
+    carrier the call rounds in, the format against that carrier, the format
+    against a narrower storage dtype, and, for the in-place op, the refusal of
+    a carrier wider than ``x``. Each warning names the caller's line, as the
+    flat quantizer's does.
+    """
+    dtype = x.dtype
+    if spec.carrier is None:
+        wide, widen = dtype is torch.float64, False
+    else:
+        wide, widen = _call_carrier(spec.carrier, dtype)
+    found = spec.findings[wide]
+    if found is not None:
+        _report_per_call(*found)
+    stored = spec.stored[wide].get(dtype)
+    if stored is not None:
+        _report_per_call(*stored)
+    if spec.in_place:
+        if widen:
+            _refuse_widening_in_place(spec.name, dtype)
+        return spec.op(x, *spec.args)
+    out = spec.op(_quantizer_operand(x, widen), *spec.args)
+    return _narrowed(out, dtype) if widen else out

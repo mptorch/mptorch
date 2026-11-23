@@ -11,7 +11,12 @@ from typing import Any
 import torch
 
 from mptorch import AccumulateAlgorithm, RoundMode, SaturationMode
-from mptorch.number.superfp import _superfp_findings, check_superfp_carrier, check_superfp_storage
+from mptorch.number.superfp import (
+    _superfp_findings,
+    _superfp_storage_findings,
+    check_superfp_carrier,
+    check_superfp_storage,
+)
 
 from ._accumulate import _accumulated, _superfp_accumulation
 from ._checks import (
@@ -38,7 +43,14 @@ from ._odd import (
     _palette_slots,
 )
 from ._operands import _gemm_mixed_nd, _gemm_nd
-from ._spec import _GemmSpec, _palette_list, _palette_list_or, _palette_pair
+from ._spec import (
+    _GemmSpec,
+    _palette_list,
+    _palette_list_or,
+    _palette_pair,
+    _quant_spec,
+    _QuantSpec,
+)
 
 # --- elementwise quantizers --------------------------------------------------
 
@@ -229,6 +241,44 @@ def superfp_quantize_(
         is_signed,
         rounding_mode.value,
         saturation_mode.value,
+    )
+
+
+def _superfp_quant_spec(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    prng_bits: int,
+    is_signed: bool,
+    rounding_mode: RoundMode,
+    saturation_mode: SaturationMode,
+    *,
+    carrier: torch.dtype | None,
+    in_place: bool,
+) -> _QuantSpec:
+    """Resolve a :func:`superfp_quantize` call (or a :func:`superfp_quantize_`
+    one) once, for :class:`mptorch.quant.Quant`."""
+    op = torch.ops.mptorch.superfp_quant_ if in_place else torch.ops.mptorch.superfp_quant
+    args = (
+        man_bits,
+        exp_bits,
+        normal_binades,
+        bias,
+        prng_bits,
+        is_signed,
+        rounding_mode.value,
+        saturation_mode.value,
+    )
+    fields = (man_bits, exp_bits, normal_binades, bias, saturation_mode)
+    return _quant_spec(
+        op.default,
+        args,
+        "superfp_quantize",
+        in_place,
+        carrier,
+        lambda c: _superfp_findings(*fields, prng_bits, c),
+        lambda dtype: _superfp_storage_findings(*fields, dtype, True),
     )
 
 

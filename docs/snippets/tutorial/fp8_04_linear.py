@@ -5,7 +5,7 @@ import warnings
 import torch
 
 from mptorch import BinaryK, FormatRangeWarning, SaturationMode
-from mptorch.quant import QAffineFormats, QLinear, Quant, binaryK_gemm_formats
+from mptorch.quant import QAffineFormats, QLinear, Quant, ScaledQuant, binaryK_gemm_formats
 
 # An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
 # one input from another, so a call that rounds to one warns (concepts, "What
@@ -63,21 +63,11 @@ for name, fmt in (("E4M3", E4M3), ("E5M2", E5M2)):
 
 
 # The usual remedy is a scale: multiply into range, round, divide back out.
-# A quantizer slot takes any callable, so this is a few lines.
-class ScaledQuant:
-    """Per-tensor scaling to the format's largest finite value (like an FP8 'amax' scale)."""
-
-    def __init__(self, fmt: BinaryK, max_finite: float):
-        self.q = Quant(BinaryK(fmt.K, fmt.P, bias=fmt.bias, saturation=SaturationMode.SAT_FINITE))
-        self.max_finite = max_finite
-
-    def __call__(self, t: torch.Tensor) -> torch.Tensor:
-        scale = self.max_finite / t.abs().amax().clamp_min(1e-30)
-        return self.q(t * scale) / scale
-
-
+# ScaledQuant scales each tensor's largest element onto `target`, here the
+# largest value of OCP's E4M3 and E5M2, in a format that saturates.
 for name, fmt, mx in (("E4M3", E4M3, 448.0), ("E5M2", E5M2, 57344.0)):
-    sq = ScaledQuant(fmt, mx)
+    saturating = BinaryK(fmt.K, fmt.P, bias=fmt.bias, saturation=SaturationMode.SAT_FINITE)
+    sq = ScaledQuant(saturating, target=mx)
     zeroed = (sq(g) == 0).float().mean().item()
     print(
         f"scaled {name}: {zeroed:.1%} of the same gradient rounds to zero, "

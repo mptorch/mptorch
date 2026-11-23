@@ -46,7 +46,7 @@ would be slower than the flat wrappers it is built on.
 import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import KW_ONLY, dataclass, field, replace
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Any, cast
 
 import torch
@@ -63,19 +63,12 @@ from mptorch.number import (
 
 from .ops import (
     BlockPacked,
-    binaryK_quantize,
-    binaryK_quantize_,
     block_pack,
     block_quantize,
-    block_quantize_,
-    fixedpoint_quantize,
-    fixedpoint_quantize_,
-    superfp_quantize,
-    superfp_quantize_,
 )
 from .ops._accumulate import _checked_block_size
 from .ops._checks import _checked_carrier
-from .ops._spec import _GemmSpec
+from .ops._spec import _GemmSpec, _run_quant
 from .ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
@@ -88,9 +81,10 @@ from .ops.binaryk import (
     _binaryK_mixed_odd_spec,
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
+    _binaryK_quant_spec,
     _binaryK_spec,
 )
-from .ops.block import _block_gemm_spec, _BlockGemmSpec
+from .ops.block import _block_gemm_spec, _block_quant_spec, _BlockGemmSpec, _run_block_quant
 from .ops.cross import (
     _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
@@ -101,6 +95,7 @@ from .ops.cross import (
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
 )
+from .ops.fixedpoint import _fixedpoint_quant_spec
 from .ops.superfp import (
     _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
@@ -113,6 +108,7 @@ from .ops.superfp import (
     _superfp_mixed_odd_spec,
     _superfp_mixed_spec,
     _superfp_odd_spec,
+    _superfp_quant_spec,
     _superfp_spec,
 )
 
@@ -244,10 +240,13 @@ class Quant:
     the carrier, and returns a tensor of the same dtype and shape. Every
     ``*_quant`` slot of a ``QAffineFormats`` or ``QMatmulFormats`` takes one,
     and a straight-through :class:`mptorch.quant.Quantizer` or a QAT observer
-    can wrap one. The quantizer function and its arguments are chosen once,
-    when the ``Quant`` is built, so a call only forwards the tensor to them.
-    The class is frozen, so a ``Quant`` can be a dictionary key or a cache
-    key, like the mac objects.
+    can wrap one. The format is resolved once, when the ``Quant`` is built:
+    the op and its arguments, and what each carrier and each storage dtype
+    finds in the format. A call then makes only the checks that depend on the
+    tensor's dtype, and gives the results, warnings and errors that
+    :func:`mptorch.quant.binaryK_quantize` and its siblings give on every
+    call. The class is frozen, so a ``Quant`` can be a dictionary key or a
+    cache key, like the mac objects.
 
     Args:
         fmt (Number): the simulated format to round to: a
@@ -303,60 +302,50 @@ class Quant:
 
     def __post_init__(self) -> None:
         fmt, rm, carrier = self.fmt, self.rounding, _checked_carrier(self.carrier)
+        inplace = self.inplace
         if isinstance(fmt, BinaryK):
-            binaryK = binaryK_quantize_ if self.inplace else binaryK_quantize
-
-            def call(x: torch.Tensor) -> torch.Tensor:
-                return binaryK(
-                    x,
-                    K=fmt.K,
-                    P=fmt.P,
-                    bias=fmt.bias,
-                    prng_bits=fmt.prng_bits,
-                    is_signed=fmt.is_signed,
-                    rounding_mode=rm,
-                    saturation_mode=fmt.saturation,
-                    subnormals_mode=fmt.subnormals,
-                    carrier=carrier,
-                )
-
+            assert fmt.bias is not None  # resolved by BinaryK.__post_init__
+            spec = _binaryK_quant_spec(
+                fmt.K,
+                fmt.P,
+                fmt.bias,
+                fmt.prng_bits,
+                fmt.is_signed,
+                rm,
+                fmt.saturation,
+                fmt.subnormals,
+                carrier=carrier,
+                in_place=inplace,
+            )
+            call = partial(_run_quant, spec)
         elif isinstance(fmt, SuperFP):
-            superfp = superfp_quantize_ if self.inplace else superfp_quantize
-
-            def call(x: torch.Tensor) -> torch.Tensor:
-                return superfp(
-                    x,
-                    man_bits=fmt.man_bits,
-                    exp_bits=fmt.exp_bits,
-                    normal_binades=fmt.normal_binades,
-                    bias=fmt.bias,
-                    prng_bits=fmt.prng_bits,
-                    is_signed=fmt.is_signed,
-                    rounding_mode=rm,
-                    saturation_mode=fmt.saturation,
-                    carrier=carrier,
-                )
+            spec = _superfp_quant_spec(
+                fmt.man_bits,
+                fmt.exp_bits,
+                fmt.normal_binades,
+                fmt.bias,
+                fmt.prng_bits,
+                fmt.is_signed,
+                rm,
+                fmt.saturation,
+                carrier=carrier,
+                in_place=inplace,
+            )
+            call = partial(_run_quant, spec)
         elif isinstance(fmt, FixedPoint):
-            fixedpoint = fixedpoint_quantize_ if self.inplace else fixedpoint_quantize
-
-            def call(x: torch.Tensor) -> torch.Tensor:
-                return fixedpoint(
-                    x,
-                    wl=fmt.wl,
-                    fl=fmt.fl,
-                    prng_bits=fmt.prng_bits,
-                    is_signed=fmt.is_signed,
-                    symmetric=fmt.symmetric,
-                    rounding_mode=rm,
-                    carrier=carrier,
-                )
-
+            spec = _fixedpoint_quant_spec(
+                fmt.wl,
+                fmt.fl,
+                fmt.prng_bits,
+                fmt.is_signed,
+                fmt.symmetric,
+                rm,
+                carrier=carrier,
+                in_place=inplace,
+            )
+            call = partial(_run_quant, spec)
         elif isinstance(fmt, BlockFormat):
-            block = block_quantize_ if self.inplace else block_quantize
-
-            def call(x: torch.Tensor) -> torch.Tensor:
-                return block(x, fmt, -1, rounding=rm, carrier=carrier)
-
+            call = partial(_run_block_quant, _block_quant_spec(fmt, rm, carrier, inplace))
         else:
             raise TypeError(f"no elementwise quantizer for {type(fmt).__name__}")
         object.__setattr__(self, "_call", call)

@@ -146,6 +146,9 @@ See :doc:`quantizers`.
 .. autoclass:: Quant
    :special-members: __call__
 
+.. autoclass:: ScaledQuant
+   :special-members: __call__
+
 .. autoclass:: Quantizer
 
 Block quantizers
@@ -280,3 +283,40 @@ Layer arithmetic factories
 .. autofunction:: conv_formats
 
 .. autofunction:: block_gemm_formats
+
+Converting a model
+------------------
+
+See :doc:`layers` ("Converting a model").
+
+.. autoclass:: GemmFormats
+
+.. autoclass:: Rule
+
+.. autoclass:: Recipe
+
+.. autofunction:: convert_
+
+.. autofunction:: convert
+
+.. autofunction:: unconvert_
+
+.. autofunction:: register
+
+.. autoclass:: ConvertReport
+
+.. autoclass:: ConvertRow
+
+.. autofunction:: profile
+
+.. autoclass:: Profile
+
+.. autoclass:: ProfileRecord
+
+The ready-made recipes are in ``mptorch.quant.presets``:
+
+.. autofunction:: mptorch.quant.presets.uniform
+
+.. autofunction:: mptorch.quant.presets.fp8
+
+.. autofunction:: mptorch.quant.presets.mx

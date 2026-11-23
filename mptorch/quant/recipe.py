@@ -1,0 +1,573 @@
+"""Recipes: the formats each part of a model computes in, as one value.
+
+A model is converted (:func:`mptorch.quant.convert`) from a recipe rather
+than layer by layer. The recipe names, for each *kind* of computation, the
+formats it runs in, and rules override them for parts of the model chosen by
+name, by type or by a predicate:
+
+* :class:`GemmFormats` is the value of the three GEMM kinds: ``linear`` (a
+  product with a weight, as in ``nn.Linear``), ``conv`` and ``matmul`` (a
+  product of two activations). It holds the operand and gradient quantizers,
+  the output rounding, and one mac for each of the three passes, and builds a
+  fresh format container for a layer on each call
+  (:meth:`GemmFormats.affine`, :meth:`GemmFormats.conv`,
+  :meth:`GemmFormats.matmul`).
+* :class:`Rule` gives some kinds their values where its ``where`` matches.
+* :class:`Recipe` is an ordered set of rules, of which the last that matches
+  and names a kind wins: :meth:`Recipe.resolve` answers what one module
+  computes in.
+
+A kind a recipe does not mention, and a kind it sets to ``None``, stay plain
+PyTorch.
+"""
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
+from functools import partial
+from typing import TYPE_CHECKING, Any
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+from mptorch.number import BlockFormat, Number
+from mptorch.number import presets as number_presets
+from mptorch.number.block import _block_label, _part_label
+
+from .conv import _conv_formats
+from .gemm import (
+    _block_linear_fwd,
+    _block_linear_igrad,
+    _block_linear_wgrad,
+    _block_matmul_agrad,
+    _block_matmul_bgrad,
+    _block_matmul_fwd,
+    _linear_fwd,
+    _linear_igrad,
+    _linear_wgrad,
+    _matmul_agrad,
+    _matmul_bgrad,
+    _matmul_fwd,
+    _plain_conv,
+    _with_output,
+    block_matmul_formats,
+    cast_quant,
+)
+from .mac import BlockMac, BlockQuant, FusedMac, Quant, SplitMac, spec_for_block_mac, spec_for_mac
+from .modules.format import QAffineFormats, QMatmulFormats
+from .ops._operands import _gemm_nd
+from .ops._spec import _run_gemm
+from .scaled import ScaledQuant
+
+if TYPE_CHECKING:
+    from .convert import ConvertReport
+
+__all__ = ["GemmFormats", "Rule", "Recipe"]
+
+# The kinds a recipe can give formats to, and the three GEMM kinds among them,
+# which `gemm` (a shorthand, not a kind) names at once. Kinds that are not
+# GEMMs (norms, softmax, ...) will join the first tuple only.
+_KINDS = ("linear", "conv", "matmul")
+_GEMM_KINDS = ("linear", "conv", "matmul")
+
+# The default of `GemmFormats.uniform`'s gradient arguments: the forward's.
+_SAME: Any = object()
+
+_QUANT_SLOTS = (
+    "input_quant",
+    "weight_quant",
+    "bias_quant",
+    "output_quant",
+    "igrad_quant",
+    "wgrad_quant",
+    "bgrad_quant",
+)
+_MAC_SLOTS = ("fwd_mac", "igrad_mac", "wgrad_mac")
+
+
+def _as_quant(slot: object, name: str) -> Any:
+    """A quantizer slot's value as a layer's formats take it: a format becomes
+    a quantizer that rounds to it to nearest."""
+    if slot is None:
+        return None
+    if isinstance(slot, BlockFormat):
+        return BlockQuant(slot)
+    if isinstance(slot, Number):
+        return Quant(slot)
+    if isinstance(slot, nn.Module):
+        raise TypeError(
+            f"{name} is a {type(slot).__name__}, a module: a recipe gives the same object to "
+            "every layer it matches, so a module's state (a QAT observer's statistics) would be "
+            "shared by all of them. Give the slot a Quant or a ScaledQuant (a Quantizer's "
+            "forward quantizer, which is all a layer runs), or build those layers' formats "
+            "yourself"
+        )
+    if not callable(slot):
+        raise TypeError(
+            f"{name} takes a format, a Quant, a ScaledQuant, a BlockQuant or a callable, got "
+            f"{type(slot).__name__}"
+        )
+    return slot
+
+
+def _as_mac(slot: object, name: str) -> Any:
+    """A pass's mac as :class:`GemmFormats` keeps it, resolved once so that an
+    error raises when the recipe is built rather than when a layer runs."""
+    if slot is None:
+        return None
+    if isinstance(slot, BlockFormat):
+        return BlockMac(slot)
+    if isinstance(slot, Number):
+        slot = SplitMac(slot, slot)
+    if isinstance(slot, SplitMac | FusedMac):
+        if spec_for_mac(slot).mixed:
+            raise ValueError(
+                f"{name} holds a palette, which selects a format per output element and so "
+                "needs a prec_idx map for each pass, and GemmFormats takes none: build that "
+                "layer's formats with matmul_formats or conv_formats, which take the maps"
+            )
+        return slot
+    if isinstance(slot, BlockMac):
+        return slot
+    raise TypeError(
+        f"{name} takes a SplitMac, a FusedMac, a BlockMac or a format, got {type(slot).__name__}"
+    )
+
+
+def _linear_pass(mac: Any, hook: Callable, block_hook: Callable) -> Callable | None:
+    """One Linear pass's hook: none without a mac (PyTorch's own product),
+    ``block_hook`` over a ``BlockMac``'s GEMM and its two operands' quantizers,
+    and ``hook`` over any other mac's resolved GEMM."""
+    if mac is None:
+        return None
+    if isinstance(mac, BlockMac):
+        return block_hook(spec_for_block_mac(mac), cast_quant(mac.a), cast_quant(mac.b))
+    return hook(partial(_run_gemm, spec_for_mac(mac)))
+
+
+def _matmul_pass(mac: Any, hook: Callable, block_hook: Callable) -> Callable | None:
+    """One matmul pass's hook, as :func:`_linear_pass` builds a Linear one."""
+    if mac is None:
+        return None
+    if isinstance(mac, BlockMac):
+        return block_hook(mac)
+    return hook(partial(_gemm_nd, spec_for_mac(mac)))
+
+
+@dataclass(frozen=True, kw_only=True)
+class GemmFormats:
+    """The formats of one GEMM-shaped layer: its quantizers and one mac per pass.
+
+    It is the value a :class:`Recipe` gives the ``linear``, ``conv`` and
+    ``matmul`` kinds, and it builds the format container that a
+    :class:`~mptorch.quant.QLinear`, a ``QConv1d/2d/3d`` or a
+    :class:`~mptorch.quant.QMatmul` reads: :meth:`affine`, :meth:`conv` and
+    :meth:`matmul` return a new one on each call, so that no two layers share
+    a container.
+
+    Each of the three passes (the forward product, the input gradient and the
+    weight gradient) runs in its own mac, or in PyTorch's own arithmetic when
+    its mac is ``None``. A mac is a :class:`~mptorch.quant.SplitMac`, a
+    :class:`~mptorch.quant.FusedMac` or a :class:`~mptorch.quant.BlockMac`;
+    a format means ``SplitMac(fmt, fmt)`` (a :class:`mptorch.BlockFormat`,
+    ``BlockMac(fmt)``). A ``BlockMac``'s two operands are the pass's two, in
+    order: (input, weight) for the forward, (gradient, weight) for the input
+    gradient and (gradient, input) for the weight gradient, or (a, b), (grad,
+    b) and (a, grad) for a matmul. A palette, which needs a ``prec_idx`` map
+    per pass, is not taken: :func:`~mptorch.quant.matmul_formats` and
+    :func:`~mptorch.quant.conv_formats` take the maps.
+
+    The quantizer slots are those of :class:`~mptorch.quant.QAffineFormats`,
+    plus ``output_quant``, which rounds the forward result after the bias is
+    added, with a straight-through gradient. Each takes a
+    :class:`~mptorch.quant.Quant`, a :class:`~mptorch.quant.ScaledQuant`, a
+    :class:`~mptorch.quant.BlockQuant`, a format (meaning ``Quant(fmt)``, or
+    ``BlockQuant(fmt)`` for a block format) or any stateless callable. A
+    module is refused, since every layer the recipe matches would share its
+    state. For a matmul, ``input_quant`` and ``weight_quant`` are ``a``'s and
+    ``b``'s, ``igrad_quant`` and ``wgrad_quant`` the two gradients', and the
+    bias slots are not used. The recompute flags are passed on as they are
+    (``recompute_a`` and ``recompute_b`` for a matmul).
+
+    Args:
+        input_quant, weight_quant, bias_quant (optional): the forward
+            operands' quantizers. Default: ``None``
+        output_quant (optional): rounds the forward result. Default: ``None``
+        fwd_mac, igrad_mac, wgrad_mac (optional): each pass's mac.
+            Default: ``None``, PyTorch's arithmetic.
+        igrad_quant, wgrad_quant, bgrad_quant (optional): the output
+            gradient's quantizer for the input gradient, the weight gradient
+            and the bias gradient. Default: ``None``
+        recompute_input, recompute_weight (bool, optional): as for
+            :class:`~mptorch.quant.QAffineFormats`. Default: ``None``
+
+    Raises:
+        TypeError: for a slot of the wrong type, or a module in a quantizer
+            slot.
+        ValueError: for a palette mac, or any error a mac raises when it is
+            resolved.
+
+    Example::
+
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import GemmFormats, QLinear, Quant, SplitMac
+        >>> p8 = BinaryK(8, 4)
+        >>> gf = GemmFormats.uniform(SplitMac(p8, BinaryK(16, 11)), Quant(p8))
+        >>> layer = QLinear(32, 8, formats=gf.affine())
+    """
+
+    input_quant: Any = None
+    weight_quant: Any = None
+    bias_quant: Any = None
+    output_quant: Any = None
+    fwd_mac: Any = None
+    igrad_mac: Any = None
+    wgrad_mac: Any = None
+    igrad_quant: Any = None
+    wgrad_quant: Any = None
+    bgrad_quant: Any = None
+    recompute_input: bool | None = None
+    recompute_weight: bool | None = None
+
+    def __post_init__(self) -> None:
+        for name in _QUANT_SLOTS:
+            object.__setattr__(self, name, _as_quant(getattr(self, name), name))
+        for name in _MAC_SLOTS:
+            object.__setattr__(self, name, _as_mac(getattr(self, name), name))
+        for name in ("recompute_input", "recompute_weight"):
+            if getattr(self, name) is not None and not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} is True, False or None, got {getattr(self, name)!r}")
+
+    @classmethod
+    def uniform(
+        cls, mac: Any, quant: Any = None, *, grad_mac: Any = _SAME, grad_quant: Any = _SAME
+    ) -> "GemmFormats":
+        """Every pass in ``mac``, and every operand and gradient rounded by ``quant``.
+
+        ``grad_mac`` and ``grad_quant`` give the two gradient passes their own
+        mac and the output gradient its own quantizer; they default to
+        ``mac`` and ``quant``. The bias, its gradient and the output are left
+        unrounded.
+        """
+        grad_mac = mac if grad_mac is _SAME else grad_mac
+        grad_quant = quant if grad_quant is _SAME else grad_quant
+        return cls(
+            input_quant=quant,
+            weight_quant=quant,
+            fwd_mac=mac,
+            igrad_mac=grad_mac,
+            wgrad_mac=grad_mac,
+            igrad_quant=grad_quant,
+            wgrad_quant=grad_quant,
+        )
+
+    @property
+    def _has_block_mac(self) -> bool:
+        """Whether a pass multiplies block formats, which no convolution does."""
+        return any(isinstance(getattr(self, name), BlockMac) for name in _MAC_SLOTS)
+
+    def _affine_slots(self, formats: QAffineFormats) -> QAffineFormats:
+        formats.input_quant = self.input_quant
+        formats.weight_quant = self.weight_quant
+        formats.bias_quant = self.bias_quant
+        formats.igrad_quant = self.igrad_quant
+        formats.wgrad_quant = self.wgrad_quant
+        formats.bgrad_quant = self.bgrad_quant
+        formats.recompute_input = self.recompute_input
+        formats.recompute_weight = self.recompute_weight
+        formats._source = self
+        return formats
+
+    def affine(self) -> QAffineFormats:
+        """A new ``QAffineFormats`` for a Linear layer, with these formats."""
+        formats = QAffineFormats(
+            fwd_math=_linear_pass(self.fwd_mac, _linear_fwd, _block_linear_fwd),
+            bwd_igrad_math=_linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad),
+            bwd_wgrad_math=_linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad),
+        )
+        if isinstance(self.fwd_mac, BlockMac):
+            # the weight's quantizer, which QLinear.freeze_packed_ packs a frozen weight with
+            formats._block_weight = cast_quant(self.fwd_mac.b)
+        if self.output_quant is not None:
+            _with_output(formats, self.output_quant, F.linear)
+        return self._affine_slots(formats)
+
+    def conv(self) -> QAffineFormats:
+        """A new ``QAffineFormats`` for a ``QConv1d/2d/3d``, with these formats.
+
+        Raises:
+            TypeError: if a pass's mac is a ``BlockMac``: there is no block
+                convolution.
+        """
+        if self._has_block_mac:
+            raise TypeError(
+                "a convolution has no block-format arithmetic: give BlockMac formats to the "
+                "linear and matmul kinds only"
+            )
+        fwd, igrad, wgrad = (
+            None if m is None else spec_for_mac(m)
+            for m in (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
+        )
+        formats = _conv_formats(fwd, igrad, wgrad)
+        if self.output_quant is not None:
+            _with_output(formats, self.output_quant, _plain_conv)
+        return self._affine_slots(formats)
+
+    def matmul(self) -> QMatmulFormats:
+        """A new ``QMatmulFormats`` for a ``QMatmul``, with these formats.
+
+        When all three passes are ``BlockMac`` s it is
+        :func:`~mptorch.quant.block_matmul_formats`'s container, which packs
+        an operand in a square-tiled format once and reads it again in
+        backward, with the quantizers this value sets in place of its own.
+        """
+        macs = (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
+        if all(isinstance(m, BlockMac) for m in macs):
+            formats = block_matmul_formats(macs[0], agrad_mac=macs[1], bgrad_mac=macs[2])
+        else:
+            formats = QMatmulFormats(
+                fwd_math=_matmul_pass(macs[0], _matmul_fwd, _block_matmul_fwd),
+                bwd_agrad_math=_matmul_pass(macs[1], _matmul_agrad, _block_matmul_agrad),
+                bwd_bgrad_math=_matmul_pass(macs[2], _matmul_bgrad, _block_matmul_bgrad),
+            )
+        for slot, value in (
+            ("a_quant", self.input_quant),
+            ("b_quant", self.weight_quant),
+            ("agrad_quant", self.igrad_quant),
+            ("bgrad_quant", self.wgrad_quant),
+        ):
+            if value is not None:
+                setattr(formats, slot, value)
+        formats.recompute_a = self.recompute_input
+        formats.recompute_b = self.recompute_weight
+        if self.output_quant is not None:
+            _with_output(formats, self.output_quant, torch.matmul)
+        formats._source = self
+        return formats
+
+    def label(self) -> str:
+        """A one-line summary of the formats, for reports: the mac (each
+        pass's, if they differ), then the quantizers that are set, named once
+        for the operands and once for the gradients when they agree."""
+        macs = [_mac_label(getattr(self, name)) for name in _MAC_SLOTS]
+        if macs[1:] == macs[:1] * 2:
+            parts = [f"mac {macs[0]}"]
+        else:
+            parts = [f"{p} {m}" for p, m in zip(("fwd", "igrad", "wgrad"), macs, strict=True)]
+        slots = {name.removesuffix("_quant"): getattr(self, name) for name in _QUANT_SLOTS}
+        for group, names in (("operands", ("input", "weight")), ("grads", ("igrad", "wgrad"))):
+            first, second = (slots[n] for n in names)
+            if first is not None and first == second:
+                slots[group] = slots.pop(names[0])
+                del slots[names[1]]
+        if "operands" in slots and slots["operands"] == slots.get("grads"):
+            slots["quant"] = slots.pop("operands")
+            del slots["grads"]
+        parts += [f"{n} {_quant_label(q)}" for n, q in slots.items() if q is not None]
+        return ", ".join(parts)
+
+
+def _fmt_label(fmt: Any) -> str:
+    """A format's short label: a preset's name (``MXFP8_E4M3``, ``E4M3``) if
+    it is one, and ``carrier`` for ``None``, a sum left in the carrier."""
+    if fmt is None:
+        return "carrier"
+    if isinstance(fmt, BlockFormat):
+        for name in ("MXFP8_E4M3", "MXFP8_E5M2", "MXFP6_E2M3", "MXFP6_E3M2", "MXFP4_E2M1", "NVFP4"):
+            if fmt == getattr(number_presets, name):
+                return name
+        return _block_label(fmt)
+    return _part_label(fmt)
+
+
+def _mac_label(mac: Any) -> str:
+    """A mac's short label. A ``GemmFormats`` holds no palette, so each slot
+    of a ``SplitMac`` or a ``FusedMac`` holds one format, or none."""
+    if mac is None:
+        return "torch"
+    if isinstance(mac, SplitMac):
+        acc = None if mac.acc is None else mac.acc[0]
+        return f"SplitMac({_fmt_label(mac.mul[0])}, {_fmt_label(acc)})"
+    if isinstance(mac, FusedMac):
+        return f"FusedMac({_fmt_label(None if mac.fma is None else mac.fma[0])})"
+    a, b = cast_quant(mac.a).fmt, cast_quant(mac.b).fmt
+    return f"BlockMac({_fmt_label(a)}, {_fmt_label(b)})"
+
+
+def _quant_label(q: Any) -> str:
+    """A quantizer's short label: a format object's, or the callable's name."""
+    if isinstance(q, Quant | ScaledQuant | BlockQuant):
+        return f"{type(q).__name__}({_fmt_label(q.fmt)}, {q.rounding.name})"
+    return getattr(q, "__name__", type(q).__name__)
+
+
+# --- rules and recipes ---------------------------------------------------------
+
+Where = str | type | tuple[type, ...] | Callable[[str, nn.Module], bool]
+
+
+def _kinds(kinds: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
+    """A rule's kinds as ``(kind, value)`` pairs, ``gemm`` expanded to the
+    three GEMM kinds (a kind named as well keeps its own value)."""
+    out: dict[str, Any] = {}
+    if "gemm" in kinds:
+        gemm = _checked_kind("gemm", kinds["gemm"])
+        out.update(dict.fromkeys(_GEMM_KINDS, gemm))
+    for kind, value in kinds.items():
+        if kind == "gemm":
+            continue
+        if kind not in _KINDS:
+            raise TypeError(
+                f"a recipe has no kind {kind!r}: the kinds are {', '.join(_KINDS)}, "
+                "and gemm sets the three GEMM kinds at once"
+            )
+        out[kind] = _checked_kind(kind, value)
+    return tuple(out.items())
+
+
+def _checked_kind(kind: str, value: Any) -> Any:
+    if value is not None and not isinstance(value, GemmFormats):
+        raise TypeError(f"the {kind} kind takes a GemmFormats or None, got {type(value).__name__}")
+    if kind in ("conv", "gemm") and value is not None and value._has_block_mac:
+        raise ValueError(
+            f"{kind}= would give a BlockMac to convolutions, which have no block-format "
+            "arithmetic: give it as linear= (and matmul=) instead"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class Rule:
+    """Formats for some kinds, wherever ``where`` matches.
+
+    ``where`` chooses the modules by their qualified name, as
+    ``model.named_modules()`` gives it (``""`` is the model itself), in one of
+    three forms:
+
+    * a glob, matched against the whole name with
+      :func:`fnmatch.fnmatchcase`: ``*`` matches any run of characters, dots
+      included, so ``"encoder.*"`` matches every module below ``encoder`` and
+      ``"*"`` every module;
+    * a type, or a tuple of types, matched with ``isinstance``;
+    * a predicate, called as ``where(name, module)``.
+
+    ``kinds`` maps a kind to a :class:`GemmFormats`, or to ``None`` for plain
+    PyTorch, and ``gemm`` names the three GEMM kinds at once. ``site``
+    restricts the rule to one call site inside a module, such as the first of
+    an attention block's two activation products; ``None`` matches every site.
+
+    Raises:
+        TypeError: for an unknown kind, a value that is not a ``GemmFormats``
+            or ``None``, or a ``where`` of none of the three forms.
+        ValueError: for a ``BlockMac`` given to the ``conv`` kind.
+    """
+
+    where: Where
+    kinds: Any = field(default=())
+    site: Any = None
+
+    def __post_init__(self) -> None:
+        where = self.where
+        if not (
+            isinstance(where, str | type)
+            or (isinstance(where, tuple) and all(isinstance(t, type) for t in where))
+            or callable(where)
+        ):
+            raise TypeError(
+                "where is a name glob, a type, a tuple of types or a predicate "
+                f"(name, module) -> bool, got {type(where).__name__}"
+            )
+        pairs = self.kinds.items() if isinstance(self.kinds, Mapping) else self.kinds
+        object.__setattr__(self, "kinds", _kinds(dict(pairs)))
+
+    def matches(self, name: str, module: nn.Module, site: Any = None) -> bool:
+        """Whether this rule applies to ``module``, named ``name``, at ``site``."""
+        if self.site is not None and self.site != site:
+            return False
+        where = self.where
+        if isinstance(where, str):
+            return fnmatchcase(name, where)
+        if isinstance(where, type | tuple):
+            return isinstance(module, where)
+        return bool(where(name, module))
+
+    def get(self, kind: str) -> tuple[bool, Any]:
+        """``(True, value)`` if this rule names ``kind``, else ``(False, None)``."""
+        for k, v in self.kinds:
+            if k == kind:
+                return True, v
+        return False, None
+
+
+class Recipe:
+    """Which formats each part of a model computes in.
+
+    ``Recipe(**kinds)`` gives every module the formats of each kind named
+    (``linear``, ``conv``, ``matmul``, or ``gemm`` for all three), and
+    :meth:`override` adds a rule for some modules. Rules are applied in
+    order, so a later rule wins for the kinds it names, and a kind it does not
+    name keeps what the earlier rules gave it. A kind no rule names, and one
+    set to ``None``, stays plain PyTorch. ``Recipe(rules, **kinds)`` starts
+    from a sequence of :class:`Rule` values, after the keywords' rule.
+
+    A recipe is immutable: :meth:`override` returns a new one. The same
+    recipe can convert several models, and its formats build a new container
+    for every layer.
+
+    Example::
+
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import GemmFormats, Quant, Recipe, SplitMac
+        >>> p8 = BinaryK(8, 4)
+        >>> gf = GemmFormats.uniform(SplitMac(p8, BinaryK(16, 11)), Quant(p8))
+        >>> recipe = Recipe(gemm=gf).override("classifier.*", linear=None)
+    """
+
+    __slots__ = ("rules",)
+    rules: tuple[Rule, ...]
+
+    def __init__(self, rules: "tuple[Rule, ...] | list[Rule]" = (), /, **kinds: Any):
+        rules = tuple(rules)
+        for rule in rules:
+            if not isinstance(rule, Rule):
+                raise TypeError(f"a Recipe's rules are Rule values, got {type(rule).__name__}")
+        if kinds:
+            rules = (Rule("*", kinds), *rules)
+        object.__setattr__(self, "rules", rules)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("a Recipe is immutable: override() returns a new one")
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Recipe) and self.rules == other.rules
+
+    def __hash__(self) -> int:
+        return hash(self.rules)
+
+    def __repr__(self) -> str:
+        return f"Recipe({list(self.rules)!r})"
+
+    def override(self, where: Where, *, site: Any = None, **kinds: Any) -> "Recipe":
+        """A new recipe with one more rule, which wins over the earlier ones
+        for the kinds it names (see :class:`Rule` for ``where`` and ``site``)."""
+        return Recipe((*self.rules, Rule(where, kinds, site)))
+
+    def resolve(self, name: str, module: nn.Module, kind: str, site: Any = None) -> Any:
+        """The formats ``module``, named ``name``, gets for ``kind`` at ``site``:
+        the value of the last rule that matches and names the kind, or
+        ``None``. A predicate may look at the module, so nothing is cached."""
+        if kind not in _KINDS:
+            raise ValueError(f"a recipe has no kind {kind!r}: the kinds are {', '.join(_KINDS)}")
+        for rule in reversed(self.rules):
+            named, value = rule.get(kind)
+            if named and rule.matches(name, module, site):
+                return value
+        return None
+
+    def plan(self, model: nn.Module, **kwargs: Any) -> "ConvertReport":
+        """What :func:`mptorch.quant.convert_` would do to ``model``, without
+        doing it. It takes ``convert_``'s keyword arguments."""
+        from .convert import _plan  # imported here: convert imports this module
+
+        return _plan(model, self, **kwargs)

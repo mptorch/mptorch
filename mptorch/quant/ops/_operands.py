@@ -207,4 +207,9 @@ def _matmul_nd(
         return run(a, b, trans_a, trans_b)
     layout = _matmul_operands(a, b, trans_a, trans_b, fold)
     out = run(layout.a, layout.b, layout.trans_a, layout.trans_b)
-    return out if out.shape == layout.out_shape else out.reshape(layout.out_shape)
+    if out.shape == layout.out_shape:
+        return out
+    # Detached from the view relation, as torch.matmul's own result is (it
+    # uses _unsafe_view): a layer's Function returns this, and autograd
+    # refuses an in-place op on a view that a custom Function made.
+    return out.reshape(layout.out_shape).detach()

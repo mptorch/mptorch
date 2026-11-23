@@ -14,6 +14,7 @@ only as its block codes. ``freeze_packed_`` changes a layer's class to it in
 place, and ``unfreeze_packed_`` changes it back.
 """
 
+import copy
 from typing import Any, cast
 
 import torch
@@ -242,6 +243,22 @@ class QLinear(nn.Linear):
         """Apply the layer to ``input``, quantizing and computing as ``formats`` says."""
         return CustomArithLinear.apply(input, self.weight, self.bias, self.formats)
 
+    @classmethod
+    def from_float(cls, linear: nn.Linear, formats: QAffineFormats | None = None) -> "QLinear":
+        """A ``QLinear`` over ``linear``'s own parameters, with ``formats``.
+
+        The new layer holds the same ``weight`` and ``bias`` Parameters (no
+        copy and no initialization), so training either one trains both;
+        ``linear`` itself is left as it is, and the two do not share hooks
+        registered afterwards. :func:`mptorch.quant.convert_` turns a model's
+        layers into ``QLinear`` s in place instead.
+
+        Raises:
+            TypeError: unless ``linear`` is exactly an ``nn.Linear``: a
+                subclass would lose what it adds.
+        """
+        return _from_float(linear, cls, nn.Linear, formats)
+
     def freeze_packed_(self, *, pack: bool = True) -> "QPackedLinear":
         """Replace the float weight by its block codes, in place.
 
@@ -334,6 +351,27 @@ def _switch_class(layer: Any, cls: type) -> None:
     does to the modules it wraps: the object itself, its parameters, buffers,
     hooks and submodules are unchanged."""
     layer.__class__ = cls
+
+
+def _from_float(module: nn.Module, qcls: type, base: type, formats: Any) -> Any:
+    """``qcls.from_float``: a shallow copy of ``module`` with its class switched.
+
+    The copy refers to the same Parameters and buffers, through dictionaries
+    of its own (every dict and set in the module's ``__dict__``: parameters,
+    buffers, submodules and each kind of hook), so registering on one does not
+    register on the other."""
+    if type(module) is not base:
+        raise TypeError(
+            f"{qcls.__name__}.from_float takes an {base.__name__}, got a "
+            f"{type(module).__name__}, whose own class the conversion would drop"
+        )
+    q = copy.copy(module)
+    for key, value in vars(q).items():
+        if isinstance(value, dict | set):
+            vars(q)[key] = copy.copy(value)
+    _switch_class(q, qcls)
+    q.formats = QAffineFormats() if formats is None else formats
+    return q
 
 
 #: The version of a frozen layer's checkpoint layout, stored in its extra

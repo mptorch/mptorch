@@ -16,6 +16,7 @@ from torch import nn
 
 if TYPE_CHECKING:
     from ..mac import BlockQuant
+    from ..recipe import GemmFormats
 
 
 class QAffineFormats(nn.Module):
@@ -80,8 +81,9 @@ class QAffineFormats(nn.Module):
             convolution, ``False`` for ``QLinear``. Under ``None`` only a
             quantizer known to be stateless is run twice (a
             :class:`mptorch.quant.Quant` not in place, a
+            :class:`mptorch.quant.ScaledQuant`, a
             :class:`mptorch.quant.BlockQuant` called as a fake quantizer, or a
-            :class:`mptorch.quant.Quantizer` over either), and any other
+            :class:`mptorch.quant.Quantizer` over any of them), and any other
             callable keeps its result saved, since one with state (a QAT
             observer) would update it twice. ``True`` runs any callable again,
             which is the caller's promise that it depends only on its input
@@ -110,6 +112,11 @@ class QAffineFormats(nn.Module):
     #: pack the weight in. It is a class attribute, so that other formats
     #: carry nothing.
     _block_weight: "BlockQuant | None" = None
+
+    #: The :class:`mptorch.quant.GemmFormats` that built this container, which
+    #: :func:`mptorch.quant.profile` reports a layer's formats by, or ``None``
+    #: for a container built otherwise. A class attribute, as above.
+    _source: "GemmFormats | None" = None
 
     def __init__(
         self,
@@ -200,6 +207,10 @@ class QMatmulFormats(nn.Module):
         >>> formats.b_quant = Quant(BinaryK(8, 4))
         >>> attn = QMatmul(formats)
     """
+
+    #: The :class:`mptorch.quant.GemmFormats` that built this container, as
+    #: for :class:`QAffineFormats`.
+    _source: "GemmFormats | None" = None
 
     def __init__(
         self,

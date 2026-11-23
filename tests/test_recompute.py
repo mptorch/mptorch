@@ -40,6 +40,7 @@ from mptorch.quant import (
     QMatmulFormats,
     Quant,
     Quantizer,
+    ScaledQuant,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_quantize,
@@ -236,13 +237,16 @@ def test_a_users_quantizer_is_replayed_under_its_generators(device, kind):
 
 def test_which_quantizers_are_known_to_be_stateless():
     """
-    ``Quant`` (not in place), ``BlockQuant`` called as a fake quantizer, and a
-    ``Quantizer`` over one of those; nothing else.
+    ``Quant`` (not in place), ``ScaledQuant``, ``BlockQuant`` called as a fake
+    quantizer, and a ``Quantizer`` over one of those; nothing else.
     """
     q = Quant(BinaryK(8, 4))
     bq = BlockQuant(MXFP8_E4M3)
+    sq = ScaledQuant(BinaryK(8, 4))
     assert _saved._known(q) is q
     assert _saved._known(bq) is bq
+    assert _saved._known(sq) is sq
+    assert _saved._known(Quantizer(sq)) is sq
     assert _saved._known(Quantizer(BinaryK(8, 4))) == q
     assert _saved._known(Quantizer(bq, BinaryK(8, 4))) is bq
     for other in (

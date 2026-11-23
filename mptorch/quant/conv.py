@@ -138,7 +138,8 @@ def _fwd_hook(run: _ConvOp):
             # added out of place instead, so that the result is promoted.
             view = q_bias.view(-1, *([1] * nd))
             out = out.add_(view) if q_bias.dtype == out.dtype else out + view
-        return out.squeeze(0) if unbatched else out
+        # a view would stop an in-place op after the layer (see gemm._unviewed)
+        return out.squeeze(0).detach() if unbatched else out
 
     return fwd
 
@@ -189,18 +190,21 @@ def _wgrad_hook(run: _ConvOp):
     return bwd_wgrad
 
 
-def _conv_formats(fwd: _GemmSpec, igrad: _GemmSpec, wgrad: _GemmSpec) -> QAffineFormats:
+def _conv_formats(
+    fwd: _GemmSpec | None, igrad: _GemmSpec | None, wgrad: _GemmSpec | None
+) -> QAffineFormats:
     """Build a ``QAffineFormats`` with the three convolution hooks, one resolved
     conv op per pass: the forward pass in ``fwd``'s arithmetic, the input
-    gradient in ``igrad``'s and the weight gradient in ``wgrad``'s. The specs
-    must be single-format, because a palette's passes need their maps, which
-    only :func:`conv_formats` takes. A spec given for more than one pass is
-    bound once."""
-    runs = {spec: _ConvOp(spec, None) for spec in (fwd, igrad, wgrad)}
+    gradient in ``igrad``'s and the weight gradient in ``wgrad``'s. A pass
+    given ``None`` gets no hook, so the layer runs PyTorch's own convolution
+    there. The specs must be single-format, because a palette's passes need
+    their maps, which only :func:`conv_formats` takes. A spec given for more
+    than one pass is bound once."""
+    runs = {spec: _ConvOp(spec, None) for spec in (fwd, igrad, wgrad) if spec is not None}
     return QAffineFormats(
-        fwd_math=_fwd_hook(runs[fwd]),
-        bwd_igrad_math=_igrad_hook(runs[igrad]),
-        bwd_wgrad_math=_wgrad_hook(runs[wgrad]),
+        fwd_math=None if fwd is None else _fwd_hook(runs[fwd]),
+        bwd_igrad_math=None if igrad is None else _igrad_hook(runs[igrad]),
+        bwd_wgrad_math=None if wgrad is None else _wgrad_hook(runs[wgrad]),
     )
 
 

@@ -19,8 +19,8 @@ counterparts).
 
 A quantizer is run a second time only if it is known to depend on nothing
 but its input and the random generators: mptorch's ``Quant`` (when not in
-place), ``BlockQuant`` called as a fake quantizer, and a ``Quantizer`` over
-either of them. The caller can set the flag to ``True`` to recompute with
+place), ``ScaledQuant``, ``BlockQuant`` called as a fake quantizer, and a
+``Quantizer`` over any of them. The caller can set the flag to ``True`` to recompute with
 any other callable, which is their promise that it too depends on nothing
 else. Without that, any other callable keeps its result saved: a QAT
 observer called twice would count a batch twice, or round differently in
@@ -53,6 +53,7 @@ import torch
 
 from ..mac import BlockQuant, Quant
 from ..ops import BlockPacked
+from ..scaled import ScaledQuant
 from .quantizer import Quantizer
 
 # (the CPU generator's state or None, ((device, that device's generator state), ...))
@@ -62,14 +63,14 @@ _State = tuple[torch.Tensor | None, tuple[tuple[torch.device, torch.Tensor], ...
 _Replay = tuple[Callable, _State | None]
 
 
-def _known(q: object) -> Quant | BlockQuant | None:
+def _known(q: object) -> Quant | ScaledQuant | BlockQuant | None:
     """Return the mptorch quantizer that slot ``q`` runs, if it is one known
     to be stateless, and ``None`` otherwise."""
     if isinstance(q, Quantizer):
         q = q.forward_quant
     if isinstance(q, Quant):
         return None if q.inplace else q
-    return q if isinstance(q, BlockQuant) else None
+    return q if isinstance(q, ScaledQuant | BlockQuant) else None
 
 
 def _device_state(device: torch.device) -> torch.Tensor:

@@ -230,8 +230,11 @@ The output has three blocks:
   element to the top of the format's range, and the result is divided by
   the same scale afterwards. The small elements are then not lost at the
   bottom of the range. Hardware FP8 training keeps one such scale per tensor
-  (Transformer Engine's "amax" scaling). Here it is eight lines of Python,
-  because a quantizer slot takes any callable. With it, even E4M3 holds the
+  (Transformer Engine's "amax" scaling), and
+  :class:`~mptorch.quant.ScaledQuant` is that step as a quantizer, for any
+  ``*_quant`` slot (:doc:`quantizers` describes its options). Its target
+  here is the largest value of OCP's formats, 448 and 57344, which are below
+  the largest values of the binaryK layouts. With it, even E4M3 holds the
   gradient.
 
 5. Training the network

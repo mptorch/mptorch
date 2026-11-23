@@ -1,0 +1,8 @@
+Quant(e5m2)                              6.8% zero, relative error 0.0607
+ScaledQuant(e5m2, target=57344.0)        0.0% zero, relative error 0.0524
+  pow2=True                              0.0% zero, relative error 0.0539
+  margin=3                               0.0% zero, relative error 0.0524
+tensor: relative error per row 1.000  0.387  0.029  0.027
+   row: relative error per row 0.027  0.027  0.025  0.027
+torch.float16 finite: True
+tensor([9.7656e-04, 1.1469e+05, 1.9531e-03])

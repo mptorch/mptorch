@@ -34,6 +34,12 @@ checks) on every forward and backward pass would cost 2.3 to 6.4 microseconds
 per call (measured by ``dev/benchmarks/timing/python_call_overhead.py``),
 more than the rest of the Python call path.
 
+Each hook comes from a builder of its own, one per pass and per kind of
+GEMM (``_linear_fwd``, ``_block_linear_igrad``, ``_matmul_bgrad`` and the
+others), which the factories compose. A container may therefore run each
+pass in different arithmetic, or leave a pass to PyTorch, which is how
+:class:`mptorch.quant.GemmFormats` builds one.
+
 The factories set only the math hooks, except where a block format needs an
 operand packed once (:func:`block_matmul_formats`). The caller adds the
 elementwise operand quantizers (``weight_quant``, ``input_quant`` and the
@@ -79,7 +85,7 @@ from .ops.binaryk import (
     _binaryK_fma_odd_spec,
     _binaryK_odd_spec,
 )
-from .ops.block import _block_gemm_spec, _run_block_gemm, _stored_as
+from .ops.block import _block_gemm_spec, _BlockGemmSpec, _run_block_gemm, _stored_as
 from .ops.cross import (
     _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
@@ -115,6 +121,22 @@ __all__ = [
 _Matmul2D = Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor]
 
 
+def _unviewed(view: torch.Tensor) -> torch.Tensor:
+    """``view``, a view of a result the hook allocated, as a tensor autograd
+    does not take for a view.
+
+    A layer's autograd Function returns what its forward hook returns, and
+    autograd refuses an in-place op on a view that a custom Function created
+    (it cannot rebase the view's history onto the Function), so an in-place
+    activation after the layer (``nn.ReLU(inplace=True)``) would raise.
+    ``detach()`` shares the storage without the view relation; nothing else
+    refers to the result, and the Function's own backward computes the
+    gradient. This is what ``torch.matmul`` does internally, with
+    ``_unsafe_view``, for the same reason.
+    """
+    return view.detach()
+
+
 def _flatten_leading(x: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
     """Flatten all but the last dimension of ``x`` into one leading dimension.
 
@@ -132,20 +154,29 @@ def _gemm_formats(
 
     Which operand each hook transposes, how the leading dimensions are
     flattened into one row dimension and restored, and how the bias is added
-    belong to the Linear layer, not to the formats, so they are written here
-    once and each factory passes only its resolved ``matmul``. That GEMM runs
-    every pass, unless ``igrad`` (for the input gradient) or ``wgrad`` (for
-    the weight gradient) gives a different one.
+    belong to the Linear layer, not to the formats, so they are written once,
+    in the three hook builders below, and each factory passes only its
+    resolved ``matmul``. That GEMM runs every pass, unless ``igrad`` (for the
+    input gradient) or ``wgrad`` (for the weight gradient) gives a different
+    one.
     """
-    igrad_matmul = matmul if igrad is None else igrad
-    wgrad_matmul = matmul if wgrad is None else wgrad
+    return QAffineFormats(
+        fwd_math=_linear_fwd(matmul),
+        bwd_igrad_math=_linear_igrad(matmul if igrad is None else igrad),
+        bwd_wgrad_math=_linear_wgrad(matmul if wgrad is None else wgrad),
+    )
+
+
+def _linear_fwd(matmul: _Matmul2D) -> Callable:
+    """A Linear layer's forward hook over a resolved 2D GEMM: ``x @ w^T + b``."""
 
     def fwd(
         q_input: torch.Tensor, q_weight: torch.Tensor, q_bias: torch.Tensor | None
     ) -> torch.Tensor:
         x_flat, x_shape = _flatten_leading(q_input)
         out = matmul(x_flat, q_weight, False, True)
-        out = out.reshape(*x_shape[:-1], q_weight.shape[0])
+        if q_input.dim() != 2:
+            out = _unviewed(out.reshape(*x_shape[:-1], q_weight.shape[0]))
         # add_ rather than +: `out` is a view of a tensor the op allocated
         # inside this call, and nothing else refers to it, so adding the bias
         # in place gives the same bits as `out + q_bias` and saves one
@@ -156,17 +187,29 @@ def _gemm_formats(
             return out
         return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
+    return fwd
+
+
+def _linear_igrad(matmul: _Matmul2D) -> Callable:
+    """A Linear layer's input-gradient hook over a resolved 2D GEMM: ``g @ w``."""
+
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
-        out = igrad_matmul(g_flat, q_weight, False, False)
+        out = matmul(g_flat, q_weight, False, False)
         return out.reshape(*g_shape[:-1], q_weight.shape[1])
+
+    return bwd_igrad
+
+
+def _linear_wgrad(matmul: _Matmul2D) -> Callable:
+    """A Linear layer's weight-gradient hook over a resolved 2D GEMM: ``g^T @ x``."""
 
     def bwd_wgrad(q_wgrad_output: torch.Tensor, q_input: torch.Tensor) -> torch.Tensor:
         g_flat, _ = _flatten_leading(q_wgrad_output)
         i_flat, _ = _flatten_leading(q_input)
-        return wgrad_matmul(g_flat, i_flat, True, False)
+        return matmul(g_flat, i_flat, True, False)
 
-    return QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
+    return bwd_wgrad
 
 
 def _plain_conv(
@@ -1271,16 +1314,38 @@ def _matmul_formats(
     same GEMM three times.
     """
 
+    return QMatmulFormats(
+        fwd_math=_matmul_fwd(fwd_matmul),
+        bwd_agrad_math=_matmul_agrad(agrad_matmul),
+        bwd_bgrad_math=_matmul_bgrad(bgrad_matmul),
+    )
+
+
+def _matmul_fwd(matmul: _MatmulNd) -> Callable:
+    """A matmul's forward hook over a resolved GEMM: ``a @ b``."""
+
     def fwd(q_a: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
-        return fwd_matmul(q_a, q_b, False, False)
+        return matmul(q_a, q_b, False, False)
+
+    return fwd
+
+
+def _matmul_agrad(matmul: _MatmulNd) -> Callable:
+    """``a``'s gradient hook over a resolved GEMM: ``grad @ b^T``."""
 
     def bwd_agrad(q_grad: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
-        return agrad_matmul(q_grad, q_b, False, True)
+        return matmul(q_grad, q_b, False, True)
+
+    return bwd_agrad
+
+
+def _matmul_bgrad(matmul: _MatmulNd) -> Callable:
+    """``b``'s gradient hook over a resolved GEMM: ``a^T @ grad``."""
 
     def bwd_bgrad(q_grad: torch.Tensor, q_a: torch.Tensor) -> torch.Tensor:
-        return bgrad_matmul(q_a, q_grad, True, False)
+        return matmul(q_a, q_grad, True, False)
 
-    return QMatmulFormats(fwd_math=fwd, bwd_agrad_math=bwd_agrad, bwd_bgrad_math=bwd_bgrad)
+    return bwd_bgrad
 
 
 def _mixed_matmul(spec, prec_idx: torch.Tensor | None, pass_name: str, argument: str):
@@ -1481,34 +1546,63 @@ def block_matmul_formats(
     """
     agrad_mac = mac if agrad_mac is None else agrad_mac
     bgrad_mac = mac if bgrad_mac is None else bgrad_mac
-    fwd_spec, agrad_spec, bgrad_spec = (spec_for_block_mac(m) for m in (mac, agrad_mac, bgrad_mac))
     qa, qb = cast_quant(mac.a), cast_quant(mac.b)
-    ag_a, ag_b = cast_quant(agrad_mac.a), cast_quant(agrad_mac.b)
-    bg_a, bg_b = cast_quant(bgrad_mac.a), cast_quant(bgrad_mac.b)
-
-    def fwd(q_a, q_b):
-        dtype = q_a.dtype
-        out = _run_block_gemm(fwd_spec, _packed_operand(qa, q_a, -1), _packed_operand(qb, q_b, -2))
-        return _stored_as(fwd_spec, out, dtype)
-
-    def bwd_agrad(q_grad, q_b):
-        b = _reused(q_b, ag_b, "a's gradient")
-        b_t = b.mT if b is not None else ag_b.pack_fresh(q_b, -1).mT
-        out = _run_block_gemm(agrad_spec, ag_a.pack_fresh(q_grad, -1), b_t)
-        return _stored_as(agrad_spec, out, q_grad.dtype)
-
-    def bwd_bgrad(q_grad, q_a):
-        a = _reused(q_a, bg_a, "b's gradient")
-        a_t = a.mT if a is not None else bg_a.pack_fresh(q_a, -2).mT
-        out = _run_block_gemm(bgrad_spec, a_t, bg_b.pack_fresh(q_grad, -2))
-        return _stored_as(bgrad_spec, out, q_grad.dtype)
-
-    formats = QMatmulFormats(fwd_math=fwd, bwd_agrad_math=bwd_agrad, bwd_bgrad_math=bwd_bgrad)
+    formats = QMatmulFormats(
+        fwd_math=_block_matmul_fwd(mac),
+        bwd_agrad_math=_block_matmul_agrad(agrad_mac),
+        bwd_bgrad_math=_block_matmul_bgrad(bgrad_mac),
+    )
     if qa.fmt.is_square:
         formats.a_quant = partial(qa.pack_fresh, axis=-1)
     if qb.fmt.is_square:
         formats.b_quant = partial(qb.pack_fresh, axis=-2)
     return formats
+
+
+def _block_matmul_fwd(mac: BlockMac) -> Callable:
+    """A matmul's forward hook over ``mac``'s block GEMM: ``a`` packed along
+    its last dimension and ``b`` along its second-to-last."""
+    spec = spec_for_block_mac(mac)
+    qa, qb = cast_quant(mac.a), cast_quant(mac.b)
+
+    def fwd(q_a, q_b):
+        dtype = q_a.dtype
+        out = _run_block_gemm(spec, _packed_operand(qa, q_a, -1), _packed_operand(qb, q_b, -2))
+        return _stored_as(spec, out, dtype)
+
+    return fwd
+
+
+def _block_matmul_agrad(mac: BlockMac) -> Callable:
+    """``a``'s gradient hook, ``grad @ b^T``, over ``mac``'s block GEMM: both
+    packed along their last dimension, ``b`` read from the forward's packing
+    when its tiles are square."""
+    spec = spec_for_block_mac(mac)
+    ag_a, ag_b = cast_quant(mac.a), cast_quant(mac.b)
+
+    def bwd_agrad(q_grad, q_b):
+        b = _reused(q_b, ag_b, "a's gradient")
+        b_t = b.mT if b is not None else ag_b.pack_fresh(q_b, -1).mT
+        out = _run_block_gemm(spec, ag_a.pack_fresh(q_grad, -1), b_t)
+        return _stored_as(spec, out, q_grad.dtype)
+
+    return bwd_agrad
+
+
+def _block_matmul_bgrad(mac: BlockMac) -> Callable:
+    """``b``'s gradient hook, ``a^T @ grad``, over ``mac``'s block GEMM: both
+    packed along their second-to-last dimension, ``a`` read from the
+    forward's packing when its tiles are square."""
+    spec = spec_for_block_mac(mac)
+    bg_a, bg_b = cast_quant(mac.a), cast_quant(mac.b)
+
+    def bwd_bgrad(q_grad, q_a):
+        a = _reused(q_a, bg_a, "b's gradient")
+        a_t = a.mT if a is not None else bg_a.pack_fresh(q_a, -2).mT
+        out = _run_block_gemm(spec, a_t, bg_b.pack_fresh(q_grad, -2))
+        return _stored_as(spec, out, q_grad.dtype)
+
+    return bwd_bgrad
 
 
 def cast_quant(slot: "BlockFormat | BlockQuant | None") -> BlockQuant:
@@ -1632,16 +1726,40 @@ def block_gemm_formats(
         tensor_scale_epilogue,
     )
 
+    formats = QAffineFormats(
+        fwd_math=_block_linear_fwd(spec, qi, qw),
+        bwd_igrad_math=_block_linear_igrad(spec, qg, qw),
+        bwd_wgrad_math=_block_linear_wgrad(spec, qg, qi),
+    )
+    # the weight's quantizer, which QLinear.freeze_packed_ uses to pack a frozen weight
+    formats._block_weight = qw
+    return formats
+
+
+def _block_linear_fwd(spec: _BlockGemmSpec, qi: BlockQuant, qw: BlockQuant) -> Callable:
+    """A Linear layer's forward hook over a block GEMM: the input packed along
+    its features by ``qi``, the weight along its input features by ``qw``
+    (or taken as it is when it arrives packed)."""
+
     def fwd(q_input, q_weight, q_bias):
         x_flat, x_shape = _flatten_leading(q_input)
         w = q_weight if isinstance(q_weight, BlockPacked) else qw.pack_fresh(q_weight, 1)
         out = _stored_as(
             spec, _run_block_gemm(spec, qi.pack_fresh(x_flat, -1), w.mT), q_input.dtype
         )
-        out = out.reshape(*x_shape[:-1], w.shape[0])
+        if q_input.dim() != 2:
+            out = _unviewed(out.reshape(*x_shape[:-1], w.shape[0]))
         if q_bias is None:
             return out
         return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
+
+    return fwd
+
+
+def _block_linear_igrad(spec: _BlockGemmSpec, qg: BlockQuant, qw: BlockQuant) -> Callable:
+    """A Linear layer's input-gradient hook over a block GEMM: the output
+    gradient packed along its features by ``qg``, the weight along its output
+    features by ``qw`` (or read from the forward's packing, square tiles only)."""
 
     def bwd_igrad(q_igrad_output, q_weight):
         g_flat, g_shape = _flatten_leading(q_igrad_output)
@@ -1651,13 +1769,18 @@ def block_gemm_formats(
         out = _run_block_gemm(spec, qg.pack_fresh(g_flat, -1), w)
         return _stored_as(spec, out, q_igrad_output.dtype).reshape(*g_shape[:-1], w.shape[1])
 
+    return bwd_igrad
+
+
+def _block_linear_wgrad(spec: _BlockGemmSpec, qg: BlockQuant, qi: BlockQuant) -> Callable:
+    """A Linear layer's weight-gradient hook over a block GEMM: the output
+    gradient (by ``qg``) and the input (by ``qi``) both packed along the
+    batch dimension."""
+
     def bwd_wgrad(q_wgrad_output, q_input):
         g_flat, _ = _flatten_leading(q_wgrad_output)
         i_flat, _ = _flatten_leading(q_input)
         out = _run_block_gemm(spec, qg.pack_fresh(g_flat, 0).mT, qi.pack_fresh(i_flat, 0))
         return _stored_as(spec, out, q_wgrad_output.dtype)
 
-    formats = QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
-    # the weight's quantizer, which QLinear.freeze_packed_ uses to pack a frozen weight
-    formats._block_weight = qw
-    return formats
+    return bwd_wgrad
