@@ -286,10 +286,115 @@ def test_recomputed_in_backward(device, kind):
 def test_compiles(device):
     sq = ScaledQuant(E4M3_SAT, granularity="block", block_size=16, pow2=True)
     x = _data(device, shape=(4, 40))
+    torch._dynamo.reset()
     assert torch.equal(torch.compile(sq, backend="aot_eager", fullgraph=True)(x), sq(x))
     layer = QLinear(40, 8).to(device)
     layer.formats.input_quant = layer.formats.weight_quant = ScaledQuant(E4M3_SAT)
     xr = x.clone().requires_grad_(True)
     eager = layer(xr)
     compiled = torch.compile(layer, backend="aot_eager", fullgraph=True)(xr)
+    assert torch.equal(eager, compiled)
+
+
+# --- the four passes against the five ----------------------------------------------
+#
+# A call makes four passes over the tensor: the largest magnitudes, read from
+# the input; the product, written straight into a carrier tensor; the rounding,
+# in place; and the quotient, written straight into the result. It must give
+# the bits of the five-pass spelling it replaced, below: a carrier copy,
+# scaled, rounded and unscaled in place, then narrowed.
+
+LAYOUTS = [
+    ("tensor", None, -1, (6, 40)),
+    ("tensor", None, -1, (77,)),
+    ("row", None, -1, (6, 40)),
+    ("row", None, 0, (3, 5, 9)),
+    ("block", 8, -1, (6, 40)),
+    ("block", 7, 1, (5, 30, 2)),  # another axis, and a shorter last block
+    ("block", 64, -1, (4, 30)),  # a block longer than the row
+]
+
+
+def _five_passes(sq, x, device):
+    """The five-pass spelling: a carrier copy of ``x``, scaled, rounded and
+    unscaled in place, one view per scale, then narrowed to ``x``'s dtype."""
+    wide = x.dtype is torch.float64 or sq.carrier is torch.float64
+    carrier = torch.float64 if wide else torch.float32
+    y = x.to(carrier, memory_format=torch.contiguous_format, copy=True)
+    if sq.granularity == "tensor":
+        views = [y]
+        scales = [sq._scale(y.abs().amax())]
+    else:
+        moved = y.movedim(sq.axis, -1)
+        step = moved.shape[-1] if sq.granularity == "row" else sq.block_size
+        views = [moved[..., i : i + step] for i in range(0, moved.shape[-1], step)]
+        scales = [sq._scale(v.abs().amax(-1, keepdim=True)) for v in views]
+    for v, sv in zip(views, scales, strict=True):
+        v.mul_(sv)
+    _seeded(device)
+    Quant(sq.fmt, sq.rounding, inplace=True)(y)
+    for v, sv in zip(views, scales, strict=True):
+        v.div_(sv)
+    if x.dtype is carrier:
+        return y
+    return _narrowed(y, x.dtype) if wide else y.to(x.dtype)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("fmt,rounding,target", CASES, ids=str)
+@pytest.mark.parametrize("granularity,block_size,axis,shape", LAYOUTS, ids=str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_four_passes_are_the_five(
+    device, fmt, rounding, target, granularity, block_size, axis, shape, dtype
+):
+    x = _data(device, dtype, shape) * torch.logspace(-3, 3, shape[-1], device=device).to(dtype)
+    sq = ScaledQuant(
+        fmt, rounding, target=target, granularity=granularity, block_size=block_size, axis=axis
+    )
+    got = _run(device, sq, x)
+    assert got.dtype is dtype and got.shape == x.shape and got.is_contiguous()
+    assert torch.equal(got, _five_passes(sq, x, device))
+    strided = x.mT if x.dim() > 1 else x[::2]
+    assert torch.equal(_run(device, sq, strided), _five_passes(sq, strided, device))
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("fmt,rounding,target", CASES, ids=str)
+@pytest.mark.parametrize("granularity,block_size,axis,shape", LAYOUTS[::2], ids=str)
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
+def test_four_passes_are_the_five_in_binary64(
+    device, fmt, rounding, target, granularity, block_size, axis, shape, dtype
+):
+    x = _data(device, dtype, shape)
+    sq = ScaledQuant(
+        fmt,
+        rounding,
+        target=target,
+        granularity=granularity,
+        block_size=block_size,
+        axis=axis,
+        carrier=torch.float64,
+    )
+    got = _run(device, sq, x)
+    assert got.dtype is dtype and torch.equal(got, _five_passes(sq, x, device))
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize(
+    "granularity,block_size,axis", [("tensor", None, -1), ("row", None, 0), ("block", 6, -1)]
+)
+def test_compiles_on_every_layout(device, dtype, granularity, block_size, axis):
+    """Strided views take a copy and an in-place op under compile, with the same values."""
+    sq = ScaledQuant(
+        BinaryK(8, 4, prng_bits=8, saturation=SAT),
+        SR,
+        granularity=granularity,
+        block_size=block_size,
+        axis=axis,
+    )
+    x = _data(device, dtype, (4, 20))
+    eager = _run(device, sq, x)
+    torch._dynamo.reset()  # each case compiles ScaledQuant.__call__ for its own layout
+    compiled = _run(device, torch.compile(sq, backend="aot_eager", fullgraph=True), x)
     assert torch.equal(eager, compiled)

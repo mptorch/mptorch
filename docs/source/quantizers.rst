@@ -281,7 +281,11 @@ for any ``*_quant`` slot. Its options are:
 Every step runs in the carrier. A float16 or bfloat16 tensor is copied to
 float32 first, so the scale is not limited by float16's range and the scaled
 values are not rounded to the narrow dtype before the format rounds them,
-and the result is converted back once. A tensor, row or block whose largest
+and the result is converted back once. A call costs four passes over the
+tensor where a ``Quant`` costs one: the largest magnitudes, the product
+(written straight into the carrier), the rounding and the quotient (written
+straight into the result). On the CPU and MPS a narrower tensor converts in
+passes of its own, six in all. A tensor, row or block whose largest
 magnitude is zero, infinite or NaN is scaled by 1. The scale is chosen on
 the tensor's device, with no wait for its value, so a ``ScaledQuant``
 compiles. Scale into a saturating format (``SaturationMode.SAT_FINITE``):

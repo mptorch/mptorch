@@ -53,6 +53,11 @@ class ScaledQuant:
     scaled (a scale of ``5.7e7``, E5M2's 57344 over a gradient of size
     ``1e-3``, overflows float16), and its values are not rounded to float16
     between the multiplication and the format. ``x`` itself is never written.
+    A call reads and writes the tensor four times, where a :class:`Quant`
+    does once: for the largest magnitudes, for the product, which goes
+    straight into the carrier, for the rounding, and for the quotient, which
+    goes straight into the result. A narrower tensor on the CPU or MPS is
+    converted in passes of its own, six in all.
 
     A tensor (or a row or block, see ``granularity``) whose largest magnitude
     is zero, infinite or NaN is scaled by 1, and so is one whose scale would
@@ -193,38 +198,100 @@ class ScaledQuant:
         ok = torch.isfinite(amax) & (amax > 0) & torch.isfinite(s) & (s > 0)
         return torch.where(ok, s, 1.0)
 
-    def _scaled_views(self, y: torch.Tensor) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        """Views of ``y`` that together cover it once, each with its scale."""
+    def _views(self, t: torch.Tensor) -> list[torch.Tensor]:
+        """Views of ``t`` that together cover it once, one per scale or
+        tensor of scales: ``t`` itself, ``t`` with the scaled axis last, or
+        its full blocks and its shorter last block. The input, the carrier
+        tensor and the result take the same views, so they line up."""
         if self.granularity == "tensor":
-            return [(y, self._scale(_amax(y)))]
-        moved = y.movedim(self.axis, -1)
+            return [t]
+        moved = t.movedim(self.axis, -1)
         if self.granularity == "row":
-            return [(moved, self._scale(_maxabs(moved)))]
+            return [moved]
         bs = self.block_size
         assert bs is not None  # checked by __post_init__
         length = moved.shape[-1]
         full = length // bs * bs
         views = []
         if full:
-            blocks = moved.narrow(-1, 0, full).unflatten(-1, (full // bs, bs))
-            views.append((blocks, self._scale(_maxabs(blocks))))
+            views.append(moved.narrow(-1, 0, full).unflatten(-1, (full // bs, bs)))
         if full < length:
-            tail = moved.narrow(-1, full, length - full)
-            views.append((tail, self._scale(_maxabs(tail))))
+            views.append(moved.narrow(-1, full, length - full))
         return views
+
+    def _largest(self, view: torch.Tensor) -> torch.Tensor:
+        """``max |view|`` per scale, with as many dimensions as ``view``: a
+        tensor of scales broadcasts against its view, and torch's type
+        promotion then computes in the scales' dtype, the carrier, even for a
+        narrower view (a 0-d scale would leave the product in the view's
+        dtype)."""
+        if self.granularity == "tensor":
+            return _amax(view).reshape((1,) * view.dim())
+        return _maxabs(view)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         dtype = x.dtype
         wide, _ = _call_carrier(self.carrier, dtype)
         carrier = torch.float64 if wide else torch.float32
-        y = x.to(carrier, memory_format=torch.contiguous_format, copy=True)
-        if y.numel():
-            views = self._scaled_views(y)
-            for view, s in views:
-                view.mul_(s)
-            self._quant(y)
-            for view, s in views:
-                view.div_(s)
-        if dtype is carrier:
-            return y
-        return _narrowed(y, dtype) if wide else y.to(dtype)
+        if not x.numel():
+            return torch.empty_like(x, memory_format=torch.contiguous_format)
+        # The largest magnitudes are read from x itself, whose values the
+        # carrier holds exactly. The product goes straight from x into the
+        # carrier tensor y, and the quotient straight from y into the result,
+        # where torch's op computes in one dtype and stores in another at full
+        # speed: on CUDA, and wherever the two dtypes are the same. That makes four
+        # passes over the tensor (the largest magnitudes, the product, the
+        # rounding in place, the quotient). On the CPU an op whose operands'
+        # dtypes differ runs a scalar casting loop, slower than converting in
+        # a pass of its own (2^24 bfloat16 elements: 308 ms against 165 on one
+        # thread), so a narrower tensor is converted there, as it is on MPS,
+        # in two passes more.
+        in_op = dtype is carrier or x.device.type == "cuda"
+        sources = self._views(x)
+        scales = [self._scale(self._largest(v).to(carrier)) for v in sources]
+        if in_op:
+            y = torch.empty_like(x, dtype=carrier, memory_format=torch.contiguous_format)
+            targets = self._views(y)
+            for src, dst, s in zip(sources, targets, scales, strict=True):
+                _mul_into(src, s, dst)
+        else:
+            y = x.to(carrier, memory_format=torch.contiguous_format, copy=True)
+            targets = self._views(y)
+            for dst, s in zip(targets, scales, strict=True):
+                dst.mul_(s)
+        self._quant(y)
+        # binary64 into float16 or bfloat16 takes _narrowed's pass, since
+        # torch's own conversion would round twice
+        if not in_op or dtype is carrier or (wide and dtype is not torch.float32):
+            for dst, s in zip(targets, scales, strict=True):
+                dst.div_(s)
+            if dtype is carrier:
+                return y
+            return _narrowed(y, dtype) if wide else y.to(dtype)
+        out = torch.empty_like(y, dtype=dtype)
+        for dst, res, s in zip(targets, self._views(out), scales, strict=True):
+            _div_into(dst, s, res)
+        return out
+
+
+# Dynamo does not trace an `out=` tensor that is not contiguous, as a row along
+# another axis or a block is, so under torch.compile those views take a copy
+# and an in-place op instead, which compute the same values (and which
+# Inductor fuses into one loop anyway).
+
+
+def _mul_into(src: torch.Tensor, s: torch.Tensor, dst: torch.Tensor) -> None:
+    """``dst = src * s``, computed in ``dst``'s dtype, the carrier."""
+    if torch.compiler.is_compiling() and not dst.is_contiguous():
+        dst.copy_(src).mul_(s)
+    else:
+        torch.mul(src, s, out=dst)
+
+
+def _div_into(src: torch.Tensor, s: torch.Tensor, dst: torch.Tensor) -> None:
+    """``dst = src / s``, computed in the carrier and rounded once into
+    ``dst``'s narrower dtype."""
+    if torch.compiler.is_compiling() and not dst.is_contiguous():
+        dst.copy_(torch.div(src, s))
+    else:
+        torch.div(src, s, out=dst)
