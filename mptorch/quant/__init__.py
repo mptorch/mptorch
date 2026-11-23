@@ -63,6 +63,7 @@ from .ops import (
 from .profile import Profile, ProfileRecord, profile
 from .recipe import GemmFormats, Recipe, Rule
 from .scaled import ScaledQuant
+from .simulate import SimulatedModule, SimulateReport, SimulateRow, simulate
 
 __all__ = [
     # elementwise quantization
@@ -123,7 +124,7 @@ __all__ = [
     "conv_formats",
     "block_matmul_formats",
     "block_gemm_formats",
-    # converting a model from a recipe, and counting its products
+    # converting or simulating a model from a recipe, and counting its products
     "GemmFormats",
     "Rule",
     "Recipe",
@@ -134,6 +135,10 @@ __all__ = [
     "unconvert_",
     "ConvertReport",
     "ConvertRow",
+    "simulate",
+    "SimulateReport",
+    "SimulateRow",
+    "SimulatedModule",
     "profile",
     "Profile",
     "ProfileRecord",

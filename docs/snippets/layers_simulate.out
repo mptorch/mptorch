@@ -1,0 +1,10 @@
+module  kind    site      call          formats                                                                                                             action
+0.qkv   linear            F.linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+0       matmul  matmul#0  torch.matmul                                                                                                                      plain: the recipe gives None
+0       matmul  matmul#1  torch.matmul  mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+0.out   linear            F.linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+1       linear            F.linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+4 simulated, 0 not covered, 1 left plain
+
+to float32: converted 0.0264, simulated 0.0352
+compiled equals eager: True

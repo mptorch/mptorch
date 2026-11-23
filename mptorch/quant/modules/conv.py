@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.grad as grad
 
+from ._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 from .linear import _from_float
@@ -225,7 +226,7 @@ class CustomArithConvNd(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as in forward
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             grad_output = grad_outputs[0]
             formats = ctx.formats
             stride = ctx.stride
@@ -369,6 +370,10 @@ class QConv1d(nn.Conv1d):
         torch.Size([1, 8, 14])
     """
 
+    #: ``mptorch.quant.simulate`` passes through every call made inside this
+    #: layer: the layer already runs in mptorch's arithmetic.
+    _mptorch_owned = True
+
     def __init__(
         self,
         in_channels: int,
@@ -481,6 +486,10 @@ class QConv2d(nn.Conv2d):
         torch.Size([1, 8, 14, 14])
     """
 
+    #: ``mptorch.quant.simulate`` passes through every call made inside this
+    #: layer: the layer already runs in mptorch's arithmetic.
+    _mptorch_owned = True
+
     def __init__(
         self,
         in_channels: int,
@@ -592,6 +601,10 @@ class QConv3d(nn.Conv3d):
         >>> conv(torch.randn(1, 3, 8, 16, 16)).shape
         torch.Size([1, 8, 6, 14, 14])
     """
+
+    #: ``mptorch.quant.simulate`` passes through every call made inside this
+    #: layer: the layer already runs in mptorch's arithmetic.
+    _mptorch_owned = True
 
     def __init__(
         self,

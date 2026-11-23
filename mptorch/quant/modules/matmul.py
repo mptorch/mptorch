@@ -19,6 +19,7 @@ again.
 
 import torch
 
+from ._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 
 
@@ -139,7 +140,7 @@ class CustomArithMatmul(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as in forward
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             formats = ctx.formats
             saved_a, saved_b = load(ctx)
             a_1d, b_1d = ctx.promotion
@@ -216,6 +217,10 @@ class QMatmul(torch.nn.Module):
         >>> mm(torch.randn(2, 4, 8), torch.randn(8, 3)).shape
         torch.Size([2, 4, 3])
     """
+
+    #: ``mptorch.quant.simulate`` passes through every call made inside this
+    #: layer: the layer already runs in mptorch's arithmetic.
+    _mptorch_owned = True
 
     def __init__(self, formats=None):
         super().__init__()

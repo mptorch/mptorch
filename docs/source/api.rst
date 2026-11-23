@@ -284,10 +284,10 @@ Layer arithmetic factories
 
 .. autofunction:: block_gemm_formats
 
-Converting a model
-------------------
+Converting or simulating a model
+--------------------------------
 
-See :doc:`layers` ("Converting a model").
+See :doc:`layers` ("Converting a model" and "Simulating a model").
 
 .. autoclass:: GemmFormats
 
@@ -300,6 +300,16 @@ See :doc:`layers` ("Converting a model").
 .. autofunction:: convert
 
 .. autofunction:: unconvert_
+
+.. autoclass:: simulate
+   :members: report, wrap
+
+.. autoclass:: SimulateReport
+
+.. autoclass:: SimulateRow
+
+.. autoclass:: SimulatedModule
+   :members: close
 
 .. autofunction:: register
 

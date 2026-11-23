@@ -11,16 +11,21 @@ called directly under the mode are recorded, which is what shows that the
 mode would see them otherwise.
 
 The guard hides ``torch.set_default_device`` and ``with torch.device(...)``
-too, which are modes as well, so the last test holds the layers to their
-explicit-device results under a default device.
+too, which are modes as well, so a test holds the layers to their
+explicit-device results under a default device. The last tests hold a mode
+entered inside compiled code to routing every layer (``_opaque.py`` says why
+the backward guard is off while compiling).
 """
 
 import pytest
 import torch
+import torch.nn.functional as F
+from torch._dynamo.testing import CompileCounterWithBackend
 from torch.overrides import TorchFunctionMode
 
 from mptorch import NVFP4, BinaryK, RoundMode
 from mptorch.quant import (
+    GemmFormats,
     QConv2d,
     QLinear,
     QMatmul,
@@ -31,6 +36,7 @@ from mptorch.quant import (
     block_gemm_formats,
     conv_formats,
 )
+from mptorch.quant.modules.linear import CustomArithLinear
 from tests.markers import available_devices, requires_cuda
 
 SR = RoundMode.SR
@@ -148,5 +154,79 @@ def test_a_default_device_does_not_reach_inside(name):
     want, _, _ = _run(module, shapes, "cuda")
     with torch.device("cuda"):
         got, _, _ = _run(module, shapes, "cuda")
+    for w, g in zip(want, got, strict=True):
+        assert torch.equal(w, g)
+
+
+# --- under torch.compile ------------------------------------------------------------
+
+
+class _Router(TorchFunctionMode):
+    """Routes each ``F.linear`` to ``CustomArithLinear`` over the next of its
+    containers, as an intercepting mode (``simulate``) does."""
+
+    def __init__(self, containers):
+        super().__init__()
+        self.containers = containers
+        self.calls = 0
+
+    def __torch_function__(self, func, types, args: tuple = (), kwargs=None):
+        kwargs = kwargs or {}
+        if func is torch._C._nn.linear:
+            container = self.containers[self.calls % len(self.containers)]
+            self.calls += 1
+            return CustomArithLinear.apply(args[0], args[1], None, container)
+        return func(*args, **kwargs)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, SR])
+@pytest.mark.parametrize("passes", ["backward macs", "gradient quantizers"])
+def test_a_compiled_mode_routes_every_function(device, rounding, passes):
+    """A mode entered inside compiled code must keep seeing calls after a
+    Function's backward has been traced: on torch 2.15, a backward guarded by
+    ``DisableTorchFunction`` that runs an mptorch GEMM left modes disabled
+    for the rest of the trace, so only the first layer was routed and the
+    others compiled as plain ``F.linear``, with no graph break ("backward
+    macs" fails with that guard; gradient quantizers alone did not trigger
+    it). The routed layers are counted in the graph, since an unrouted layer
+    whose forward has no mac computes the same values; outputs and gradients
+    equal eager's."""
+    torch._dynamo.reset()
+    fmt = BinaryK(8, 4, prng_bits=8) if rounding is SR else BinaryK(8, 4)
+    mac = SplitMac(fmt, BinaryK(16, 11, prng_bits=fmt.prng_bits), rounding=rounding)
+    q = Quant(fmt, rounding)
+    if passes == "backward macs":
+        gf = GemmFormats.uniform(mac, q)
+    else:
+        gf = GemmFormats(input_quant=q, weight_quant=q, fwd_mac=mac, igrad_quant=q, wgrad_quant=q)
+    torch.manual_seed(0)
+    weights = [torch.nn.Parameter(torch.randn(16, 16, device=device) / 4) for _ in range(3)]
+    mode = _Router([gf.affine() for _ in weights])
+
+    def step(x):
+        with mode:
+            for w in weights:
+                x = F.linear(x, w)
+            return x
+
+    def run(fn):
+        for w in weights:
+            w.grad = None
+        x = torch.randn(3, 16, device=device, generator=torch.Generator(device).manual_seed(1))
+        x.requires_grad_(True)
+        torch.manual_seed(2)
+        out = fn(x)
+        out.backward(torch.ones_like(out))
+        assert x.grad is not None
+        return [out.detach(), x.grad, *(w.grad for w in weights)]
+
+    want = run(step)
+    counter = CompileCounterWithBackend("aot_eager")
+    got = run(torch.compile(step, backend=counter, fullgraph=True))
+    routed = [
+        n for n in counter.graphs[0].graph.nodes if "autograd_function_apply" in str(n.target)
+    ]
+    assert len(routed) == len(weights)
     for w, g in zip(want, got, strict=True):
         assert torch.equal(w, g)

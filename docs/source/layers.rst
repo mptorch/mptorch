@@ -598,3 +598,44 @@ the float model's: the layers' formats hold closures, which the recipe
 rebuilds. Only modules convert, so a product that a model's code computes
 with a function, such as a ``torch.matmul`` in an attention block, keeps
 PyTorch's arithmetic, and ``profile`` does not count it.
+
+Simulating a model
+------------------
+
+:class:`~mptorch.quant.simulate` runs a model in a recipe's arithmetic
+without converting it, and reaches what a conversion cannot. While it is
+active (``with simulate(recipe, model) as sim:``), it intercepts the model's
+calls: each product the recipe gives formats to runs through the autograd
+Function a converted layer runs, with the same formats, so on the layers a
+conversion would convert the results are the converted model's, word for
+word, gradients included. A product is resolved by kind:
+
+- ``linear`` is ``F.linear``, and a ``torch.addmm`` or ``torch.matmul``
+  whose right operand is one of the model's Parameters (GPT-2's ``Conv1D``
+  is an ``addmm``). It takes the formats of the module that owns the
+  weight, so ``F.linear(x, self.qkv.weight)`` takes ``qkv``'s even when
+  ``qkv`` itself is never called;
+- ``conv`` is ``F.conv1d/2d/3d``, resolved the same way;
+- ``matmul`` is a product of two activations (a view of a weight, such as
+  ``W.T``, counts as one). It takes the formats of the module that computes
+  it, at a *site*: ``"matmul#0"`` is that module's first such product in a
+  forward pass and ``"matmul#1"`` its second, so ``override(where,
+  site="matmul#1", matmul=...)`` reaches one of them. The report lists the
+  sites.
+
+``sim.report()`` lists every product seen, what ran it, and why a product
+was left to PyTorch: the recipe gave it ``None``, or simulate cannot run it
+(an ``einsum``, ``F.scaled_dot_product_attention``, which computes an
+attention block's products in one call), and ``strict=True`` raises for the
+latter in a module the recipe covers. A converted model's layers run as
+converted. Under ``torch.compile``, compile ``sim.wrap()``, which enters the
+simulation inside the compiled code; a compiled call is not recorded in the
+report.
+
+.. literalinclude:: ../snippets/layers_simulate.py
+   :language: python
+   :caption: docs/snippets/layers_simulate.py
+
+.. literalinclude:: ../snippets/layers_simulate.out
+   :language: text
+   :caption: output

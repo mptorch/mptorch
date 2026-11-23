@@ -3,9 +3,10 @@
 Each function returns a :class:`~mptorch.quant.Recipe`, which ``override``
 then adjusts for the parts of a model that need something else, such as a
 classifier head left in float32. None of them sets the ``matmul`` kind for
-the whole model: that kind is a product of two activations, and a model's
-own glue code computes some that are not meant to be rounded (the rotary
-position frequencies of a Llama-style model are one).
+the whole model: that kind is every product of two activations, which in a
+transformer means its attention's scores and weighted sums, and whatever
+else the model's own code multiplies. A recipe that means to round some of
+them names them, by module or by site.
 
 The formats a model is converted to are named in :mod:`mptorch` itself
 (``E4M3``, ``MXFP8_E4M3`` and the others, from ``mptorch.number.presets``);

@@ -27,6 +27,7 @@ from ..mac import BlockQuant
 from ..ops import BlockPacked, block_unpack
 from ..ops._checks import _CARRIER, _call_carrier
 from ..ops.block import _block_format_ints
+from ._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
@@ -121,7 +122,7 @@ class CustomArithLinear(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as in forward
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             grad_output = grad_outputs[0]
             formats = ctx.formats
 
@@ -223,6 +224,10 @@ class QLinear(nn.Linear):
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
+
+    #: ``mptorch.quant.simulate`` passes through every call made inside this
+    #: layer: the layer already runs in mptorch's arithmetic.
+    _mptorch_owned = True
 
     def __init__(
         self,

@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 Repository = "https://github.com/mptorch/mptorch"
 Issues = "https://github.com/mptorch/mptorch/issues"
 
-# Installed by `uv sync` and `uv run`, all of them (default-groups, below).
+# Installed by `uv sync` and `uv run`, all but `hf` (default-groups, below).
 [dependency-groups]
 test = [
     "pytest>=6.2.5",
@@ -60,6 +60,16 @@ examples = [
     "torchvision",
     "tqdm",
 ]
+# Hugging Face's libraries, for the tests that run HF's own model classes and
+# for the examples on real models. Not a default group: `uv sync --group hf`
+# installs it, a plain `uv sync` removes it again, and `uv run` keeps it.
+# Exact versions: tests/models.py and the tests of HF's classes follow these
+# versions' modeling code. Bump them on purpose, after reading the new
+# version's GPT-2 and Llama code (and the calls they make) again.
+hf = [
+    "transformers==5.24.0",
+    "datasets==5.2.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -79,9 +89,10 @@ torch = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
 torchvision = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
 
 [tool.uv]
-# `uv sync` installs every dependency group, so one command sets up the tests,
-# the linters, the docs and the examples.
-default-groups = "all"
+# `uv sync` installs these dependency groups, so one command sets up the
+# tests, the linters, the docs and the examples. `hf` is left out: it is large
+# and only some tests and examples use it (`uv sync --group hf` adds it).
+default-groups = ["test", "dev", "docs", "examples"]
 # Python comes from uv's own installations (the version in .python-version,
 # downloaded the first time), never from Homebrew or conda: a venv made from
 # one of those breaks when an upgrade removes its interpreter.

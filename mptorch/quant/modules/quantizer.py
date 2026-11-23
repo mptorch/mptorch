@@ -24,6 +24,7 @@ from torch import nn
 from mptorch.number import Number
 
 from ..mac import Quant
+from ._opaque import _opaque_backward
 
 
 class _StraightThrough(torch.autograd.Function):
@@ -44,7 +45,7 @@ class _StraightThrough(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as in forward
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             grad = grad_outputs[0]
             q = ctx.backward_quant
             return (q(grad) if q else grad), None, None
