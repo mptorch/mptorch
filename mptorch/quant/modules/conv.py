@@ -36,15 +36,19 @@ class CustomArithConvNd(torch.autograd.Function):
     """Autograd Function for a quantized convolution, 1D, 2D or 3D.
 
     ``forward(input, weight, bias, formats, stride, padding, dilation, groups,
-    nd)`` quantizes the three operands through the ``*_quant`` slots of
-    ``formats`` and computes the output with ``formats.fwd_math`` (called with
-    the convolution parameters and ``nd`` as keywords), or ``F.conv{nd}d``
-    without one. ``backward`` quantizes the output gradient separately for the
-    input-gradient path (``igrad_quant``) and the weight-gradient path
-    (``wgrad_quant``), and runs ``bwd_igrad_math`` and ``bwd_wgrad_math``, or
-    PyTorch's ``conv{nd}d_input`` and ``conv{nd}d_weight`` without them. For
-    the bias, it sums the gradient quantized by ``bgrad_quant`` over the batch
-    and spatial dimensions. Only the first three inputs get a gradient.
+    nd, grad_enabled=False)`` quantizes the three operands through the
+    ``*_quant`` slots of ``formats`` and computes the output with
+    ``formats.fwd_math`` (called with the convolution parameters and ``nd`` as
+    keywords), or ``F.conv{nd}d`` without one. ``grad_enabled`` is
+    ``torch.is_grad_enabled()`` at the layer's call, which the forward, run
+    with gradients off, cannot read; with it, ``F.conv{nd}d`` on the CPU runs
+    the kernel ``nn.Conv{nd}d`` would run. ``backward`` quantizes the output
+    gradient separately for the input-gradient path (``igrad_quant``) and the
+    weight-gradient path (``wgrad_quant``), and runs ``bwd_igrad_math`` and
+    ``bwd_wgrad_math``, or PyTorch's ``conv{nd}d_input`` and
+    ``conv{nd}d_weight`` without them. For the bias, it sums the gradient
+    quantized by ``bgrad_quant`` over the batch and spatial dimensions. Only
+    the first three inputs get a gradient.
     """
 
     @staticmethod
@@ -127,7 +131,9 @@ class CustomArithConvNd(torch.autograd.Function):
         raise ValueError(f"Unsupported nd: {nd}")
 
     @staticmethod
-    def forward(ctx, input, weight, bias, formats, stride, padding, dilation, groups, nd):
+    def forward(
+        ctx, input, weight, bias, formats, stride, padding, dilation, groups, nd, grad_enabled=False
+    ):
         # hidden from torch function modes, as in CustomArithLinear
         with torch._C.DisableTorchFunction():
             ctx.formats = formats
@@ -174,18 +180,42 @@ class CustomArithConvNd(torch.autograd.Function):
                 )
             else:
                 if nd == 1:
-                    output = F.conv1d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                    conv = F.conv1d
                 elif nd == 2:
-                    output = F.conv2d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                    conv = F.conv2d
                 elif nd == 3:
-                    output = F.conv3d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                    conv = F.conv3d
                 else:
                     raise ValueError(f"Unsupported nd: {nd}")
-                if input.dim() == nd + 1:
-                    # An unbatched input's result is a view F.conv*d squeezed
-                    # from a batched one, and autograd refuses an in-place op
-                    # (an inplace ReLU after the layer) on a view a custom
-                    # Function returns; detached, it is a tensor of its own.
+                # PyTorch's CPU convolution has kernels it runs only on a call
+                # that is not recorded for backward (on an ARM CPU, a Winograd
+                # kernel for 3x3 depthwise convolutions). A Function's forward
+                # runs with gradients off, so the call below would run such a
+                # kernel where a training nn.Conv2d runs another, whose sums
+                # round differently. With gradients on whenever the layer's
+                # call is recorded (grad_enabled: ctx.needs_input_grad is only
+                # each input's requires_grad), it runs the kernel nn.Conv*d
+                # runs, and the graph it records is dropped below (about 5 us
+                # a call). No CUDA or MPS kernel depends on this, so they skip
+                # it, and so does compiled code: PyTorch's own layers run a
+                # compiled forward with gradients off too.
+                if (
+                    grad_enabled
+                    and q_input.device.type == "cpu"
+                    and any(ctx.needs_input_grad[:3])
+                    and not torch.compiler.is_compiling()
+                ):
+                    with torch.enable_grad():
+                        output = conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                else:
+                    output = conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                if output.requires_grad or input.dim() == nd + 1:
+                    # Detached, the result drops the graph recorded above. An
+                    # unbatched input's result is also a view F.conv*d
+                    # squeezed from a batched one, and autograd refuses an
+                    # in-place op (an inplace ReLU after the layer) on a view
+                    # a custom Function returns; detached, it is a tensor of
+                    # its own.
                     output = output.detach()
 
             save(ctx, saved_input, saved_weight)
@@ -275,7 +305,7 @@ class CustomArithConvNd(torch.autograd.Function):
                     dims_to_sum = [0] + list(range(2, nd + 2))
                 grad_bias = q_bgrad_output.sum(dim=dims_to_sum)
 
-            return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+            return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
 
 
 # The name this Function had when it handled only 2D, kept so that existing
@@ -401,6 +431,7 @@ class QConv1d(nn.Conv1d):
             self.dilation,
             self.groups,
             1,
+            torch.is_grad_enabled(),
         )
 
 
@@ -512,6 +543,7 @@ class QConv2d(nn.Conv2d):
             self.dilation,
             self.groups,
             2,
+            torch.is_grad_enabled(),
         )
 
 
@@ -623,4 +655,5 @@ class QConv3d(nn.Conv3d):
             self.dilation,
             self.groups,
             3,
+            torch.is_grad_enabled(),
         )

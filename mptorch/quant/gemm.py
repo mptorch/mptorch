@@ -224,7 +224,14 @@ def _plain_conv(
     nd: int,
 ) -> torch.Tensor:
     """The plain convolution ``CustomArithConvNd`` runs when it has no
-    ``fwd_math`` hook, with the arguments of a convolution hook."""
+    ``fwd_math`` hook, with the arguments of a convolution hook.
+
+    It runs inside the Function's forward, with gradients off. So on an ARM
+    CPU, a 3x3 depthwise convolution whose layer call is recorded for backward
+    runs PyTorch's inference-only Winograd kernel here, where the Function's
+    own call, like ``nn.Conv2d``'s, runs another, and the sums can round
+    differently.
+    """
     conv = {1: F.conv1d, 2: F.conv2d, 3: F.conv3d}[nd]
     return conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)
 

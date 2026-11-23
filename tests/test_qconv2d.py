@@ -18,9 +18,10 @@ import torch
 import torch.nn.functional as F
 import torch.nn.grad
 from torch import nn
+from torch.utils._python_dispatch import TorchDispatchMode
 
 from mptorch.number import RoundMode
-from mptorch.quant import QAffineFormats, QConv2d, binaryK_quantize
+from mptorch.quant import QAffineFormats, QConv1d, QConv2d, QConv3d, binaryK_quantize
 from tests.markers import available_devices
 
 
@@ -88,6 +89,84 @@ def test_qconv_tier1_exact(device, bias):
         assert torch.allclose(vanilla.bias.grad, q_layer.bias.grad, atol=1e-5), (
             "Bias grad divergence!"
         )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("grad", [True, False])
+def test_qconv_depthwise_3x3_is_exact(device, grad):
+    """
+    Tier 1, word for word, on the convolution for which an ARM CPU has an
+    inference-only kernel (3x3, depthwise, stride 1, float32: PyTorch's
+    Winograd kernel, run only on a call not recorded for backward): with
+    nothing rounded, ``QConv2d`` returns ``nn.Conv2d``'s output, training and
+    under ``no_grad``, and its gradients. Elsewhere both run one kernel, so
+    this fails only on an ARM CPU; the next test checks the same thing on any.
+    """
+    torch.manual_seed(0)
+    vanilla = nn.Conv2d(16, 16, 3, padding=1, groups=16, bias=False, device=device)
+    q_layer = QConv2d.from_float(vanilla, QAffineFormats())  # the same weight
+    x = torch.randn(2, 16, 6, 6, device=device)
+    results = []
+    for layer in (vanilla, q_layer):
+        x_l = x.clone().requires_grad_(grad)
+        vanilla.weight.grad = None
+        with torch.set_grad_enabled(grad):
+            out = layer(x_l)
+        if grad:
+            out.backward(torch.ones_like(out))
+            assert x_l.grad is not None and vanilla.weight.grad is not None
+            results.append((out, x_l.grad, vanilla.weight.grad))
+        else:
+            results.append((out,))
+    for a, b in zip(*results, strict=True):
+        assert torch.equal(a, b)
+
+
+class _ConvCalls(TorchDispatchMode):
+    """Whether each ``aten.convolution`` call is recorded for backward, as
+    PyTorch's choice of a convolution kernel reads it: gradients on, and an
+    operand that requires them."""
+
+    def __init__(self):
+        super().__init__()
+        self.recorded = []
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        if func is torch.ops.aten.convolution.default:
+            operands = [t for t in args[:3] if t is not None]
+            recorded = torch.is_grad_enabled() and any(t.requires_grad for t in operands)
+            self.recorded.append(recorded)
+        return func(*args, **(kwargs or {}))
+
+
+@pytest.mark.parametrize(
+    "nd, cls, q_cls",
+    [(1, nn.Conv1d, QConv1d), (2, nn.Conv2d, QConv2d), (3, nn.Conv3d, QConv3d)],
+    ids=["1d", "2d", "3d"],
+)
+@pytest.mark.parametrize("grad", [True, False])
+@pytest.mark.parametrize("input_grad", [True, False])
+@pytest.mark.parametrize("weight_grad", [True, False])
+def test_qconv_calls_the_convolution_nn_conv_calls(nd, cls, q_cls, grad, input_grad, weight_grad):
+    """
+    A Function's forward runs with gradients off, and PyTorch's CPU
+    convolution runs some kernels only on a call not recorded for backward,
+    so with nothing rounded each layer must hand ``aten.convolution`` a call
+    that is recorded exactly when ``nn.Conv*d``'s is: the layer's grad mode
+    and its operands' ``requires_grad``. An x86 CPU has no such kernel, so
+    this checks there what the previous test checks only on an ARM CPU. Each
+    of the three layers passes its grad mode to the Function itself.
+    """
+    vanilla = cls(8, 8, 3, padding=1, groups=8)
+    vanilla.requires_grad_(weight_grad)
+    q_layer = q_cls.from_float(vanilla, QAffineFormats())
+    x = torch.randn(2, 8, *[4] * nd, requires_grad=input_grad)
+    seen = []
+    for layer in (vanilla, q_layer):
+        with torch.set_grad_enabled(grad), _ConvCalls() as calls:
+            layer(x)
+        seen.append(calls.recorded)
+    assert seen[0] == seen[1] == [grad and (input_grad or weight_grad)]
 
 
 @pytest.mark.parametrize("device", available_devices)
