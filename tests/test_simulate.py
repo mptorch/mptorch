@@ -88,7 +88,11 @@ def _formats(rounding: RoundMode, p: int = 4) -> GemmFormats:
 
 
 def _ids(device):
-    return torch.randint(0, 64, (2, 8), generator=torch.Generator().manual_seed(3)).to(device)
+    ids = torch.randint(0, 64, (2, 8), generator=torch.Generator().manual_seed(3))
+    # torch's MPS embedding backward sums a row's repeated ids in no fixed order; with at
+    # most two per row the sum is the same either way, so the MPS gradients stay word for word
+    assert torch.bincount(ids.flatten()).max() <= 2, "a token id repeats three times or more"
+    return ids.to(device)
 
 
 def _run(model, inputs, device, sim=None, call=None):
