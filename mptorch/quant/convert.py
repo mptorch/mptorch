@@ -11,7 +11,10 @@ conversion still updates it. :func:`convert` converts a deep copy instead,
 and :func:`unconvert_` turns the layers back.
 
 Which classes convert, and to what, is a registry of exact classes:
-:func:`register` adds one. A subclass of a registered class, such as a module
+:func:`register` adds one. The built-in entries are ``nn.Linear`` and
+``nn.Conv1d/2d/3d``, torch's activation modules (``nn.GELU``, ``nn.SiLU``,
+``nn.Sigmoid``, ``nn.Tanh``, ``nn.Hardswish``, ``nn.Hardsigmoid``,
+``nn.ReLU``) and ``nn.Embedding``. A subclass of a registered class, such as a module
 that ``torch.nn.utils.parametrize`` has wrapped, is not converted, since the
 class switch would drop what the subclass adds; the report lists it, and
 ``strict=True`` raises instead.
@@ -25,9 +28,12 @@ from typing import Any, NamedTuple
 from torch import nn
 from torch.nn.utils import parametrize
 
+from .modules.activation import QGELU, QHardsigmoid, QHardswish, QReLU, QSigmoid, QSiLU, QTanh
 from .modules.conv import QConv1d, QConv2d, QConv3d
+from .modules.embedding import QEmbedding
 from .modules.linear import QLinear, QPackedLinear, _switch_class
-from .recipe import _KINDS, GemmFormats, Recipe, Rule
+from .pointwise import ActivationFormats, PointwiseFormats
+from .recipe import _GEMM_KINDS, _KINDS, GemmFormats, Recipe, Rule
 
 __all__ = ["register", "convert_", "convert", "unconvert_", "ConvertReport", "ConvertRow"]
 
@@ -40,32 +46,47 @@ class _Entry(NamedTuple):
 
 _REGISTRY: dict[type, _Entry] = {}
 
-# How each kind's formats build the container its layer reads.
-_CONTAINER: dict[str, Callable[[GemmFormats], nn.Module]] = {
+# How each kind's formats build the container its layer reads. An activation's
+# and an embedding's formats are frozen values, which the layer reads as they are.
+_CONTAINER: dict[str, Callable[[Any], Any]] = {
     "linear": GemmFormats.affine,
     "conv": GemmFormats.conv,
     "matmul": GemmFormats.matmul,
+    "activation": lambda formats: formats,
+    "embedding": lambda formats: formats,
 }
 
 
 def register(cls: type, *, kind: str, qcls: type) -> None:
     """Make :func:`convert_` turn modules of exactly ``cls`` into ``qcls``.
 
-    ``qcls`` must subclass ``cls`` and compute through the ``formats``
+    ``qcls`` must subclass ``cls`` and compute through ``self.formats``: the
     container that the kind's :class:`GemmFormats` builds
     (:meth:`GemmFormats.affine` for ``linear``, :meth:`GemmFormats.conv` for
-    ``conv``, :meth:`GemmFormats.matmul` for ``matmul``), read from
-    ``self.formats``; a conversion switches the module's class and sets that
-    attribute, and runs no ``__init__``. Registering a class again replaces
-    its entry. The built-in entries are ``nn.Linear`` (``linear``) and
-    ``nn.Conv1d``, ``nn.Conv2d`` and ``nn.Conv3d`` (``conv``).
+    ``conv``, :meth:`GemmFormats.matmul` for ``matmul``), or the kind's
+    formats themselves for ``activation`` (an
+    :class:`~mptorch.quant.ActivationFormats`) and ``embedding`` (a
+    :class:`~mptorch.quant.PointwiseFormats`). A conversion switches the
+    module's class and sets that attribute, and runs no ``__init__``.
+    Registering a class again replaces its entry. The built-in entries are
+    ``nn.Linear`` (``linear``), ``nn.Conv1d``, ``nn.Conv2d`` and
+    ``nn.Conv3d`` (``conv``), torch's activation modules (``activation``)
+    and ``nn.Embedding`` (``embedding``).
 
     Raises:
-        ValueError: for an unknown kind.
+        ValueError: for an unknown kind, or ``elementwise``, which has no
+            module to convert (only :class:`~mptorch.quant.simulate`
+            reaches it).
         TypeError: if ``qcls`` is not a subclass of ``cls``.
     """
     if kind not in _KINDS:
         raise ValueError(f"unknown kind {kind!r}: the kinds are {', '.join(_KINDS)}")
+    if kind not in _CONTAINER:
+        raise ValueError(
+            f"no module converts to the {kind!r} kind, which only simulate reaches (a model's "
+            f"arithmetic is not a module): the kinds a module converts to are "
+            f"{', '.join(_CONTAINER)}"
+        )
     if not (isinstance(cls, type) and isinstance(qcls, type) and issubclass(qcls, cls)):
         raise TypeError(
             f"qcls must be a subclass of cls, which a conversion switches the module's class "
@@ -78,6 +99,14 @@ register(nn.Linear, kind="linear", qcls=QLinear)
 register(nn.Conv1d, kind="conv", qcls=QConv1d)
 register(nn.Conv2d, kind="conv", qcls=QConv2d)
 register(nn.Conv3d, kind="conv", qcls=QConv3d)
+register(nn.GELU, kind="activation", qcls=QGELU)
+register(nn.SiLU, kind="activation", qcls=QSiLU)
+register(nn.Sigmoid, kind="activation", qcls=QSigmoid)
+register(nn.Tanh, kind="activation", qcls=QTanh)
+register(nn.Hardswish, kind="activation", qcls=QHardswish)
+register(nn.Hardsigmoid, kind="activation", qcls=QHardsigmoid)
+register(nn.ReLU, kind="activation", qcls=QReLU)
+register(nn.Embedding, kind="embedding", qcls=QEmbedding)
 
 
 class ConvertRow(NamedTuple):
@@ -88,7 +117,7 @@ class ConvertRow(NamedTuple):
     name: str
     type: str
     kind: str
-    formats: GemmFormats | None
+    formats: GemmFormats | ActivationFormats | PointwiseFormats | None
     action: str
 
 
@@ -97,7 +126,10 @@ class ConvertReport:
     """What :func:`convert_` did, or, from :meth:`Recipe.plan`, would do.
 
     It has one row per module of a registered class or of a subclass of one,
-    in the model's order. ``str(report)`` is a table.
+    in the model's order, except the modules of a kind past the GEMMs
+    (activations, embeddings) that no rule of the recipe names, so that a
+    recipe for the GEMMs reports its layers alone. ``str(report)`` is a
+    table.
     """
 
     rows: tuple[ConvertRow, ...]
@@ -177,6 +209,7 @@ def _decide(
         if unknown:
             raise ValueError(f"unknown kinds {unknown}: the kinds are {', '.join(_KINDS)}")
     qclasses = {e.qcls: e for e in _REGISTRY.values()}
+    named = {kind for rule in recipe.rules for kind, _ in rule.kinds}
     seen: dict[int, tuple[str, Any]] = {}
     decisions: list[_Decision] = []
     refused: list[str] = []
@@ -185,6 +218,8 @@ def _decide(
         base = None if entry is not None else _registered_base(module)
         kind_entry = entry or base
         if kind_entry is None or (kinds is not None and kind_entry.kind not in kinds):
+            continue
+        if kind_entry.kind not in _GEMM_KINDS and kind_entry.kind not in named:
             continue
         gf = recipe.resolve(name, module, kind_entry.kind)
         first = seen.get(id(module))
@@ -243,11 +278,13 @@ def convert_(
 ) -> ConvertReport:
     """Convert ``model``'s layers in place, as ``recipe`` says.
 
-    Each module of a registered class (``nn.Linear``, ``nn.Conv1d/2d/3d``, and
-    any :func:`register` adds) that the recipe gives formats to becomes its
-    mptorch counterpart: the same object, with its class switched and a new
-    ``formats`` container built from the formats
-    (:meth:`GemmFormats.affine` or :meth:`GemmFormats.conv`). Its parameters,
+    Each module of a registered class (``nn.Linear``, ``nn.Conv1d/2d/3d``,
+    torch's activations, ``nn.Embedding``, and any :func:`register` adds)
+    that the recipe gives formats to becomes its mptorch counterpart: the
+    same object, with its class switched and a new ``formats`` container
+    built from the formats (:meth:`GemmFormats.affine` or
+    :meth:`GemmFormats.conv`; an activation's or an embedding's formats are
+    the recipe's value itself). Its parameters,
     buffers, hooks and ``state_dict`` keys are unchanged, so an optimizer
     built before the conversion still updates it. A module reachable under
     two names converts once. A model is saved through its ``state_dict``: the
@@ -318,10 +355,11 @@ def unconvert_(model: nn.Module) -> int:
     """Turn ``model``'s mptorch layers back into their PyTorch classes, in place.
 
     Every module whose class is exactly a registered mptorch class
-    (:class:`~mptorch.quant.QLinear`, ``QConv1d/2d/3d``, and any
-    :func:`register` added) gets back its PyTorch class, and its ``formats``
-    container is removed. Its parameters and their values are unchanged. A
-    layer built as an mptorch layer, not converted, is turned back too.
+    (:class:`~mptorch.quant.QLinear`, ``QConv1d/2d/3d``, the activations,
+    :class:`~mptorch.quant.QEmbedding`, and any :func:`register` added) gets
+    back its PyTorch class, and its ``formats`` are removed. Its parameters
+    and their values are unchanged. A layer built as an mptorch layer, not
+    converted, is turned back too.
 
     Returns:
         int: how many modules were turned back.

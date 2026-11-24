@@ -4,7 +4,7 @@
 function mode, and keeps the module stack through hooks on every module. Both
 cost Python on every call, whether or not the recipe gives the call formats.
 This times ``tests/models.py``'s ``MiniLlama`` (transformers' Llama, call for
-call), forward under ``no_grad``, in three variants alternated round by round
+call), forward under ``no_grad``, in five variants alternated round by round
 (the order flipped each round, the minimum kept):
 
     plain           the model alone
@@ -13,12 +13,19 @@ call), forward under ``no_grad``, in three variants alternated round by round
     routed          ``simulate(Recipe(gemm=GemmFormats()), model)``: every
                     product through mptorch's autograd Functions, with formats
                     that round nothing, so PyTorch's arithmetic runs inside
+    passing-all     a recipe that names the activation, elementwise and
+                    embedding kinds, all ``None``: their handlers installed,
+                    every call passed through
+    routed-all      ``routed``, and every activation, pointwise op and
+                    embedding through its mptorch op, with formats that round
+                    nothing (each op then calls torch's function)
 
 at two sizes: ``tiny`` (hidden 64, 2 layers, 32 tokens, batch 2), where the
 ~220 torch calls of a forward are most of its time, and ``small`` (hidden
 512, 4 layers, 256 tokens, batch 4), a model whose arithmetic is not
 negligible. The gate is ``passing`` against ``plain`` on ``small``: at most
-5-10%.
+5-10%. A recipe naming no kind past the GEMMs installs none of their
+handlers, so the gate's variant is the same with them or without.
 
 Run from the repository root (check the CPU clock first: a capped clock
 scales every number):
@@ -26,7 +33,7 @@ scales every number):
     uv run --no-sync python dev/benchmarks/timing/instrument_overhead.py --device cpu
     uv run --no-sync python dev/benchmarks/timing/instrument_overhead.py --device cuda
 
-About a minute per device.
+About a minute and a half per device.
 
 Results (Ryzen 9 7940HS at 4.75 GHz, 8 threads, RTX 4060 laptop GPU, torch 2.15, 2026-11-23):
 
@@ -36,7 +43,19 @@ Results (Ryzen 9 7940HS at 4.75 GHz, 8 threads, RTX 4060 laptop GPU, torch 2.15,
     cuda  small  plain 5.331 ms   passing 5.605 ms  (+5.2%)   routed 5.647 ms   (+5.9%)
 
 So the gate holds on both devices, and a tiny model pays the mode's Python
-cost on every call, nearly doubling its forward.
+cost on every call, nearly doubling its forward. With the variants of the
+kinds past the GEMMs (4.5 GHz, the same day; the tiny size's passing varies
+from +93% to +123% between runs, before and after them alike):
+
+    cpu   tiny   plain 0.704 ms   passing-all 1.620 ms (+130.2%)   routed-all 2.220 ms (+215.4%)
+    cpu   small  plain 106.1 ms   passing-all 112.0 ms   (+5.6%)   routed-all 112.4 ms   (+5.9%)
+    cuda  tiny   plain 1.621 ms   passing-all 3.035 ms  (+87.3%)   routed-all 3.327 ms (+105.3%)
+    cuda  small  plain 5.391 ms   passing-all 5.350 ms   (-0.8%)   routed-all 6.053 ms  (+12.3%)
+
+A recipe for the GEMMs pays nothing for the other kinds (``passing`` read
++0.1% on the CPU and +2.7% on CUDA in the same run). Naming them costs about
+5% on the small size, since every addition and product then goes through a
+handler, and routing them through the ops that round nothing up to 12%.
 """
 
 import argparse
@@ -48,7 +67,13 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from mptorch.quant import GemmFormats, Recipe, simulate  # noqa: E402
+from mptorch.quant import (  # noqa: E402
+    ActivationFormats,
+    GemmFormats,
+    PointwiseFormats,
+    Recipe,
+    simulate,
+)
 from tests.models import MiniLlama  # noqa: E402
 
 CONFIGS = {
@@ -83,6 +108,16 @@ def measure(device: str, name: str, rounds: int) -> dict[str, float]:
     ids = torch.randint(0, 1000, (c["batch"], c["seq"]), device=device)
     passing = simulate(Recipe(), model)
     routed = simulate(Recipe(gemm=GemmFormats()), model)
+    passing_all = simulate(Recipe(activation=None, elementwise=None, embedding=None), model)
+    routed_all = simulate(
+        Recipe(
+            gemm=GemmFormats(),
+            activation=ActivationFormats(),
+            elementwise=PointwiseFormats(),
+            embedding=PointwiseFormats(),
+        ),
+        model,
+    )
 
     def plain():
         model(ids)
@@ -94,7 +129,13 @@ def measure(device: str, name: str, rounds: int) -> dict[str, float]:
 
         return run
 
-    variants = {"plain": plain, "passing": under(passing), "routed": under(routed)}
+    variants = {
+        "plain": plain,
+        "passing": under(passing),
+        "routed": under(routed),
+        "passing-all": under(passing_all),
+        "routed-all": under(routed_all),
+    }
     n = 20 if name == "tiny" else 3
     best = dict.fromkeys(variants, float("inf"))
     with torch.no_grad():

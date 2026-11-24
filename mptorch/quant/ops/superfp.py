@@ -259,7 +259,7 @@ def _superfp_quant_spec(
 ) -> _QuantSpec:
     """Resolve a :func:`superfp_quantize` call (or a :func:`superfp_quantize_`
     one) once, for :class:`mptorch.quant.Quant`."""
-    op = torch.ops.mptorch.superfp_quant_ if in_place else torch.ops.mptorch.superfp_quant
+    ops = (torch.ops.mptorch.superfp_quant.default, torch.ops.mptorch.superfp_quant_.default)
     args = (
         man_bits,
         exp_bits,
@@ -272,13 +272,13 @@ def _superfp_quant_spec(
     )
     fields = (man_bits, exp_bits, normal_binades, bias, saturation_mode)
     return _quant_spec(
-        op.default,
+        ops,
         args,
         "superfp_quantize",
         in_place,
         carrier,
         lambda c: _superfp_findings(*fields, prng_bits, c),
-        lambda dtype: _superfp_storage_findings(*fields, dtype, True),
+        lambda dtype, elementwise: _superfp_storage_findings(*fields, dtype, elementwise),
     )
 
 

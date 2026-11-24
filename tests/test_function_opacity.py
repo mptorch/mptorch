@@ -3,9 +3,10 @@
 A ``TorchFunctionMode`` that intercepts a model's calls (to simulate them in
 other arithmetic, to profile them) must see a layer's call and none of the
 torch calls the layer makes inside, or it would handle those a second time.
-Every Function in ``mptorch.quant.modules`` therefore runs its forward and its
-backward with torch function modes disabled. These tests hold the four
-Functions to that: under a recording mode, nothing inside them is recorded,
+Every Function in ``mptorch.quant.modules`` and ``mptorch.quant.pointwise``
+therefore runs its forward and its backward with torch function modes
+disabled, and so does a pointwise op's own code around its Function. These
+tests hold the Functions to that: under a recording mode, nothing inside them is recorded,
 in either pass, and the results are those without the mode; the same hooks
 called directly under the mode are recorded, which is what shows that the
 mode would see them otherwise.
@@ -25,6 +26,8 @@ from torch.overrides import TorchFunctionMode
 
 from mptorch import NVFP4, BinaryK, RoundMode
 from mptorch.quant import (
+    QGELU,
+    ActivationFormats,
     GemmFormats,
     QConv2d,
     QLinear,
@@ -35,6 +38,14 @@ from mptorch.quant import (
     binaryK_gemm_formats,
     block_gemm_formats,
     conv_formats,
+    qadd,
+    qdiv,
+    qexp,
+    qmul,
+    qpow,
+    qrsqrt,
+    qsqrt,
+    qsub,
 )
 from mptorch.quant.modules.linear import CustomArithLinear
 from tests.markers import available_devices, requires_cuda
@@ -77,8 +88,36 @@ def _quantizer():
     return Quantizer(Quant(BinaryK(8, 4, prng_bits=8), SR), BinaryK(8, 5)), [(7,)]
 
 
-# CustomArithLinear, CustomArithConvNd, CustomArithMatmul and _StraightThrough.
-MODELS = {"linear": _linear, "conv": _conv, "matmul": _matmul, "quantizer": _quantizer}
+class _Pointwise(torch.nn.Module):
+    """Every elementary pointwise op, rounded, with a number operand."""
+
+    def forward(self, x, y):
+        q, g = Quant(BinaryK(8, 4, prng_bits=8), SR), Quant(BinaryK(8, 5))
+        z = qmul(qadd(x, y, q, g), 0.5, q, g)
+        z = qdiv(qsub(z, y, q, g), qadd(qmul(y, y, q, g), 1, q, g), q, g)
+        positive = qadd(qmul(z, z, q, g), 1, q, g)
+        return qpow(qexp(qrsqrt(qsqrt(positive, q, g), q, g), q, g), 2, q, g)
+
+
+def _pointwise():
+    return _Pointwise(), [(3, 4), (4,)]
+
+
+def _activation():
+    q = Quant(BinaryK(8, 4, prng_bits=8), SR)
+    return QGELU(formats=ActivationFormats(inner=q, out=q, grad=Quant(BinaryK(8, 5)))), [(3, 5)]
+
+
+# CustomArithLinear, CustomArithConvNd, CustomArithMatmul, _StraightThrough,
+# and the pointwise ops' and an activation's Functions.
+MODELS = {
+    "linear": _linear,
+    "conv": _conv,
+    "matmul": _matmul,
+    "quantizer": _quantizer,
+    "pointwise": _pointwise,
+    "activation": _activation,
+}
 
 
 def _run(module, shapes, device, mode=None):

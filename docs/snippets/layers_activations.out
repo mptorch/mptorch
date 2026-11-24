@@ -1,0 +1,19 @@
+module  type       kind        formats                                                                                                             action
+0       Embedding  embedding   out Quant(BinaryK(K=8, P=4, bias=8), RNE)                                                                           converted
+1.fc1   Linear     linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  converted
+1.act   GELU       activation  out Quant(BinaryK(K=8, P=4, bias=8), RNE), grad Quant(BinaryK(K=16, P=11, bias=16), RNE)                            converted
+1.fc2   Linear     linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  converted
+2       Linear     linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  converted
+5 converted, 0 kept
+
+module  kind         site  call         formats                                                                                                             action
+0       embedding          F.embedding  out Quant(BinaryK(K=8, P=4, bias=8), RNE)                                                                           simulated
+1.fc1   linear             F.linear     mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+1.act   activation         F.gelu       out Quant(BinaryK(K=8, P=4, bias=8), RNE), grad Quant(BinaryK(K=16, P=11, bias=16), RNE)                            simulated
+1.fc2   linear             F.linear     mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+1       elementwise        Tensor.mul   quant Quant(BinaryK(K=16, P=11, bias=16), RNE)                                                                      simulated
+1       elementwise        Tensor.add   quant Quant(BinaryK(K=16, P=11, bias=16), RNE)                                                                      simulated
+2       linear             F.linear     mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+7 simulated, 0 not covered, 0 left plain
+
+rounding the block's sum and scaling moves its output by up to 9.48e-04

@@ -1,0 +1,5 @@
+1 + 2**-30, binary32: 1.0
+1 + 2**-30, binary64: 1.125
+1 + 2**-60, binary64: 1.0
+1 + 2**-60, to odd:   1.125
+quotients binary32 rounds up to the wrong value: 3

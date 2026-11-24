@@ -12,6 +12,12 @@ name, by type or by a predicate:
   fresh format container for a layer on each call
   (:meth:`GemmFormats.affine`, :meth:`GemmFormats.conv`,
   :meth:`GemmFormats.matmul`).
+* :class:`~mptorch.quant.ActivationFormats` is the value of the
+  ``activation`` kind (GELU, SiLU, sigmoid, tanh, hardswish, hardsigmoid,
+  ReLU), and :class:`~mptorch.quant.PointwiseFormats` that of the
+  ``elementwise`` kind (a model's additions, products, quotients and the
+  other pointwise ops with an mptorch twin, which only
+  :class:`~mptorch.quant.simulate` reaches) and of the ``embedding`` kind.
 * :class:`Rule` gives some kinds their values where its ``where`` matches.
 * :class:`Recipe` is an ordered set of rules, of which the last that matches
   and names a kind wins: :meth:`Recipe.resolve` answers what one module
@@ -31,7 +37,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from mptorch.number import BlockFormat, Number
+from mptorch.number import BlockFormat, Number, RoundMode
 from mptorch.number import presets as number_presets
 from mptorch.number.block import _block_label, _part_label
 
@@ -54,10 +60,20 @@ from .gemm import (
     block_matmul_formats,
     cast_quant,
 )
-from .mac import BlockMac, BlockQuant, FusedMac, Quant, SplitMac, spec_for_block_mac, spec_for_mac
+from .mac import (
+    BlockMac,
+    BlockQuant,
+    FusedMac,
+    Quant,
+    SplitMac,
+    _as_quant,
+    spec_for_block_mac,
+    spec_for_mac,
+)
 from .modules.format import QAffineFormats, QMatmulFormats
 from .ops._operands import _gemm_nd
 from .ops._spec import _run_gemm
+from .pointwise import ActivationFormats, PointwiseFormats
 from .scaled import ScaledQuant
 
 if TYPE_CHECKING:
@@ -66,9 +82,8 @@ if TYPE_CHECKING:
 __all__ = ["GemmFormats", "Rule", "Recipe"]
 
 # The kinds a recipe can give formats to, and the three GEMM kinds among them,
-# which `gemm` (a shorthand, not a kind) names at once. Kinds that are not
-# GEMMs (norms, softmax, ...) will join the first tuple only.
-_KINDS = ("linear", "conv", "matmul")
+# which `gemm` (a shorthand, not a kind) names at once.
+_KINDS = ("linear", "conv", "matmul", "elementwise", "activation", "embedding")
 _GEMM_KINDS = ("linear", "conv", "matmul")
 
 # The default of `GemmFormats.uniform`'s gradient arguments: the forward's.
@@ -84,31 +99,6 @@ _QUANT_SLOTS = (
     "bgrad_quant",
 )
 _MAC_SLOTS = ("fwd_mac", "igrad_mac", "wgrad_mac")
-
-
-def _as_quant(slot: object, name: str) -> Any:
-    """A quantizer slot's value as a layer's formats take it: a format becomes
-    a quantizer that rounds to it to nearest."""
-    if slot is None:
-        return None
-    if isinstance(slot, BlockFormat):
-        return BlockQuant(slot)
-    if isinstance(slot, Number):
-        return Quant(slot)
-    if isinstance(slot, nn.Module):
-        raise TypeError(
-            f"{name} is a {type(slot).__name__}, a module: a recipe gives the same object to "
-            "every layer it matches, so a module's state (a QAT observer's statistics) would be "
-            "shared by all of them. Give the slot a Quant or a ScaledQuant (a Quantizer's "
-            "forward quantizer, which is all a layer runs), or build those layers' formats "
-            "yourself"
-        )
-    if not callable(slot):
-        raise TypeError(
-            f"{name} takes a format, a Quant, a ScaledQuant, a BlockQuant or a callable, got "
-            f"{type(slot).__name__}"
-        )
-    return slot
 
 
 def _as_mac(slot: object, name: str) -> Any:
@@ -404,6 +394,13 @@ def _quant_label(q: Any) -> str:
 
 # --- rules and recipes ---------------------------------------------------------
 
+# The formats each kind past the GEMMs takes.
+_KIND_VALUES: dict[str, type] = {
+    "activation": ActivationFormats,
+    "elementwise": PointwiseFormats,
+    "embedding": PointwiseFormats,
+}
+
 Where = str | type | tuple[type, ...] | Callable[[str, nn.Module], bool]
 
 
@@ -427,8 +424,17 @@ def _kinds(kinds: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
 
 
 def _checked_kind(kind: str, value: Any) -> Any:
-    if value is not None and not isinstance(value, GemmFormats):
-        raise TypeError(f"the {kind} kind takes a GemmFormats or None, got {type(value).__name__}")
+    expected = _KIND_VALUES.get(kind, GemmFormats)
+    if value is not None and not isinstance(value, expected):
+        raise TypeError(
+            f"the {kind} kind takes {'an' if expected.__name__[0] in 'AEIOU' else 'a'} "
+            f"{expected.__name__} or None, got {type(value).__name__}"
+        )
+    if kind == "embedding" and value is not None and value.carrier_rounding is RoundMode.RO:
+        raise ValueError(
+            "the embedding kind's carrier_rounding is RoundMode.RO: an embedding gathers its "
+            "rows, which leaves no carrier step to round to odd -- use RoundMode.RNE"
+        )
     if kind in ("conv", "gemm") and value is not None and value._has_block_mac:
         raise ValueError(
             f"{kind}= would give a BlockMac to convolutions, which have no block-format "
@@ -452,14 +458,17 @@ class Rule:
     * a type, or a tuple of types, matched with ``isinstance``;
     * a predicate, called as ``where(name, module)``.
 
-    ``kinds`` maps a kind to a :class:`GemmFormats`, or to ``None`` for plain
-    PyTorch, and ``gemm`` names the three GEMM kinds at once. ``site``
+    ``kinds`` maps a kind to its formats (a :class:`GemmFormats` for the
+    three GEMM kinds, an :class:`~mptorch.quant.ActivationFormats` for
+    ``activation``, a :class:`~mptorch.quant.PointwiseFormats` for
+    ``elementwise`` and ``embedding``), or to ``None`` for plain PyTorch, and
+    ``gemm`` names the three GEMM kinds at once. ``site``
     restricts the rule to one call site inside a module, such as the first of
     an attention block's two activation products; ``None`` matches every site.
 
     Raises:
-        TypeError: for an unknown kind, a value that is not a ``GemmFormats``
-            or ``None``, or a ``where`` of none of the three forms.
+        TypeError: for an unknown kind, a value that is not the kind's
+            formats or ``None``, or a ``where`` of none of the three forms.
         ValueError: for a ``BlockMac`` given to the ``conv`` kind.
     """
 
@@ -504,7 +513,8 @@ class Recipe:
     """Which formats each part of a model computes in.
 
     ``Recipe(**kinds)`` gives every module the formats of each kind named
-    (``linear``, ``conv``, ``matmul``, or ``gemm`` for all three), and
+    (``linear``, ``conv``, ``matmul``, or ``gemm`` for all three;
+    ``activation``, ``elementwise``, ``embedding``), and
     :meth:`override` adds a rule for some modules. Rules are applied in
     order, so a later rule wins for the kinds it names, and a kind it does not
     name keeps what the earlier rules gave it. A kind no rule names, and one

@@ -204,14 +204,14 @@ def _fixedpoint_quant_spec(
 ) -> _QuantSpec:
     """Resolve a :func:`fixedpoint_quantize` call (or a
     :func:`fixedpoint_quantize_` one) once, for :class:`mptorch.quant.Quant`."""
-    op = torch.ops.mptorch.fixedpoint_quant_ if in_place else torch.ops.mptorch.fixedpoint_quant
+    ops = (torch.ops.mptorch.fixedpoint_quant.default, torch.ops.mptorch.fixedpoint_quant_.default)
     fields = (wl, fl, is_signed, symmetric)
     return _quant_spec(
-        op.default,
+        ops,
         (wl, fl, prng_bits, is_signed, symmetric, rounding_mode.value),
         "fixedpoint_quantize",
         in_place,
         carrier,
         lambda c: _fixedpoint_findings(*fields, prng_bits, c),
-        lambda dtype: _fixedpoint_storage_findings(*fields, dtype, True),
+        lambda dtype, elementwise: _fixedpoint_storage_findings(*fields, dtype, elementwise),
     )

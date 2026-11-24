@@ -14,7 +14,7 @@ from functools import lru_cache
 import torch
 
 from ._carrier import _Carrier, _pointing_wider
-from ._storage import _STORAGE, _in_storage
+from ._storage import _STORAGE, _in_storage, _Storage
 from .base import FormatRangeWarning, Number, _report_per_call
 
 
@@ -205,14 +205,15 @@ def check_fixedpoint_storage(
 
     It takes the format's parameters as :func:`check_fixedpoint` does, and the
     same ``storage`` and ``elementwise`` keywords as
-    :func:`check_binaryK_storage`. Only the elementwise rule is implemented,
-    since there is no fixed-point GEMM yet.
+    :func:`check_binaryK_storage`. ``elementwise=False`` is the rule for a
+    computed result, which can be any of the format's values: a pointwise
+    op's (there is no fixed-point GEMM).
 
     Raises:
         ValueError: if the fixed-point format's largest value is below the
             storage dtype's smallest positive value, so that none of its
-            nonzero values can be stored.
-        NotImplementedError: for ``elementwise=False``, the GEMM rule.
+            nonzero values can be stored, or, under ``elementwise=False``,
+            if it has more significant bits than the storage dtype.
     """
     _report_per_call(
         *_fixedpoint_storage_findings(wl, fl, is_signed, symmetric, storage, elementwise)
@@ -364,18 +365,14 @@ def _fixedpoint_storage_findings(
     """Return the findings on storing a fixed-point format's results in
     ``storage``, as ``(error, warning)``.
 
-    The fixed-point counterpart of `_binaryK_storage_findings`. Only the
-    elementwise rule is implemented: the inputs are already values of the
-    storage dtype, so only the ends of the fixed-point range can produce a
-    result the storage dtype does not hold. Asking for the GEMM rule raises
-    ``NotImplementedError``, since there is no fixed-point GEMM. An invalid
+    The fixed-point counterpart of `_binaryK_storage_findings`. Under the
+    elementwise rule the inputs are already values of the storage dtype, so
+    only the ends of the fixed-point range can produce a result the storage
+    dtype does not hold. Under the rule for a computed result (a pointwise
+    op's; there is no fixed-point GEMM), every value of the format must be a
+    value of the storage dtype (`_fixedpoint_value_set_findings`). An invalid
     layout returns ``(None, None)``, as for binaryK.
     """
-    if not elementwise:
-        raise NotImplementedError(
-            "there is no fixed-point GEMM yet, so fixed point has only the elementwise "
-            "storage rule (elementwise=True)"
-        )
     label = _fixedpoint_label(wl, fl, is_signed, symmetric)
     if _fixedpoint_layout_error(label, wl, is_signed, symmetric, 0) is not None:
         return None, None
@@ -401,6 +398,8 @@ def _fixedpoint_storage_findings(
             f"{label}'s largest value is below {st.name}'s smallest positive value, "
             f"2^{st.min_exp}: a {st.name} result stores none of the format's nonzero values"
         ), None
+    if not elementwise:
+        return _fixedpoint_value_set_findings(label, mag_bits, fl, max_above or min_above, st)
     # an input near the storage dtype's largest value can round up past it, to infinity
     if (max_above or min_above) and not dtype_max_on_grid:
         return None, (
@@ -421,5 +420,40 @@ def _fixedpoint_storage_findings(
         return None, (
             f"{label}'s largest value is not a {st.name} value: an input above it saturates "
             f"to it, and storing that result in {st.name} rounds it a second time"
+        )
+    return None, None
+
+
+def _fixedpoint_value_set_findings(
+    label: str, mag_bits: int, fl: int, above: bool, st: _Storage
+) -> tuple[str | None, str | None]:
+    """The rule for a computed result: whether every value of a fixed-point
+    format is a value of the storage dtype, as ``(error, warning)``.
+
+    Its values are the multiples of ``2**-fl`` of up to ``mag_bits``
+    significant bits (and, in two's complement, the power of two at the
+    bottom). With at most the storage dtype's precision, each is a normal of
+    the storage dtype, or a multiple of ``2**-fl`` below its smallest normal,
+    which is one of its subnormals when ``-fl`` is not below the exponent of
+    the smallest. ``above`` says whether an end of the range is past the
+    storage dtype's largest value.
+    """
+    name = st.name
+    if mag_bits > st.man_bits + 1:
+        return (
+            f"{label} has {mag_bits} significant bits, and a {name} result holds "
+            f"{st.man_bits + 1}: a computed result can be any of the format's values, and "
+            f"storing one that {name} cannot represent rounds it a second time"
+        ), None
+    if above:
+        return None, (
+            f"{label} reaches beyond {name}'s largest finite value: storing a result in "
+            f"{name} turns the format's values past it into infinity"
+        )
+    if -fl < st.min_exp:
+        return None, (
+            f"{label}'s values are 2^{-fl} apart, finer than {name}'s smallest subnormal, "
+            f"2^{st.min_exp}: storing a result in {name} rounds the smallest of them a "
+            f"second time, onto {name}'s coarser spacing"
         )
     return None, None

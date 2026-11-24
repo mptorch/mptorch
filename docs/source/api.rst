@@ -284,6 +284,65 @@ Layer arithmetic factories
 
 .. autofunction:: block_gemm_formats
 
+Pointwise ops and activations
+-----------------------------
+
+See :doc:`kernels/pointwise`, and :doc:`layers` for the modules.
+
+.. autoclass:: PointwiseFormats
+   :members: uniform, label
+
+.. autoclass:: ActivationFormats
+   :members: uniform, label
+
+.. autofunction:: qadd
+
+.. autofunction:: qsub
+
+.. autofunction:: qmul
+
+.. autofunction:: qdiv
+
+.. autofunction:: qsqrt
+
+.. autofunction:: qrsqrt
+
+.. autofunction:: qexp
+
+.. autofunction:: qpow
+
+.. autofunction:: qgelu
+
+.. autofunction:: qsilu
+
+.. autofunction:: qsigmoid
+
+.. autofunction:: qtanh
+
+.. autofunction:: qhardswish
+
+.. autofunction:: qhardsigmoid
+
+.. autofunction:: qrelu
+
+.. autofunction:: qembedding
+
+.. autoclass:: QGELU
+
+.. autoclass:: QSiLU
+
+.. autoclass:: QSigmoid
+
+.. autoclass:: QTanh
+
+.. autoclass:: QHardswish
+
+.. autoclass:: QHardsigmoid
+
+.. autoclass:: QReLU
+
+.. autoclass:: QEmbedding
+
 Converting or simulating a model
 --------------------------------
 

@@ -360,11 +360,22 @@ Activations between layers
 A layer's ``input_quant`` rounds what enters the layer. In the backward
 pass, the layer treats that rounding as the identity: the gradient that
 reaches the input is what ``bwd_igrad_math`` computes. To round a tensor
-*between* layers, such as an activation, the logits, or the output of a
-block that is not a layer, use a :class:`~mptorch.quant.Quantizer`. It is a
-module, and it also says what its gradient is rounded to (see
-:doc:`quantizers`). The last lines of the convolution run above show one in
-a ``Sequential``.
+*between* layers, such as the logits or the output of a block that is not a
+layer, use a :class:`~mptorch.quant.Quantizer`. It is a module, and it also
+says what its gradient is rounded to (see :doc:`quantizers`). The last lines
+of the convolution run above show one in a ``Sequential``.
+
+An activation module computes as well as rounds: :class:`~mptorch.quant.QGELU`,
+:class:`~mptorch.quant.QSiLU`, :class:`~mptorch.quant.QSigmoid`,
+:class:`~mptorch.quant.QTanh`, :class:`~mptorch.quant.QHardswish`,
+:class:`~mptorch.quant.QHardsigmoid` and :class:`~mptorch.quant.QReLU` are
+their torch classes with ``formats``, an
+:class:`~mptorch.quant.ActivationFormats` that rounds the result, the
+gradient and, for the gated ones, the gate, each computed in the carrier.
+With ``formats=None`` each is its torch module, ``inplace`` included; with
+formats it computes out of place. :class:`~mptorch.quant.QEmbedding` rounds
+the rows it gathers and its weight's gradient. :doc:`kernels/pointwise` says
+what each step rounds.
 
 What a layer keeps for backward
 -------------------------------
@@ -565,7 +576,9 @@ A model that already exists need not be rebuilt from mptorch's layers. A
   gradient), any of them ``None`` for PyTorch's own arithmetic.
   ``GemmFormats.uniform(mac, quant)`` fills them all.
 - :class:`~mptorch.quant.Recipe` gives formats to the *kinds* ``linear``,
-  ``conv`` and ``matmul`` (``gemm`` names the three), and
+  ``conv`` and ``matmul`` (``gemm`` names the three), ``activation`` (an
+  :class:`~mptorch.quant.ActivationFormats`), ``embedding`` and
+  ``elementwise`` (a :class:`~mptorch.quant.PointwiseFormats`), and
   ``override(where, ...)`` changes them for the modules ``where`` chooses: a
   glob over their names (``"encoder.*"``), a type, or a predicate. The last
   rule that matches wins, and ``None`` keeps a module PyTorch's.
@@ -575,7 +588,11 @@ A model that already exists need not be rebuilt from mptorch's layers. A
 
 ``recipe.plan(model)`` shows what a conversion would do. Each ``nn.Linear``
 and ``nn.Conv1d/2d/3d`` that the recipe gives formats to becomes a
-:class:`~mptorch.quant.QLinear` or a ``QConv*d``: the same object with its
+:class:`~mptorch.quant.QLinear` or a ``QConv*d``, each of torch's activation
+modules its mptorch twin, and an ``nn.Embedding`` a
+:class:`~mptorch.quant.QEmbedding` (these two only when the recipe names
+their kind, which keeps a recipe for the layers' report to the layers): the
+same object with its
 class changed, so its parameters, buffers, hooks and ``state_dict`` keys stay
 as they were, and an optimizer built before the conversion still trains it.
 Only those exact classes convert. A subclass, a parametrized module among
@@ -637,5 +654,37 @@ report.
    :caption: docs/snippets/layers_simulate.py
 
 .. literalinclude:: ../snippets/layers_simulate.out
+   :language: text
+   :caption: output
+
+Activations, embeddings and a model's own arithmetic
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A recipe that names the ``activation``, ``embedding`` or ``elementwise``
+kind reaches more than the products, and only then: a recipe for the
+products alone installs nothing for them and reports nothing about them.
+
+- ``activation`` is ``F.gelu``, ``F.silu``, ``F.hardswish``,
+  ``F.hardsigmoid``, ``F.relu``, ``torch.sigmoid`` and ``torch.tanh``, under
+  the module that calls them, so Hugging Face's ``SiLUActivation`` and a
+  torch ``nn.GELU`` alike. A call with ``inplace=True`` computes out of
+  place, as the mptorch modules do;
+- ``embedding`` is ``F.embedding``, under the module that owns the weight;
+- ``elementwise`` is a model's own arithmetic: ``+``, ``-``, ``*``, ``/``
+  and their ``torch.`` spellings, ``sqrt``, ``rsqrt``, ``exp`` and a power
+  with a number exponent, each through its op of
+  :doc:`kernels/pointwise`, under the module whose code computes it.
+  Residual sums, attention's scaling and mask, RMSNorm's ``rsqrt`` and
+  RoPE's products are all of this kind, so a recipe usually names it for
+  the blocks only (``override("*.layers.*", elementwise=...)``): an additive
+  mask rounded to an 8-bit format, for instance, becomes its infinities.
+  Arithmetic on integer tensors is not rounded, and neither are the
+  in-place forms (``x += y``), which the report lists.
+
+.. literalinclude:: ../snippets/layers_activations.py
+   :language: python
+   :caption: docs/snippets/layers_activations.py
+
+.. literalinclude:: ../snippets/layers_activations.out
    :language: text
    :caption: output

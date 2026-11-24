@@ -352,6 +352,31 @@ def test_register():
         del _REGISTRY[Dense]
 
 
+class _Swish(nn.SiLU):
+    pass
+
+
+def test_activations_and_embeddings_convert_when_the_recipe_names_them():
+    """torch's activations and ``nn.Embedding`` convert, and report, only
+    under a recipe that names their kind; a subclass is kept and reported,
+    and ``strict`` refuses it; ``unconvert_`` turns them back; the
+    ``elementwise`` kind has no module to convert."""
+    model = nn.Sequential(nn.Embedding(10, 8), nn.Linear(8, 8), nn.ReLU(inplace=True), _Swish())
+    report = convert_(copy.deepcopy(model), presets.uniform(P8))
+    assert [r.name for r in report.rows] == ["1"]
+    recipe = presets.uniform(P8, kinds=("linear", "activation", "embedding"))
+    converted = copy.deepcopy(model)
+    report = convert_(converted, recipe)
+    assert [type(m).__name__ for m in converted] == ["QEmbedding", "QLinear", "QReLU", "_Swish"]
+    assert report.kept[0].action == "kept: a subclass of SiLU, and only the exact class converts"
+    with pytest.raises(ValueError, match="cannot be converted"):
+        convert_(copy.deepcopy(model), recipe, strict=True)
+    assert unconvert_(converted) == 3
+    assert [type(m).__name__ for m in converted] == ["Embedding", "Linear", "ReLU", "_Swish"]
+    with pytest.raises(ValueError, match="only simulate reaches"):
+        register(nn.Softplus, kind="elementwise", qcls=nn.Softplus)
+
+
 def test_a_recipe_is_required():
     with pytest.raises(TypeError, match="Recipe"):
         convert_(nn.Linear(2, 2), GemmFormats())  # ty: ignore[invalid-argument-type]

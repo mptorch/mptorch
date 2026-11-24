@@ -23,7 +23,15 @@ import torch
 from torch._dynamo.testing import CompileCounterWithBackend
 
 from mptorch import BinaryK, RoundMode
-from mptorch.quant import GemmFormats, Quant, Recipe, SplitMac, simulate
+from mptorch.quant import (
+    ActivationFormats,
+    GemmFormats,
+    PointwiseFormats,
+    Quant,
+    Recipe,
+    SplitMac,
+    simulate,
+)
 from tests.markers import available_devices
 from tests.models import MiniLlama
 from tests.test_simulate import _formats, _ids, _run, _same, _site_recipe
@@ -104,6 +112,31 @@ def test_per_layer_formats_compile_once(device):
     assert sim.report().rows == ()
     want = _run(model, inputs, device, sim)
     assert len(sim.report().simulated) == 4 * 7 + 1
+    for k in want:
+        assert _same(first[k], want[k]) and _same(second[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_the_pointwise_kinds_compile_in_one_graph(device, rounding):
+    """Activations and the layers' arithmetic routed as well as the linears:
+    one graph, no recompile on a second call, and eager's words."""
+    torch._dynamo.reset()
+    model, inputs = _llama(device)
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, 11, prng_bits=8) if sr else BinaryK(16, 11)
+    recipe = Recipe(
+        linear=_formats(rounding), activation=ActivationFormats.uniform(Quant(fmt, rounding))
+    ).override("*.layers.*", elementwise=PointwiseFormats.uniform(Quant(fmt, rounding)))
+    sim = simulate(recipe, model)
+    want = _run(model, inputs, device, sim)
+    counter = CompileCounterWithBackend("aot_eager")
+    wrapped = sim.wrap()
+    compiled = torch.compile(wrapped, backend=counter, fullgraph=True)
+    first = _run(model, inputs, device, call=compiled)
+    second = _run(model, inputs, device, call=compiled)
+    wrapped.close()
+    assert counter.frame_count == 1
     for k in want:
         assert _same(first[k], want[k]) and _same(second[k], want[k]), k
 

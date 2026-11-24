@@ -313,7 +313,7 @@ def _binaryK_quant_spec(
 ) -> _QuantSpec:
     """Resolve a :func:`binaryK_quantize` call (or a :func:`binaryK_quantize_`
     one) once, for :class:`mptorch.quant.Quant`. ``bias`` is the resolved bias."""
-    op = torch.ops.mptorch.binaryK_quant_ if in_place else torch.ops.mptorch.binaryK_quant
+    ops = (torch.ops.mptorch.binaryK_quant.default, torch.ops.mptorch.binaryK_quant_.default)
     args = (
         K,
         P,
@@ -326,13 +326,13 @@ def _binaryK_quant_spec(
     )
     fields = (K, P, bias, is_signed, saturation_mode, subnormals_mode)
     return _quant_spec(
-        op.default,
+        ops,
         args,
         "binaryK_quantize",
         in_place,
         carrier,
         lambda c: _binaryK_findings(*fields, prng_bits, c),
-        lambda dtype: _binaryK_storage_findings(*fields, dtype, True),
+        lambda dtype, elementwise: _binaryK_storage_findings(*fields, dtype, elementwise),
     )
 
 

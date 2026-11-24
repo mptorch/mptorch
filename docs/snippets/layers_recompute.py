@@ -1,5 +1,7 @@
 """What a quantized layer keeps for backward: a quantized copy, or the raw operand."""
 
+import weakref
+
 import torch
 from torch import nn
 
@@ -11,19 +13,26 @@ q = Quant(BinaryK(8, 4, prng_bits=8), RoundMode.SR)
 
 def held_for_backward(model, x):
     """The bytes the graph keeps for backward that nothing else keeps alive:
-    every tensor any node saves, once per storage, less the parameters and
-    the input, which the caller holds anyway."""
-    saved = {}
+    every tensor a node still holds once the forward has returned, once per
+    storage, less the parameters and the input, which the caller holds
+    anyway. (What a layer saves inside its forward and drops before it
+    returns, as the CPU convolution's own graph is, is gone by then.)"""
+    saved = []
 
     def pack(t):
-        saved[t.untyped_storage().data_ptr()] = t.untyped_storage().nbytes()
+        saved.append(weakref.ref(t))
         return t
 
     with torch.autograd.graph.saved_tensors_hooks(pack, lambda t: t):
         out = model(x)
     alive = {p.untyped_storage().data_ptr() for p in model.parameters()}
     alive.add(x.untyped_storage().data_ptr())
-    return sum(n for ptr, n in saved.items() if ptr not in alive), out
+    held = {}
+    for ref in saved:
+        t = ref()
+        if t is not None and t.untyped_storage().data_ptr() not in alive:
+            held[t.untyped_storage().data_ptr()] = t.untyped_storage().nbytes()
+    return sum(held.values()), out
 
 
 def stack(recompute):

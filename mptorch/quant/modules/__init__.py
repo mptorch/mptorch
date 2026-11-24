@@ -1,6 +1,8 @@
 """The quantized layers and their format containers, re-exported by ``mptorch.quant``."""
 
+from .activation import QGELU, QHardsigmoid, QHardswish, QReLU, QSigmoid, QSiLU, QTanh
 from .conv import QConv1d, QConv2d, QConv3d
+from .embedding import QEmbedding
 from .format import QAffineFormats, QMatmulFormats
 from .linear import QLinear, QPackedLinear, freeze_packed_
 from .matmul import QMatmul
@@ -17,4 +19,12 @@ __all__ = [
     "QConv2d",
     "QConv3d",
     "Quantizer",
+    "QGELU",
+    "QSiLU",
+    "QSigmoid",
+    "QTanh",
+    "QHardswish",
+    "QHardsigmoid",
+    "QReLU",
+    "QEmbedding",
 ]

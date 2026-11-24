@@ -24,6 +24,10 @@ operation:
   whose matrices are never built;
 - :doc:`calling`: the functions, objects and modules that run them.
 
+The pointwise ops and activations are the exception: they run PyTorch's own
+arithmetic in the carrier and round its result with a quantizer, and
+:doc:`pointwise` says what that rounds.
+
 .. toctree::
    :maxdepth: 1
 
@@ -31,6 +35,7 @@ operation:
    block
    convolutions
    calling
+   pointwise
 
 Matrix multiplication as the core routine
 -----------------------------------------

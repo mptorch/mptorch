@@ -29,6 +29,7 @@ from mptorch.number import (
 )
 
 from .mac import BlockMac, FusedMac, Quant, SplitMac
+from .pointwise import ActivationFormats, PointwiseFormats
 from .recipe import _KINDS, GemmFormats, Recipe
 from .scaled import ScaledQuant
 
@@ -49,9 +50,12 @@ def uniform(
 ) -> Recipe:
     """One format for every operand, gradient and product of the given kinds.
 
-    Every pass multiplies in ``SplitMac(fmt, acc, rounding=rounding)``, and
-    every operand and output gradient is rounded by ``Quant(fmt, rounding)``.
-    The bias and the output are not rounded.
+    Every GEMM pass multiplies in ``SplitMac(fmt, acc, rounding=rounding)``,
+    and every operand and output gradient is rounded by ``Quant(fmt,
+    rounding)``; the bias and the output are not rounded. The other kinds
+    round every slot with that ``Quant``: an activation's gate, result and
+    gradient (``ActivationFormats.uniform``), a pointwise op's or an
+    embedding's result and gradients (``PointwiseFormats.uniform``).
 
     Args:
         fmt (Number): the format.
@@ -60,7 +64,8 @@ def uniform(
         rounding (RoundMode): the rounding mode of every rounding.
             Default: ``RoundMode.RNE``
         kinds (Sequence[str]): the kinds the recipe sets: any of ``linear``,
-            ``conv`` and ``matmul``. Default: ``("linear", "conv")``
+            ``conv``, ``matmul``, ``activation``, ``elementwise`` and
+            ``embedding``. Default: ``("linear", "conv")``
 
     Example::
 
@@ -71,8 +76,14 @@ def uniform(
     unknown = [k for k in kinds if k not in _KINDS]
     if unknown:
         raise ValueError(f"unknown kinds {unknown}: the kinds are {', '.join(_KINDS)}")
-    gf = GemmFormats.uniform(SplitMac(fmt, acc, rounding=rounding), Quant(fmt, rounding))
-    return Recipe(**dict.fromkeys(kinds, gf))
+    quant = Quant(fmt, rounding)
+    gf = GemmFormats.uniform(SplitMac(fmt, acc, rounding=rounding), quant)
+    values = {
+        "activation": ActivationFormats.uniform(quant),
+        "elementwise": PointwiseFormats.uniform(quant),
+        "embedding": PointwiseFormats.uniform(quant),
+    }
+    return Recipe(**{kind: values.get(kind, gf) for kind in kinds})
 
 
 def _scaled_to_largest(fmt: Number) -> ScaledQuant:

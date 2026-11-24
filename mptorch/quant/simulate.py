@@ -1,4 +1,4 @@
-"""Simulating a model's GEMMs while it runs, without converting it: ``simulate``.
+"""Simulating a model's arithmetic while it runs, without converting it: ``simulate``.
 
 :func:`~mptorch.quant.convert_` gives mptorch's arithmetic to the layers of a
 registered class, by switching their class. Many of a model's products are
@@ -25,6 +25,24 @@ of their names), and from the kind of product:
   such product in a forward pass, ``"matmul#1"`` for its second, and so on,
   which a :class:`~mptorch.quant.Rule`'s ``site`` names.
 
+The kinds past the GEMMs are reached only when a rule of the recipe names
+them, so a recipe for the GEMMs pays nothing for them and reports nothing
+about them:
+
+* ``activation``: ``F.gelu``, ``F.silu``, ``F.hardswish``, ``F.hardsigmoid``,
+  ``F.relu``, ``torch.sigmoid`` and ``torch.tanh`` (and their ``torch.`` and
+  ``Tensor.`` spellings), under the innermost module. A call with
+  ``inplace=True`` computes out of place, as the mptorch activation modules
+  do, since a rounded result is a new tensor; the ``Tensor.relu_`` kind of
+  in-place method passes through.
+* ``elementwise``: additions, subtractions, products and quotients (``+``,
+  ``-``, ``*``, ``/``, ``torch.add`` and the others), square roots,
+  reciprocal square roots, exponentials and powers with a number exponent,
+  under the innermost module. Their in-place forms pass through, and so does
+  a call with no float tensor operand (index arithmetic), unrecorded.
+* ``embedding``: ``F.embedding``, resolved under its weight's owner, as
+  ``linear`` is.
+
 Everything is resolved, and every format container built, when the
 ``simulate`` is made, so that a call only looks its route up: Dynamo can
 trace that, and a container built while it traced gave wrong gradients.
@@ -32,7 +50,7 @@ trace that, and a container built while it traced gave wrong gradients.
 
 import weakref
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import torch
 import torch.nn.functional as F
@@ -40,6 +58,7 @@ from torch import nn
 from torch.nn.modules.utils import _pair, _single, _triple
 from torch.overrides import TorchFunctionMode, resolve_name
 
+from . import pointwise
 from .modules.conv import CustomArithConvNd
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
@@ -107,8 +126,12 @@ class SimulateReport:
 
 
 class _Route(NamedTuple):
-    container: nn.Module
+    container: Any  # a GEMM kind's container, or another kind's frozen formats
     label: str
+
+
+# The kinds past the GEMMs, which a simulate reaches only when the recipe names them.
+_OPT_IN_KINDS = ("activation", "elementwise", "embedding")
 
 
 class _State:
@@ -120,8 +143,13 @@ class _State:
         self.owners: dict[int, tuple[str, ...]] = {}
         self.owned: set[str] = set()
         self.routes: dict[tuple[str, str, str | None], _Route | None] = {}
-        self.covered: set[str] = set()  # the modules some GEMM kind has formats in
+        self.covered: dict[str, set[str]] = {}  # each module's kinds with formats
         self.sites = {r.site for r in recipe.rules if r.site is not None}
+        named = {kind for rule in recipe.rules for kind, _ in rule.kinds}
+        opt_in = tuple(kind for kind in _OPT_IN_KINDS if kind in named)
+        self.handlers = dict(_HANDLERS)
+        for kind in opt_in:
+            self.handlers.update(_OPT_IN_HANDLERS[kind])
         # one [name, products of two activations so far] per module running:
         # kept on the stack, which is empty between calls, so that Dynamo has no
         # counter to guard on (a dict of counts made every call recompile)
@@ -135,7 +163,7 @@ class _State:
                 (kind, site, recipe.resolve(name, module, kind, site))
                 for kind in _GEMM_KINDS
                 for site in ((None, *self.sites) if kind == "matmul" else (None,))
-            )
+            ) + tuple((kind, None, recipe.resolve(name, module, kind)) for kind in opt_in)
             seen = first.get(id(module))
             if seen is not None:
                 if seen[1] != resolved:
@@ -153,7 +181,10 @@ class _State:
             for kind, site, gf in resolved:
                 if gf is None:
                     continue
-                self.covered.add(name)
+                self.covered.setdefault(name, set()).add(kind)
+                if kind in _OPT_IN_KINDS:  # frozen formats, read as they are
+                    self.routes[(name, kind, site)] = _Route(gf, gf.label())
+                    continue
                 key = (id(gf), kind)
                 if key not in containers:
                     build = {"linear": gf.affine, "conv": gf.conv, "matmul": gf.matmul}[kind]
@@ -199,7 +230,7 @@ class _Interceptor(TorchFunctionMode):
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
-        handler = _HANDLERS.get(func)
+        handler = self.state.handlers.get(func)
         if handler is None or not self.state.stack:
             return func(*args, **kwargs)
         return handler(self.state, func, args, kwargs)
@@ -250,12 +281,15 @@ def _site(state: _State) -> tuple[str, str]:
 
 def _not_covered(state: _State, func: Any, kind: str, reason: str, args, kwargs):
     """Pass a call through, recording why; under ``strict``, raise instead
-    when the recipe gives the module formats of some GEMM kind."""
+    when the recipe gives the module formats of the call's kind, or, for a
+    product, of some GEMM kind."""
     scope = state.stack[-1][0]
     if scope in state.owned:
         state.record(scope, kind, None, func, OWNED)
         return func(*args, **kwargs)
-    if state.strict and scope in state.covered:
+    kinds = state.covered.get(scope, set())
+    covered = kind in kinds if kind in _OPT_IN_KINDS else not kinds.isdisjoint(_GEMM_KINDS)
+    if state.strict and covered:
         raise RuntimeError(
             f"{_NAMES[func]} in {scope or '(the model)'} is not simulated: {reason}. With "
             "strict=True a product the recipe covers raises when simulate cannot run it; "
@@ -455,13 +489,240 @@ _REASONS = {
 for _kind, _funcs in _OTHER_PRODUCTS.items():
     for _f in _funcs:
         _HANDLERS.setdefault(_f, _uncovered(_kind, _REASONS[_kind]))
+# --- the kinds a recipe opts into --------------------------------------------------------
+
+_IN_PLACE = "it writes its operand in place"
+_NOT_FLOAT_TENSOR = "the operand is not a float tensor"
+
+
+def _activation(op: str, names: tuple[str, ...], defaults: tuple):
+    """The handler of an activation call whose parameters are ``names``."""
+
+    def handler(state: _State, func, args, kwargs):
+        if kwargs.get("out") is not None:
+            return _not_covered(state, func, "activation", _OUT, args, kwargs)
+        values = _bind(args, kwargs, names, defaults)
+        x = values[0]
+        if not _floats(x):
+            return _not_covered(state, func, "activation", _NOT_FLOAT_TENSOR, args, kwargs)
+        route = _route(state, func, "activation", state.stack[-1][0])
+        if route is None:
+            return func(*args, **kwargs)
+        if op == "gelu":
+            return pointwise.qgelu(x, route.container, values[1])
+        return _ACTIVATION_OPS[op](x, route.container)
+
+    return handler
+
+
+_BINARY_OPS = {
+    "add": pointwise.qadd,
+    "sub": pointwise.qsub,
+    "mul": pointwise.qmul,
+    "div": pointwise.qdiv,
+}
+_UNARY_OPS = {"sqrt": pointwise.qsqrt, "rsqrt": pointwise.qrsqrt, "exp": pointwise.qexp}
+
+_ACTIVATION_OPS = {
+    "silu": pointwise.qsilu,
+    "sigmoid": pointwise.qsigmoid,
+    "tanh": pointwise.qtanh,
+    "hardswish": pointwise.qhardswish,
+    "hardsigmoid": pointwise.qhardsigmoid,
+    "relu": pointwise.qrelu,
+}
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool)
+
+
+def _elementwise_operands(a: Any, b: Any) -> str | None:
+    """Why ``a op b`` cannot be simulated, ``""`` when it can, or ``None``
+    when it is not float arithmetic at all (index arithmetic passes through,
+    unrecorded)."""
+    tensors = [t for t in (a, b) if isinstance(t, torch.Tensor)]
+    if not any(t.is_floating_point() for t in tensors):
+        return None
+    if not all(isinstance(v, torch.Tensor) or _is_number(v) for v in (a, b)):
+        return "an operand is neither a tensor nor an int or float"
+    if not _floats(*tensors):
+        return _NOT_FLOAT
+    return ""
+
+
+def _binary(op: str, swap: bool = False):
+    """The handler of ``a op b``; ``swap`` for ``Tensor.__rsub__`` and
+    ``Tensor.__rtruediv__``, whose ``self`` is the right operand."""
+
+    def handler(state: _State, func, args, kwargs):
+        if kwargs.get("out") is not None:
+            return _not_covered(state, func, "elementwise", _OUT, args, kwargs)
+        if kwargs.get("alpha", 1) != 1:
+            return _not_covered(state, func, "elementwise", "alpha is not 1", args, kwargs)
+        if kwargs.get("rounding_mode") is not None:
+            reason = "it rounds the quotient to an integer"
+            return _not_covered(state, func, "elementwise", reason, args, kwargs)
+        a, b = _bind(
+            args,
+            {k: v for k, v in kwargs.items() if k in ("input", "other")},
+            ("input", "other"),
+            (),
+        )
+        if swap:
+            a, b = b, a
+        why = _elementwise_operands(a, b)
+        if why is None:
+            return func(*args, **kwargs)
+        if why:
+            return _not_covered(state, func, "elementwise", why, args, kwargs)
+        route = _route(state, func, "elementwise", state.stack[-1][0])
+        if route is None:
+            return func(*args, **kwargs)
+        f = route.container
+        return _BINARY_OPS[op](a, b, f.quant, f.grad_quant, **f._keywords)
+
+    return handler
+
+
+def _unary(op: str):
+    def handler(state: _State, func, args, kwargs):
+        if kwargs.get("out") is not None:
+            return _not_covered(state, func, "elementwise", _OUT, args, kwargs)
+        if op == "pow":
+            x, exponent = _bind(args, kwargs, ("input", "exponent"), ())
+        else:
+            (x,), exponent = _bind(args, kwargs, ("input",), ()), None
+        if not (isinstance(x, torch.Tensor) and x.is_floating_point()):
+            if isinstance(exponent, torch.Tensor) and exponent.is_floating_point():
+                reason = "a number is raised to a tensor"
+                return _not_covered(state, func, "elementwise", reason, args, kwargs)
+            return func(*args, **kwargs)  # index arithmetic
+        if op == "pow" and not _is_number(exponent):
+            reason = "the exponent is not an int or float"
+            return _not_covered(state, func, "elementwise", reason, args, kwargs)
+        route = _route(state, func, "elementwise", state.stack[-1][0])
+        if route is None:
+            return func(*args, **kwargs)
+        f = route.container
+        if op == "pow":
+            return pointwise.qpow(x, cast(float, exponent), f.quant, f.grad_quant, **f._keywords)
+        return _UNARY_OPS[op](x, f.quant, f.grad_quant, **f._keywords)
+
+    return handler
+
+
+def _in_place(kind: str):
+    """The handler of an in-place method: passed through, and reported when
+    its tensor is a float one (an index counter's is not arithmetic)."""
+
+    def handler(state: _State, func, args, kwargs):
+        x = args[0] if args else None
+        if isinstance(x, torch.Tensor) and x.is_floating_point():
+            return _not_covered(state, func, kind, _IN_PLACE, args, kwargs)
+        return func(*args, **kwargs)
+
+    return handler
+
+
+def _embedding(state: _State, func, args, kwargs):
+    names = (
+        "input",
+        "weight",
+        "padding_idx",
+        "max_norm",
+        "norm_type",
+        "scale_grad_by_freq",
+        "sparse",
+    )
+    values = _bind(args, kwargs, names, (None, None, 2.0, False, False))
+    input, weight, padding_idx, max_norm, norm_type, by_freq, sparse = values
+    if not _floats(weight):
+        return _not_covered(state, func, "embedding", _NOT_FLOAT_TENSOR, args, kwargs)
+    route = _route(state, func, "embedding", _owner(state, weight) or state.stack[-1][0])
+    if route is None:
+        return func(*args, **kwargs)
+    f = route.container
+    if sparse and f.grad_quant is not None:
+        reason = "its gradient is sparse, which grad_quant cannot round"
+        return _not_covered(state, func, "embedding", reason, args, kwargs)
+    return pointwise.qembedding(input, weight, f, padding_idx, max_norm, norm_type, by_freq, sparse)
+
+
+_OPT_IN_HANDLERS: dict[str, dict[Any, Any]] = {
+    "activation": {
+        F.gelu: _activation("gelu", ("input", "approximate"), ("none",)),
+        F.silu: _activation("silu", ("input", "inplace"), (False,)),
+        F.hardswish: _activation("hardswish", ("input", "inplace"), (False,)),
+        F.hardsigmoid: _activation("hardsigmoid", ("input", "inplace"), (False,)),
+        F.relu: _activation("relu", ("input", "inplace"), (False,)),
+        torch.relu: _activation("relu", ("input",), ()),
+        torch.Tensor.relu: _activation("relu", ("input",), ()),
+        torch.sigmoid: _activation("sigmoid", ("input",), ()),
+        torch.Tensor.sigmoid: _activation("sigmoid", ("input",), ()),
+        torch.tanh: _activation("tanh", ("input",), ()),
+        torch.Tensor.tanh: _activation("tanh", ("input",), ()),
+        **{
+            f: _in_place("activation")
+            for f in (
+                torch.relu_,
+                torch.Tensor.relu_,
+                torch.sigmoid_,
+                torch.Tensor.sigmoid_,
+                torch.tanh_,
+                torch.Tensor.tanh_,
+            )
+        },
+    },
+    "elementwise": {
+        **{
+            getattr(owner, name): _binary(op)
+            for owner in (torch, torch.Tensor)
+            for name, op in (
+                ("add", "add"),
+                ("sub", "sub"),
+                ("mul", "mul"),
+                ("div", "div"),
+                ("true_divide", "div"),
+            )
+        },
+        torch.Tensor.__rsub__: _binary("sub", swap=True),
+        torch.Tensor.__rtruediv__: _binary("div", swap=True),
+        **{
+            getattr(owner, op): _unary(op)
+            for owner in (torch, torch.Tensor)
+            for op in ("sqrt", "rsqrt", "exp", "pow")
+        },
+        torch.Tensor.__pow__: _unary("pow"),
+        torch.Tensor.__rpow__: lambda state, func, args, kwargs: (
+            _not_covered(state, func, "elementwise", "a number is raised to a tensor", args, kwargs)
+            if isinstance(args[0], torch.Tensor) and args[0].is_floating_point()
+            else func(*args, **kwargs)
+        ),
+        **{
+            f: _in_place("elementwise")
+            for f in (
+                *(
+                    getattr(torch.Tensor, n)
+                    for n in ("add_", "sub_", "mul_", "div_", "true_divide_")
+                ),
+                *(getattr(torch.Tensor, n) for n in ("sqrt_", "rsqrt_", "exp_", "pow_")),
+                torch.sqrt_,
+                torch.rsqrt_,
+                torch.exp_,
+            )
+        },
+    },
+    "embedding": {F.embedding: _embedding},
+}
+
 # each call's name in a report: F.linear, Tensor.matmul, torch.einsum
 _NAMES = {
     f: (resolve_name(f) or repr(f))
     .replace("torch.nn.functional.", "F.")
     .replace("torch.functional.", "torch.")
     .replace("torch.Tensor.", "Tensor.")
-    for f in _HANDLERS
+    for f in (*_HANDLERS, *(f for table in _OPT_IN_HANDLERS.values() for f in table))
 }
 
 
@@ -469,7 +730,7 @@ _NAMES = {
 
 
 class simulate:
-    """Run ``model`` in the arithmetic ``recipe`` gives its GEMMs, while active.
+    """Run ``model`` in the arithmetic ``recipe`` gives it, while active.
 
     ``with simulate(recipe, model) as sim:`` leaves the model as it is and
     intercepts its calls: each product the recipe gives formats to runs
@@ -479,9 +740,13 @@ class simulate:
     on the layers :func:`~mptorch.quant.convert` would convert, the results
     are the converted model's, word for word, gradients and stochastic
     rounding included; and the products only a function call computes
-    (attention's, GPT-2's ``Conv1D``, swin's) are reached as well. The module
-    docstring says which formats a call gets: by kind, under the innermost
-    module running, and at a site for a product of two activations.
+    (attention's, GPT-2's ``Conv1D``, swin's) are reached as well. A recipe
+    that names the ``activation``, ``elementwise`` or ``embedding`` kinds
+    reaches a model's activations, its pointwise arithmetic (residual sums,
+    scalings, a norm's ``rsqrt``) and its embeddings too, through
+    ``mptorch.quant.pointwise``'s ops. The module docstring says which
+    formats a call gets: by kind, under the innermost module running, and
+    at a site for a product of two activations.
 
     The model's structure and the recipe are read when the ``simulate`` is
     made: every module's formats are resolved then, and the containers
@@ -498,9 +763,11 @@ class simulate:
         recipe (Recipe): the formats.
         model (nn.Module): the model, or a module compiled with
             ``torch.compile`` (its names are the original module's).
-        strict (bool): raise, instead of reporting, when a product in a
-            module the recipe gives formats to cannot be simulated (an
-            ``einsum``, ``scaled_dot_product_attention``). Default: ``False``
+        strict (bool): raise, instead of reporting, when a call cannot be
+            simulated in a module the recipe gives formats to: a product (an
+            ``einsum``, ``scaled_dot_product_attention``) where some GEMM
+            kind has formats, an in-place activation or arithmetic where its
+            own kind has. Default: ``False``
 
     Raises:
         ValueError: for a module reachable under two names that the recipe

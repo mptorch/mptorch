@@ -50,6 +50,7 @@ from functools import lru_cache, partial
 from typing import Any, cast
 
 import torch
+from torch import nn
 
 from mptorch.number import (
     AccumulateAlgorithm,
@@ -68,7 +69,7 @@ from .ops import (
 )
 from .ops._accumulate import _checked_block_size
 from .ops._checks import _checked_carrier
-from .ops._spec import _GemmSpec, _run_quant
+from .ops._spec import _GemmSpec, _QuantSpec, _run_quant
 from .ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
@@ -299,10 +300,15 @@ class Quant:
     carrier: torch.dtype | None = None
     inplace: bool = False
     _call: Callable[[torch.Tensor], torch.Tensor] = field(init=False, repr=False, compare=False)
+    # the resolved call of an elementwise family (None for a block format),
+    # which a pointwise op reads to round its own result (ops/_spec.py's
+    # _round_result)
+    _spec: _QuantSpec | None = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         fmt, rm, carrier = self.fmt, self.rounding, _checked_carrier(self.carrier)
         inplace = self.inplace
+        spec: _QuantSpec | None = None
         if isinstance(fmt, BinaryK):
             assert fmt.bias is not None  # resolved by BinaryK.__post_init__
             spec = _binaryK_quant_spec(
@@ -349,6 +355,7 @@ class Quant:
         else:
             raise TypeError(f"no elementwise quantizer for {type(fmt).__name__}")
         object.__setattr__(self, "_call", call)
+        object.__setattr__(self, "_spec", spec)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         return self._call(x)
@@ -475,6 +482,31 @@ class BlockQuant:
             tensor_scale=self.tensor_scale,
             carrier=self.carrier,
         )
+
+
+def _as_quant(slot: object, name: str) -> Any:
+    """A quantizer slot's value as a layer's formats take it: a format becomes
+    a quantizer that rounds to it to nearest."""
+    if slot is None:
+        return None
+    if isinstance(slot, BlockFormat):
+        return BlockQuant(slot)
+    if isinstance(slot, Number):
+        return Quant(slot)
+    if isinstance(slot, nn.Module):
+        raise TypeError(
+            f"{name} is a {type(slot).__name__}, a module: a recipe gives the same object to "
+            "every layer it matches, so a module's state (a QAT observer's statistics) would be "
+            "shared by all of them. Give the slot a Quant or a ScaledQuant (a Quantizer's "
+            "forward quantizer, which is all a layer runs), or build those layers' formats "
+            "yourself"
+        )
+    if not callable(slot):
+        raise TypeError(
+            f"{name} takes a format, a Quant, a ScaledQuant, a BlockQuant or a callable, got "
+            f"{type(slot).__name__}"
+        )
+    return slot
 
 
 def _as_block_quant(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:

@@ -17,7 +17,11 @@ The claims checked here:
 - an mptorch layer's own calls, and calls outside the model, are left
   alone; nested simulates, an exception inside the forward, the report and
   ``strict``;
-- Hugging Face's own GPT-2 and Llama classes and torchvision's models.
+- Hugging Face's own GPT-2 and Llama classes and torchvision's models;
+- the kinds past the GEMMs: an activation is the converted module's, an
+  embedding too, a model's arithmetic under ``elementwise`` the q-ops written
+  out by hand; a recipe that names none of them reports what it reported
+  before, and installs none of their handlers.
 """
 
 import copy
@@ -30,17 +34,29 @@ from torch import nn
 
 from mptorch import BinaryK, RoundMode
 from mptorch.quant import (
+    QGELU,
+    ActivationFormats,
     GemmFormats,
+    PointwiseFormats,
     QLinear,
     QMatmul,
+    QSiLU,
     Quant,
     Recipe,
     SplitMac,
     convert,
     convert_,
+    qadd,
+    qdiv,
+    qexp,
+    qmul,
+    qpow,
+    qrsqrt,
+    qsqrt,
+    qsub,
     simulate,
 )
-from mptorch.quant.simulate import OWNED, PLAIN, SIMULATED
+from mptorch.quant.simulate import _HANDLERS, OWNED, PLAIN, SIMULATED
 from tests.markers import available_devices
 from tests.models import Conv1D, GPT2Attention, LlamaAttention, MiniGPT2, MiniLlama
 from tests.models import attention_modules as _attention_modules
@@ -484,6 +500,222 @@ def test_one_module_under_two_names_must_agree():
         simulate(Recipe(linear=_formats(RoundMode.RNE)).override("b", linear=None), model)
 
 
+# --- the kinds past the GEMMs --------------------------------------------------------
+
+
+def _act_formats(rounding, p=4):
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(8, p, prng_bits=8) if sr else BinaryK(8, p)
+    return ActivationFormats.uniform(Quant(fmt, rounding))
+
+
+def _pw_formats(rounding, p=11):
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, p, prng_bits=8) if sr else BinaryK(16, p)
+    return PointwiseFormats.uniform(Quant(fmt, rounding))
+
+
+class _Acts(nn.Module):
+    """Every activation convert converts, the in-place ones in place."""
+
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(8, 16)
+        self.acts = nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Hardswish(inplace=True),
+            nn.SiLU(),
+            nn.GELU(),
+            nn.GELU("tanh"),
+            nn.Tanh(),
+            nn.Hardsigmoid(),
+            nn.Sigmoid(),
+        )
+        self.fc2 = nn.Linear(16, 4)
+
+    def forward(self, x):
+        return self.fc2(self.acts(self.fc1(x)))
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_an_activation_is_the_converted_modules(device, rounding):
+    """convert turns torch's activation modules into mptorch's, simulate
+    rounds their functional calls, and the two agree word for word, an
+    in-place module (computed out of place by both) included."""
+    torch.manual_seed(0)
+    model = _Acts().to(device)
+    inputs = [torch.randn(4, 8, device=device)]
+    recipe = Recipe(linear=_formats(rounding), activation=_act_formats(rounding))
+    recipe = recipe.override("acts.3", activation=_act_formats(rounding, p=3))
+    converted, report = convert(model, recipe)
+    assert len(report.converted) == 10
+    want = _run(converted, inputs, device)
+    sim = simulate(recipe, model)
+    got = _run(model, inputs, device, sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    acts = [r for r in sim.report().rows if r.kind == "activation"]
+    assert len(acts) == 8 and all(r.action == SIMULATED for r in acts)
+
+
+def _swapped(model: nn.Module, name: str, cls, formats) -> nn.Module:
+    """A copy of ``model`` with each module named ``name`` replaced by ``cls``
+    holding ``formats``."""
+    built = copy.deepcopy(model)
+    for parent in list(built.modules()):
+        child = getattr(parent, name, None)
+        if isinstance(child, nn.Module):
+            setattr(parent, name, cls(formats=formats))
+    return built
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_an_hf_activation_is_a_hand_built_module(device, rounding):
+    """Hugging Face's activation classes are no torch class convert knows;
+    simulate rounds the ``F.silu`` and ``F.gelu`` they call as a ``QSiLU``
+    and a ``QGELU`` built in their place would."""
+    model, inputs = _mini("llama", device)
+    formats = _act_formats(rounding)
+    built = _swapped(model, "act_fn", QSiLU, formats)
+    want = _run(built, inputs, device)
+    got = _run(model, inputs, device, simulate(Recipe(activation=formats), model))
+    for k in want:
+        assert _same(got[k], want[k]), k
+    model, inputs = _mini("gpt2", device, act="gelu_pytorch_tanh")
+    built = _swapped(model, "act", lambda formats: QGELU("tanh", formats), formats)
+    want = _run(built, inputs, device)
+    got = _run(model, inputs, device, simulate(Recipe(activation=formats), model))
+    for k in want:
+        assert _same(got[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_an_embedding_is_the_converted_modules(device, rounding):
+    """GPT-2's two embeddings, the token one tied to the head: convert's
+    ``QEmbedding`` s and simulate's ``F.embedding`` agree, each resolved
+    under the embedding that owns the weight."""
+    model, inputs = _mini("gpt2", device)
+    recipe = Recipe(linear=_formats(rounding), embedding=_pw_formats(rounding))
+    recipe = recipe.override("*.wpe", embedding=_pw_formats(rounding, p=8))
+    recipe = recipe.override("*.h.*", linear=None)  # Conv1D: no layer to convert
+    converted, _ = convert(model, recipe)
+    want = _run(converted, inputs, device)
+    sim = simulate(recipe, model)
+    got = _run(model, inputs, device, sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    rows = {(r.scope, r.kind) for r in sim.report().simulated}
+    assert {("transformer.wte", "embedding"), ("transformer.wpe", "embedding")} <= rows
+    assert ("lm_head", "linear") in rows
+
+
+class _Glue(nn.Module):
+    def forward(self, x, y):
+        return torch.sqrt((x * y + x) / 2.0 - y.exp().rsqrt()) ** 2 + (1 - x) / y
+
+
+def _glue_by_hand(x, y, f: PointwiseFormats):
+    s = (f.quant, f.grad_quant)
+    left = qsub(qdiv(qadd(qmul(x, y, *s), x, *s), 2.0, *s), qrsqrt(qexp(y, *s), *s), *s)
+    return qadd(qpow(qsqrt(left, *s), 2, *s), qdiv(qsub(1, x, *s), y, *s), *s)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_elementwise_arithmetic_is_the_q_ops_written_out(device, rounding):
+    """Under ``elementwise`` a module's operators and functions run as the
+    q-ops, in the order Python evaluates them, gradients and draws included;
+    ``1 - x`` (``__rsub__``) and a number divisor too."""
+    model = nn.Sequential()
+    model.add_module("glue", _Glue())
+    torch.manual_seed(0)
+    x = (torch.rand(6, 5, device=device) + 1).requires_grad_()
+    y = (torch.rand(5, device=device) + 1).requires_grad_()
+    f = _pw_formats(rounding)
+    torch.manual_seed(4)
+    want = _glue_by_hand(x, y, f)
+    want_g = torch.autograd.grad(want.sum(), (x, y))
+    sim = simulate(Recipe(elementwise=f), model)
+    torch.manual_seed(4)
+    with sim:
+        got = model[0](x, y)
+    got_g = torch.autograd.grad(got.sum(), (x, y))
+    assert _same(got, want) and all(_same(a, b) for a, b in zip(got_g, want_g, strict=True))
+    calls = {r.call for r in sim.report().simulated}
+    assert {"Tensor.mul", "Tensor.add", "Tensor.div", "Tensor.__rsub__", "torch.sqrt"} <= calls
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_elementwise_in_a_llama(device):
+    """``elementwise`` on the decoder layers rounds their norms' ``pow``,
+    ``rsqrt`` and ``*``, RoPE's and attention's ``*`` and ``+``, the MLP's
+    product and the residuals, and nothing outside them: the rotary
+    frequencies and the final norm are left plain, their cosines and the
+    norms' ``mean`` are no arithmetic it rounds."""
+    model, inputs = _mini("llama", device)
+    recipe = Recipe(elementwise=None).override("*.layers.*", elementwise=_pw_formats(RoundMode.RNE))
+    sim = simulate(recipe, model)
+    _run(model, inputs, device, sim)
+    rows = sim.report().rows
+    simulated = {(r.scope, r.call) for r in rows if r.action == SIMULATED}
+    layer = "model.layers.0"
+    for scope, call in [
+        (f"{layer}.input_layernorm", "Tensor.pow"),
+        (f"{layer}.input_layernorm", "torch.rsqrt"),
+        (f"{layer}.input_layernorm", "Tensor.mul"),
+        (f"{layer}.self_attn", "Tensor.mul"),
+        (f"{layer}.self_attn", "Tensor.add"),
+        (f"{layer}.mlp", "Tensor.mul"),
+        (layer, "Tensor.add"),
+    ]:
+        assert (scope, call) in simulated, (scope, call)
+    plain = {(r.scope, r.call) for r in rows if r.action == PLAIN}
+    assert ("model.rotary_emb", "Tensor.mul") in plain and ("model.norm", "torch.rsqrt") in plain
+    assert not {r.call for r in rows} & {"Tensor.cos", "Tensor.mean"}
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_a_recipe_for_the_gemms_reaches_nothing_else(device):
+    """A recipe that names none of the kinds past the GEMMs installs none of
+    their handlers and reports only its products, as it did before them."""
+    model, inputs = _mini("llama", device)
+    sim = simulate(Recipe(linear=_formats(RoundMode.RNE)), model)
+    _run(model, inputs, device, sim)
+    assert sim._state.handlers.keys() == _HANDLERS.keys()
+    assert {r.kind for r in sim.report().rows} == {"linear", "matmul"}
+
+
+class _InPlace(nn.Module):
+    def forward(self, x):
+        y = x * 2
+        y.add_(1)
+        torch.arange(3, device=x.device).add_(1)  # an index counter: not arithmetic it rounds
+        return y.relu_()
+
+
+def test_in_place_arithmetic_is_reported_and_strict_raises():
+    model = nn.Sequential()
+    model.add_module("inner", _InPlace())
+    recipe = Recipe(elementwise=_pw_formats(RoundMode.RNE), activation=_act_formats(RoundMode.RNE))
+    sim = simulate(recipe, model)
+    with sim, torch.no_grad():
+        model(torch.randn(4))
+    rows = {(r.call, r.action) for r in sim.report().rows}
+    assert ("Tensor.mul", SIMULATED) in rows
+    assert ("Tensor.add_", "not covered: it writes its operand in place") in rows
+    assert ("Tensor.relu_", "not covered: it writes its operand in place") in rows
+    assert len(rows) == 3
+    with pytest.raises(RuntimeError, match="Tensor.add_ in inner is not simulated"):
+        with simulate(recipe, model, strict=True), torch.no_grad():
+            model(torch.randn(4))
+    lenient = recipe.override("inner", elementwise=None, activation=None)
+    with simulate(lenient, model, strict=True), torch.no_grad():
+        model(torch.randn(4))
+
+
 # --- Hugging Face's own classes --------------------------------------------------------
 
 
@@ -552,6 +784,27 @@ def test_hf_llama(rounding):
     assert sites == {
         (f"model.model.layers.{i}.self_attn", s) for i in range(2) for s in ("matmul#0", "matmul#1")
     }
+
+
+def test_hf_activations():
+    """transformers' Llama calls ``F.silu`` in its ``SiLUActivation``, and
+    GPT-2's default ``NewGELUActivation`` writes its GELU out: its ``tanh`` is
+    an activation and its products, sums and power are elementwise."""
+    model = _Logits(_hf_llama("eager"))
+    sim = simulate(Recipe(activation=_act_formats(RoundMode.RNE)), model)
+    _run(model, [_ids("cpu")], "cpu", sim)
+    acts = {(r.scope, r.call) for r in sim.report().simulated}
+    assert acts == {(f"model.model.layers.{i}.mlp.act_fn", "F.silu") for i in range(2)}
+    model = _Logits(_hf_gpt2())
+    recipe = Recipe(activation=_act_formats(RoundMode.RNE)).override(
+        "*.mlp.act", elementwise=_pw_formats(RoundMode.RNE)
+    )
+    sim = simulate(recipe, model)
+    _run(model, [_ids("cpu")], "cpu", sim)
+    act = "model.transformer.h.0.mlp.act"
+    calls = {(r.kind, r.call) for r in sim.report().simulated if r.scope == act}
+    assert ("activation", "torch.tanh") in calls
+    assert {("elementwise", c) for c in ("Tensor.mul", "Tensor.add", "torch.pow")} <= calls
 
 
 @pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])

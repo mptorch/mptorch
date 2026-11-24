@@ -1088,10 +1088,18 @@ def test_a_fixedpoint_result_with_nothing_to_store_raises():
         _fxp_quant(F16, 2, 25)()
 
 
-def test_there_is_no_fixedpoint_gemm_storage_rule_yet():
-    """``elementwise=False`` is a GEMM's rule, and there is no fixed-point GEMM."""
-    with pytest.raises(NotImplementedError, match="no fixed-point GEMM"):
-        check_fixedpoint_storage(8, 4, storage=F16)
+def test_a_computed_fixedpoint_result_needs_every_value_stored():
+    """``elementwise=False`` is the rule for a computed result (a pointwise
+    op's): more significant bits than the dtype raise, a range or a step past
+    it warns, and a format whose every value the dtype holds says nothing."""
+    check_fixedpoint_storage(8, 4, storage=F16)
+    with pytest.raises(ValueError, match="12 significant bits"):
+        check_fixedpoint_storage(13, 4, storage=F16)
+    check_fixedpoint_storage(13, 4, storage=torch.float32)
+    with pytest.warns(FormatRangeWarning, match="beyond float16's largest"):
+        check_fixedpoint_storage(8, -12, storage=F16)
+    with pytest.warns(FormatRangeWarning, match="finer than float16's smallest subnormal"):
+        check_fixedpoint_storage(4, 26, storage=F16)
 
 
 def test_a_fixedpoint_range_past_float16_warns_and_says_why():
