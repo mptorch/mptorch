@@ -204,7 +204,8 @@ def test_a_unary_op_is_its_carrier_step_then_the_slots(device, rounding, op):
     if op == "pow":
         want, wg = q(torch.pow(xd, 1.5)), g * (1.5 * xd.pow(0.5))
     else:
-        carrier_root = torch.sqrt(xd.double()).float()  # correctly rounded, unlike torch's CPU root
+        # correctly rounded, unlike torch's CPU root; float64 on the CPU, which MPS lacks
+        carrier_root = torch.sqrt(xd.cpu().double()).float().to(xd.device)
         want = q(carrier_root if op == "sqrt" else TORCH_UNARY[op](xd))
         r = TORCH_UNARY[op](xd)
         wg = {"sqrt": g / (2 * r), "rsqrt": -0.5 * g * r.pow(3), "exp": g * r}[op]
