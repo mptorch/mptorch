@@ -11,8 +11,8 @@ rounded once, as in :doc:`pointwise`:
 - :func:`~mptorch.quant.qlayernorm`, :func:`~mptorch.quant.qrmsnorm`,
   :func:`~mptorch.quant.qgroupnorm` and :func:`~mptorch.quant.qbatchnorm`.
 
-:doc:`/layers` shows the modules built on them, and how a recipe reaches the
-softmaxes, norms and sums of a model's own code.
+:doc:`/layers` shows the modules built on them, and :doc:`/instrument` how a
+recipe reaches the softmaxes, norms and sums of a model's own code.
 
 Sums on the core routine
 ------------------------

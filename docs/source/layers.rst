@@ -562,143 +562,8 @@ A mixed-precision model is a set of decisions per layer:
 The :doc:`tutorial` goes through these steps for the 8-bit formats, training
 a network with each combination and comparing them.
 
-Converting a model
-------------------
-
-A model that already exists need not be rebuilt from mptorch's layers. A
-*recipe* says what each part of it computes in, and
-:func:`~mptorch.quant.convert` converts a copy of the model, or
-:func:`~mptorch.quant.convert_` the model itself, in place.
-
-- :class:`~mptorch.quant.GemmFormats` holds one layer's formats: the
-  operand and gradient quantizers, a rounding of the output, and one mac
-  for each pass (the forward product, the input gradient and the weight
-  gradient), any of them ``None`` for PyTorch's own arithmetic.
-  ``GemmFormats.uniform(mac, quant)`` fills them all.
-- :class:`~mptorch.quant.Recipe` gives formats to the *kinds* ``linear``,
-  ``conv`` and ``matmul`` (``gemm`` names the three), ``activation`` (an
-  :class:`~mptorch.quant.ActivationFormats`), ``embedding`` and
-  ``elementwise`` (a :class:`~mptorch.quant.PointwiseFormats`), ``softmax``
-  (a :class:`~mptorch.quant.SoftmaxFormats`), ``norm`` (a
-  :class:`~mptorch.quant.NormFormats`), ``reduction`` (a
-  :class:`~mptorch.quant.ReductionFormats`) and ``attention`` (an
-  :class:`~mptorch.quant.AttentionFormats`), and
-  ``override(where, ...)`` changes them for the modules ``where`` chooses: a
-  glob over their names (``"encoder.*"``), a type, or a predicate. The last
-  rule that matches wins, and ``None`` keeps a module PyTorch's.
-- ``mptorch.quant.presets`` holds three recipes: ``uniform(fmt)``,
-  ``fp8()`` (E4M3 operands and E5M2 gradients, each scaled per tensor) and
-  ``mx()`` (OCP MX block formats).
-
-``recipe.plan(model)`` shows what a conversion would do. Each ``nn.Linear``
-and ``nn.Conv1d/2d/3d`` that the recipe gives formats to becomes a
-:class:`~mptorch.quant.QLinear` or a ``QConv*d``, each of torch's activation
-modules its mptorch twin, an ``nn.Embedding`` a
-:class:`~mptorch.quant.QEmbedding`, an ``nn.Softmax`` a
-:class:`~mptorch.quant.QSoftmax` and each of torch's norms its twin (these
-only when the recipe names their kind, which keeps a recipe for the layers'
-report to the layers), and an ``nn.MultiheadAttention`` a
-:class:`~mptorch.quant.QMultiheadAttention` (below): the
-same object with its
-class changed, so its parameters, buffers, hooks and ``state_dict`` keys stay
-as they were, and an optimizer built before the conversion still trains it.
-Only those exact classes convert. A subclass, a parametrized module among
-them, is listed and kept, and ``strict=True`` raises instead.
-:func:`~mptorch.quant.unconvert_` turns the layers back, and
-:func:`~mptorch.quant.register` adds a class of your own.
-:func:`~mptorch.quant.profile` runs one forward pass and counts each layer's
-multiply-accumulates by the arithmetic it ran in, priced by a cost per MAC.
-
-.. literalinclude:: ../snippets/layers_convert.py
-   :language: python
-   :caption: docs/snippets/layers_convert.py
-
-.. literalinclude:: ../snippets/layers_convert.out
-   :language: text
-   :caption: output
-
-A converted model is saved and loaded through its ``state_dict``, which is
-the float model's: the layers' formats hold closures, which the recipe
-rebuilds. Only modules convert, so a product that a model's code computes
-with a function, such as a ``torch.matmul`` in an attention block, keeps
-PyTorch's arithmetic, and ``profile`` does not count it.
-
-Simulating a model
-------------------
-
-:class:`~mptorch.quant.simulate` runs a model in a recipe's arithmetic
-without converting it, and reaches what a conversion cannot. While it is
-active (``with simulate(recipe, model) as sim:``), it intercepts the model's
-calls: each product the recipe gives formats to runs through the autograd
-Function a converted layer runs, with the same formats, so on the layers a
-conversion would convert the results are the converted model's, word for
-word, gradients included. A product is resolved by kind:
-
-- ``linear`` is ``F.linear``, and a ``torch.addmm`` or ``torch.matmul``
-  whose right operand is one of the model's Parameters (GPT-2's ``Conv1D``
-  is an ``addmm``). It takes the formats of the module that owns the
-  weight, so ``F.linear(x, self.qkv.weight)`` takes ``qkv``'s even when
-  ``qkv`` itself is never called;
-- ``conv`` is ``F.conv1d/2d/3d``, resolved the same way;
-- ``matmul`` is a product of two activations (a view of a weight, such as
-  ``W.T``, counts as one). It takes the formats of the module that computes
-  it, at a *site*: ``"matmul#0"`` is that module's first such product in a
-  forward pass and ``"matmul#1"`` its second, so ``override(where,
-  site="matmul#1", matmul=...)`` reaches one of them. The report lists the
-  sites.
-
-``sim.report()`` lists every product seen, what ran it, and why a product
-was left to PyTorch: the recipe gave it ``None``, or simulate cannot run it
-(an ``einsum``; ``F.scaled_dot_product_attention``, which computes an
-attention block's products in one call, under a recipe with no
-``attention`` kind), and ``strict=True`` raises for the latter in a module
-the recipe covers. A converted model's layers run as
-converted. Under ``torch.compile``, compile ``sim.wrap()``, which enters the
-simulation inside the compiled code; a compiled call is not recorded in the
-report.
-
-.. literalinclude:: ../snippets/layers_simulate.py
-   :language: python
-   :caption: docs/snippets/layers_simulate.py
-
-.. literalinclude:: ../snippets/layers_simulate.out
-   :language: text
-   :caption: output
-
-Activations, embeddings and a model's own arithmetic
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A recipe that names the ``activation``, ``embedding`` or ``elementwise``
-kind reaches more than the products, and only then: a recipe for the
-products alone installs nothing for them and reports nothing about them.
-
-- ``activation`` is ``F.gelu``, ``F.silu``, ``F.hardswish``,
-  ``F.hardsigmoid``, ``F.relu``, ``torch.sigmoid`` and ``torch.tanh``, under
-  the module that calls them, so Hugging Face's ``SiLUActivation`` and a
-  torch ``nn.GELU`` alike. A call with ``inplace=True`` computes out of
-  place, as the mptorch modules do;
-- ``embedding`` is ``F.embedding``, under the module that owns the weight;
-- ``elementwise`` is a model's own arithmetic: ``+``, ``-``, ``*``, ``/``
-  and their ``torch.`` spellings, ``sqrt``, ``rsqrt``, ``exp`` and a power
-  with a number exponent, each through its op of
-  :doc:`kernels/pointwise`, under the module whose code computes it.
-  Residual sums, attention's scaling and mask, RMSNorm's ``rsqrt`` and
-  RoPE's products are all of this kind, so a recipe usually names it for
-  the blocks only (``override("*.layers.*", elementwise=...)``): an additive
-  mask rounded to an 8-bit format, for instance, becomes its infinities.
-  Arithmetic on integer tensors is not rounded, and neither are the
-  in-place forms (``x += y``), which the report lists.
-
-.. literalinclude:: ../snippets/layers_activations.py
-   :language: python
-   :caption: docs/snippets/layers_activations.py
-
-.. literalinclude:: ../snippets/layers_activations.out
-   :language: text
-   :caption: output
-
-Softmax, norms and sums
-~~~~~~~~~~~~~~~~~~~~~~~
+Softmax, norms and attention
+----------------------------
 
 Softmax and the norms have modules of their own:
 :class:`~mptorch.quant.QSoftmax`, :class:`~mptorch.quant.QLayerNorm`,
@@ -706,69 +571,21 @@ Softmax and the norms have modules of their own:
 ``QBatchNorm1d/2d/3d``, each its torch module with a ``formats`` (a
 :class:`~mptorch.quant.SoftmaxFormats` or a
 :class:`~mptorch.quant.NormFormats`; ``None`` is torch's forward). Their
-arithmetic is :doc:`kernels/reductions`'s. A recipe reaches them by kind:
+arithmetic is :doc:`kernels/reductions`'s.
 
-- ``softmax`` is ``nn.Softmax`` for a conversion, and ``F.softmax``,
-  ``torch.softmax`` and ``Tensor.softmax`` for a simulation, which also
-  reaches the softmax an attention block calls as a function;
-- ``norm`` is torch's norm modules for a conversion, and ``F.layer_norm``,
-  ``F.rms_norm``, ``F.group_norm`` and ``F.batch_norm`` for a simulation;
-- ``reduction``, for a simulation only, is a model's ``torch.sum`` and
-  ``torch.mean`` over float tensors, through :func:`~mptorch.quant.qsum` and
-  :func:`~mptorch.quant.qmean`. A sum of integers, such as a mask's count,
-  is left alone.
+:class:`~mptorch.quant.QMultiheadAttention` is ``nn.MultiheadAttention``
+with a ``formats``, a :class:`~mptorch.quant.QAttentionFormats`: a
+``QLinear``'s container for its in-projections and one for its output
+projection, and an :class:`~mptorch.quant.AttentionFormats` for its core
+(``None`` is torch's forward). Its core is
+:func:`~mptorch.quant.qattention`'s, ``F.scaled_dot_product_attention``
+with each part of the ``AttentionFormats`` rounding its step
+(:doc:`kernels/attention`).
 
-A norm that a model writes out of elementwise ops, such as Hugging Face's
-``LlamaRMSNorm``, is no torch class, and no functional call reveals it.
-Registering its class with the forward it should compute,
-``register(cls, kind="norm", forward=...)``, reaches it as a whole: a
-conversion switches it to a class that runs that forward, and a simulation
-runs that forward in place of the module's own, whose calls it then passes
-through. Without the registration, its ``mean`` is a ``reduction`` and its
-other steps ``elementwise``, each rounded on its own.
+A model that already exists
+---------------------------
 
-.. literalinclude:: ../snippets/layers_norms.py
-   :language: python
-   :caption: docs/snippets/layers_norms.py
-
-.. literalinclude:: ../snippets/layers_norms.out
-   :language: text
-   :caption: output
-
-Attention
-~~~~~~~~~
-
-:func:`~mptorch.quant.qattention` is ``F.scaled_dot_product_attention`` with
-each part of an :class:`~mptorch.quant.AttentionFormats` rounding its step
-(:doc:`kernels/attention`), and :class:`~mptorch.quant.QMultiheadAttention`
-is ``nn.MultiheadAttention`` with a ``formats`` (a
-:class:`~mptorch.quant.QAttentionFormats`: a ``QLinear``'s container for its
-in-projections and one for its output projection, and an
-``AttentionFormats`` for its core; ``None`` is torch's forward). A recipe
-reaches a model's attention by kind:
-
-- ``attention`` is ``nn.MultiheadAttention``'s core for a conversion, and
-  for a simulation also ``F.scaled_dot_product_attention`` wherever a model
-  calls it (transformers' default), through ``qattention``. Without the
-  kind both are reported as not covered.
-- ``linear`` gives ``nn.MultiheadAttention``'s projections their formats, as
-  for any layer with a weight: a recipe for the GEMMs converts the module
-  for them, its core left PyTorch's. Its ``out_proj`` is the module's own
-  and converts with it.
-
-An eager attention, written out of two ``torch.matmul`` calls and a
-softmax, has no single call to reach. ``recipe.attention_parts(where,
-formats)`` gives one ``AttentionFormats`` to both spellings: the
-``attention`` kind, and the eager parts, ``formats.qk`` at site
-``"matmul#0"``, ``formats.softmax`` and ``formats.pv`` at ``"matmul#1"``.
-An SDPA model and its eager twin then compute the same words, gradients
-included (:func:`~mptorch.quant.qattention` lists the cases where they
-cannot).
-
-.. literalinclude:: ../snippets/layers_attention.py
-   :language: python
-   :caption: docs/snippets/layers_attention.py
-
-.. literalinclude:: ../snippets/layers_attention.out
-   :language: text
-   :caption: output
+A model built from torch's modules need not be rebuilt from these. A
+recipe converts its modules to them, or simulates their arithmetic while
+the model runs, function calls included, and the same recipe counts what
+the model computes: :doc:`instrument` shows how.

@@ -20,8 +20,8 @@ its layers:
   :func:`~mptorch.quant.qhardsigmoid` and :func:`~mptorch.quant.qrelu`;
 - :func:`~mptorch.quant.qembedding`, a gather whose rows are rounded.
 
-:doc:`/layers` shows the modules built on them and how a recipe reaches a
-model's own arithmetic with them.
+:doc:`/layers` shows the modules built on them, and :doc:`/instrument` how a
+recipe reaches a model's own arithmetic with them.
 
 Slots
 -----

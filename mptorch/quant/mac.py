@@ -51,6 +51,7 @@ from typing import Any, cast
 
 import torch
 from torch import nn
+from torch._subclasses.fake_tensor import is_fake as _is_fake
 
 from mptorch.number import (
     AccumulateAlgorithm,
@@ -467,6 +468,12 @@ class BlockQuant:
             tensor_scale=self.tensor_scale,
             carrier=self.carrier,
         )
+        # A real tensor packed under a fake tensor mode (profile(run=False)
+        # packs one so) has fake codes, which a later real call on the same
+        # tensor would return: they are not kept. Dynamo's trace, whose tensors
+        # are all fake, keeps its packing as before.
+        if not torch.compiler.is_compiling() and _is_fake(packed.data) and not _is_fake(x):
+            return packed
         self._memo[0] = (weakref.ref(x), x._version, axis, x.device, x.dtype, packed)
         return packed
 

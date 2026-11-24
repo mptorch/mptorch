@@ -857,6 +857,45 @@ def test_a_whole_module_passes_its_own_calls_through():
     assert not any(a == SIMULATED for c, a in rows if c != "LlamaRMSNorm.forward")
 
 
+class _Block(nn.Module):
+    """A module that holds a layer, simulated whole by a forward that calls the layer too."""
+
+    def __init__(self):
+        super().__init__()
+        self.lin = nn.Linear(8, 8)
+
+    def forward(self, x):
+        return self.lin(x)
+
+
+def _block_forward(module, formats, x):
+    return qrmsnorm(module.lin(x), (8,), None, 1e-6, formats)
+
+
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_a_whole_module_simulates_its_children_once(rounding):
+    """The layer inside a module simulated whole runs twice: in the module's
+    own forward, whose result is discarded, and in the registered forward.
+    Only the second is simulated, as the converted module runs only that one,
+    so stochastic rounding draws what the converted model draws."""
+    register(_Block, kind="norm", forward=_block_forward)
+    try:
+        torch.manual_seed(0)
+        model = nn.Sequential(_Block(), nn.Linear(8, 4))
+        recipe = Recipe(linear=_formats(rounding), norm=_norm_formats(rounding))
+        x = torch.randn(3, 8)
+        converted, _ = convert(model, recipe)
+        want = _run(converted, [x], "cpu")
+        sim = simulate(recipe, model)
+        got = _run(model, [x], "cpu", sim)
+        for k in want:
+            assert _same(got[k], want[k]), k
+        rows = [(r.call, r.action) for r in sim.report().rows if r.scope == "0.lin"]
+        assert rows == [("F.linear", WHOLE), ("F.linear", SIMULATED)]
+    finally:
+        del _REGISTRY[_Block]
+
+
 class _Sums(nn.Module):
     def forward(self, x, ids):
         s = x.sum(axis=1)

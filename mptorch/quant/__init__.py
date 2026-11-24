@@ -108,7 +108,7 @@ from .pointwise import (
     qsub,
     qtanh,
 )
-from .profile import Profile, ProfileRecord, profile
+from .profile import ElementRecord, Profile, ProfileRecord, UncountedRecord, profile
 from .recipe import GemmFormats, Recipe, Rule
 from .reduce import ReductionFormats, qmean, qsum
 from .scaled import ScaledQuant
@@ -242,4 +242,6 @@ __all__ = [
     "profile",
     "Profile",
     "ProfileRecord",
+    "ElementRecord",
+    "UncountedRecord",
 ]

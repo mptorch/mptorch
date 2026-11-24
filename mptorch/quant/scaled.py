@@ -281,8 +281,16 @@ class ScaledQuant:
 
 
 def _mul_into(src: torch.Tensor, s: torch.Tensor, dst: torch.Tensor) -> None:
-    """``dst = src * s``, computed in ``dst``'s dtype, the carrier."""
-    if torch.compiler.is_compiling() and not dst.is_contiguous():
+    """``dst = src * s``, computed in ``dst``'s dtype, the carrier.
+
+    Compiled, the product is a copy into ``dst`` and an in-place multiply:
+    Dynamo refuses an ``out=`` view that is not contiguous, and Inductor's
+    functionalization gives the ``out=`` tensor the strides of the
+    out-of-place product, so that a transposed ``src`` (GPT-2's ``Conv1D``
+    weight, as ``simulate`` passes it) made the carrier tensor transposed
+    and the in-place rounding refused it. The copy keeps ``dst``'s layout,
+    and the values are the same."""
+    if torch.compiler.is_compiling():
         dst.copy_(src).mul_(s)
     else:
         torch.mul(src, s, out=dst)

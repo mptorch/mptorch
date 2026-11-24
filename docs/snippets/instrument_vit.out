@@ -1,0 +1,6 @@
+largest difference of the logits: 0.266
+report: 38 rows simulated, 0 not covered
+  conv_proj: conv, F.conv2d
+  encoder.layers.encoder_layer_0.self_attention: attention, F.multi_head_attention_forward
+  encoder.layers.encoder_layer_0.mlp.0: linear, F.linear
+  encoder.layers.encoder_layer_0.mlp.3: linear, F.linear

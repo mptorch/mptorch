@@ -8,8 +8,8 @@ on the core routine of :doc:`index`, the scale as a pointwise product
 (:doc:`pointwise`), the softmax of :doc:`reductions`. It takes
 ``F.scaled_dot_product_attention``'s arguments, and its formats are an
 :class:`~mptorch.quant.AttentionFormats`. :doc:`/layers` shows
-``nn.MultiheadAttention``'s counterpart and how a recipe reaches a model's
-attention, however the model spells it.
+``nn.MultiheadAttention``'s counterpart, and :doc:`/instrument` how a recipe
+reaches a model's attention, however the model spells it.
 
 The steps
 ---------

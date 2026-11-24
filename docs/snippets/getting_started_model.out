@@ -1,0 +1,2 @@
+largest difference to the float32 model: 0.0400
+SplitMac(BinaryK(K=8, P=4, bias=8), carrier): 10,752 MACs (100.0%)

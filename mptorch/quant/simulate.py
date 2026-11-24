@@ -187,9 +187,11 @@ class _State:
         self.handlers = dict(_HANDLERS)
         for kind in opt_in:
             self.handlers.update(_OPT_IN_HANDLERS[kind])
-        # one [name, products of two activations so far] per module running:
-        # kept on the stack, which is empty between calls, so that Dynamo has no
-        # counter to guard on (a dict of counts made every call recompile)
+        # one [name, products of two activations so far, whether the frame is
+        # inside the own forward of a module simulated whole] per module
+        # running: kept on the stack, which is empty between calls, so that
+        # Dynamo has no counter to guard on (a dict of counts made every call
+        # recompile)
         self.stack: list[list] = []
         self.rows: dict[SimulateRow, None] = {}  # a dict keeps the order rows were seen in
 
@@ -308,11 +310,11 @@ def _owner(state: _State, weight: Any) -> str | None:
 
 def _route(state: _State, func: Any, kind: str, scope: str, site: str | None = None):
     """The route of a call, or ``None`` (and the reason recorded) to pass it through."""
-    top = state.stack[-1][0]
+    top, _, whole = state.stack[-1]
     if top in state.owned:
         state.record(top, kind, site, func, OWNED)
         return None
-    if top in state.whole:
+    if whole:
         state.record(top, kind, site, func, WHOLE)
         return None
     key = (scope, kind, site if site in state.sites else None)
@@ -336,8 +338,8 @@ def _not_covered(state: _State, func: Any, kind: str, reason: str, args, kwargs)
     """Pass a call through, recording why; under ``strict``, raise instead
     when the recipe gives the module formats of the call's kind, or, for a
     product, of some GEMM kind."""
-    scope = state.stack[-1][0]
-    if scope in state.owned or scope in state.whole:
+    scope, _, whole = state.stack[-1]
+    if scope in state.owned or whole:
         state.record(scope, kind, None, func, OWNED if scope in state.owned else WHOLE)
         return func(*args, **kwargs)
     _uncovered_call(state, func, kind, reason, scope)
@@ -555,8 +557,8 @@ def _mha(state: _State, func, args, kwargs):
     the in-projection's owner says, as a converted ``QMultiheadAttention``
     computes it."""
     values = _bind(args, kwargs, _MHA_NAMES, _MHA_DEFAULTS)
-    top = state.stack[-1][0]
-    if top in state.owned or top in state.whole:
+    top, _, whole = state.stack[-1]
+    if top in state.owned or whole:
         state.record(top, "attention", None, func, OWNED if top in state.owned else WHOLE)
         return func(*args, **kwargs)
     separate = bool(values[17])
@@ -1022,6 +1024,7 @@ _NAMES = {
     .replace("torch.Tensor.", "Tensor.")
     for f in (*_HANDLERS, *(f for table in _OPT_IN_HANDLERS.values() for f in table))
 }
+_NAMES[torch.mm] = "torch.mm"  # torch's resolve_name gives "torch.spmm" (torch 2.15)
 
 
 # --- the context ---------------------------------------------------------------------
@@ -1088,6 +1091,11 @@ class simulate:
         2
     """
 
+    # what a simulate builds its state and its mode from; mptorch.quant.profile
+    # counts the calls through subclasses of both
+    _state_class: type[_State] = _State
+    _mode_class: type[_Interceptor] = _Interceptor
+
     def __init__(self, recipe: Recipe, model: nn.Module, *, strict: bool = False):
         _outside_compile("made")
         if not isinstance(recipe, Recipe):
@@ -1096,8 +1104,8 @@ class simulate:
             raise TypeError(f"model must be an nn.Module, got {type(model).__name__}")
         model = getattr(model, "_orig_mod", model)  # a torch.compile'd module's original
         self.model = model
-        self._state = _State(recipe, model, strict)
-        self._mode = _Interceptor(self._state)
+        self._state = self._state_class(recipe, model, strict)
+        self._mode = self._mode_class(self._state)
         self._hooks: list[Any] = []
         self._users = 0
 
@@ -1170,8 +1178,13 @@ def _outside_compile(what: str) -> None:
 
 
 def _push(state: _State, name: str):
+    whole = name in state.whole
+
     def pre(module, args):
-        state.stack.append([name, 0])
+        # a module's frame is inside a whole module's own forward if it is that
+        # module's, or its parent frame is
+        inside = whole or (bool(state.stack) and state.stack[-1][2])
+        state.stack.append([name, 0, inside])
 
     return pre
 
@@ -1183,6 +1196,16 @@ def _replace(state: _State, name: str, whole: tuple):
     call = f"{cls}.forward"
 
     def hook(module, args, kwargs, output):
+        stack = state.stack
+        if len(stack) > 1 and stack[-2][2]:
+            # inside another whole module's own forward, whose result is
+            # discarded: keep this one's own output too, rather than run its
+            # registered forward for nothing
+            state.record(name, kind, None, call, WHOLE)
+            return None
+        # its own forward is over: the modules the registered forward calls
+        # are simulated, as a converted module's are
+        stack[-1][2] = False
         state.record(name, kind, None, call, SIMULATED, label)
         return forward(module, formats, *args, **kwargs)
 

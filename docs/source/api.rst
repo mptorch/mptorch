@@ -388,7 +388,8 @@ See :doc:`kernels/reductions`, and :doc:`layers` for the modules.
 Attention
 ---------
 
-See :doc:`kernels/attention`, and :doc:`layers` for the module and the recipes.
+See :doc:`kernels/attention`, :doc:`layers` for the module and :doc:`instrument` for the
+recipes.
 
 .. autoclass:: AttentionFormats
    :members: uniform, label
@@ -405,7 +406,7 @@ See :doc:`kernels/attention`, and :doc:`layers` for the module and the recipes.
 Converting or simulating a model
 --------------------------------
 
-See :doc:`layers` ("Converting a model" and "Simulating a model").
+See :doc:`instrument`.
 
 .. autoclass:: GemmFormats
 
@@ -440,6 +441,10 @@ See :doc:`layers` ("Converting a model" and "Simulating a model").
 .. autoclass:: Profile
 
 .. autoclass:: ProfileRecord
+
+.. autoclass:: ElementRecord
+
+.. autoclass:: UncountedRecord
 
 The ready-made recipes are in ``mptorch.quant.presets``:
 

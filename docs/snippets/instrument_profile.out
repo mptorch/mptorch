@@ -1,0 +1,22 @@
+module   kind       site      batch   M   N   K   MACs  arithmetic
+norm     norm       mean          1   1  12  16    192  torch
+norm     norm       variance      1   1  12  16    192  torch
+qkv      linear                   1  12  48  16  9,216  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+(model)  attention  qk            4   6   6   8  1,152  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+(model)  attention  softmax       1   1  24   6    144  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+(model)  attention  pv            4   6   8   6  1,152  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+out      linear                   1  12  16  16  3,072  SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16))
+
+torch: 384 MACs (2.5%), cost 1,536
+SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)): 14,736 MACs (97.5%), cost 14,736
+total cost 16,272
+
+module   kind         call          calls  elements  formats
+norm     norm         F.layer_norm      1       192  torch
+(model)  elementwise  Tensor.add        1       192  torch
+  fwd: 0.56 TMACs
+igrad: 0.56 TMACs
+wgrad: 0.56 TMACs
+SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)): 608,002,294,272 MACs (36.1%)
+SplitMac(BinaryK(K=8, P=3, bias=16), BinaryK(K=16, P=11, bias=16)): 1,074,604,670,976 MACs (63.8%)
+torch: 905,052,672 MACs (0.1%)

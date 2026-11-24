@@ -336,6 +336,17 @@ def test_what_is_refused(call, error, match):
 # --- compile, and MPS -------------------------------------------------------------------------
 
 
+# The keyword form resolves its mac per call, through spec_for_mac's lru_cache
+# and the format checks', so Dynamo says once per call site that it traces
+# through a cache; the lookups are pure, so the cache only saves time.
+# ReductionFormats, which simulate's reduction kind runs, resolves once and
+# reads none (test_compile_instrument.py compiles it).
+_KEYWORD_FORM_UNDER_COMPILE = pytest.mark.filterwarnings(
+    "ignore:Dynamo detected a call to a `functools.lru_cache`:UserWarning"
+)
+
+
+@_KEYWORD_FORM_UNDER_COMPILE
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", [R.RNE, R.SR], ids=lambda m: m.name)
 def test_compiles_in_one_graph(device, mode):
@@ -358,6 +369,7 @@ def test_compiles_in_one_graph(device, mode):
     assert _same(got, want) and _same(_grad(got, x), gw)
 
 
+@_KEYWORD_FORM_UNDER_COMPILE
 def test_inductor():
     torch._dynamo.reset()
     x = _x("cpu")

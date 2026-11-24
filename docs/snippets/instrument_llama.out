@@ -1,0 +1,4 @@
+kinds seen: activation (simulated), attention (simulated), elementwise (inside a module simulated whole), elementwise (plain), elementwise (simulated), linear (plain), linear (simulated), norm (simulated)
+SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)): 1,440,000 MACs (86.0%)
+torch: 233,472 MACs (14.0%)
+elements by kind: {'embedding': 768, 'norm': 3072, 'elementwise': 8496, 'activation': 3072}

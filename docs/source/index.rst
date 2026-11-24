@@ -73,6 +73,13 @@ Features
   have its own arithmetic (see :doc:`layers`). To round a tensor between
   layers, :class:`~mptorch.quant.Quantizer` uses one format in the forward
   pass and another for the gradient.
+- **Existing models.** A *recipe* gives a model's products, activations,
+  norms, attention and arithmetic their formats, by kind and by module.
+  :func:`~mptorch.quant.convert` switches the model's layers to mptorch's;
+  :class:`~mptorch.quant.simulate` runs the model as it is, function calls
+  included, such as a transformer's attention; and
+  :func:`~mptorch.quant.profile` counts what it computes, by format, in
+  both passes (see :doc:`instrument`).
 - **Wide formats.** The binary64 carrier simulates formats of up to 53 bits
   of precision and ten exponent bits. A float64 model computes in binary64.
   ``carrier=torch.float64`` gives a float32, float16 or bfloat16 model the
@@ -94,6 +101,7 @@ Features
    quantizers
    kernels/index
    layers
+   instrument
    tutorial
    api
 

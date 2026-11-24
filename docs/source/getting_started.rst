@@ -112,6 +112,26 @@ format E4M3 has the same field widths, with an exponent bias one less.
 are ``1/8`` apart. :doc:`concepts` explains the formats and the rounding, and
 the other guides build on it.
 
+A model you already have
+------------------------
+
+A model built from torch's modules computes in mptorch's arithmetic without
+being rebuilt: a *recipe* says which formats each part of it computes in,
+:func:`~mptorch.quant.convert` switches its layers to mptorch's, and
+:func:`~mptorch.quant.profile` counts its multiply-accumulates (MACs) by
+format.
+
+.. literalinclude:: ../snippets/getting_started_model.py
+   :language: python
+   :caption: docs/snippets/getting_started_model.py
+
+.. literalinclude:: ../snippets/getting_started_model.out
+   :language: text
+   :caption: output
+
+:doc:`instrument` goes further: a model's attention, activations and norms,
+the calls no layer makes, and the backward pass's cost.
+
 Vocabulary
 ----------
 

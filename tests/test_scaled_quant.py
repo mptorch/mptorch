@@ -398,3 +398,23 @@ def test_compiles_on_every_layout(device, dtype, granularity, block_size, axis):
     torch._dynamo.reset()  # each case compiles ScaledQuant.__call__ for its own layout
     compiled = _run(device, torch.compile(sq, backend="aot_eager", fullgraph=True), x)
     assert torch.equal(eager, compiled)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("backend", ["aot_eager", "inductor"])
+@pytest.mark.parametrize("granularity,axis", [("tensor", -1), ("row", 0)])
+def test_compiles_on_a_transposed_input(device, dtype, backend, granularity, axis):
+    """A transposed input, as simulate passes GPT-2's Conv1D weight: compiled,
+    the carrier tensor stays contiguous for the in-place rounding (functionalized,
+    an ``out=`` product took the input's strides, and the rounding refused it)."""
+    sq = ScaledQuant(BinaryK(8, 4, saturation=SAT), granularity=granularity, axis=axis)
+    x = _data(device, dtype, (20, 12)).mT
+    eager = _run(device, sq, x)
+    torch._dynamo.reset()
+    compiled = _run(device, torch.compile(sq, backend=backend, fullgraph=True), x)
+    if backend == "inductor" and device == "cuda" and dtype is torch.float32:
+        # Inductor's division by the scale can differ from eager's in the last place
+        torch.testing.assert_close(compiled, eager, rtol=2**-20, atol=0)
+    else:
+        assert torch.equal(eager, compiled)

@@ -1,0 +1,6 @@
+20 layers converted, 1 kept: fc
+largest difference of the logits: 0.407
+
+SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=16, P=11, bias=16)): 5,322,670,080 MACs (99.9%), cost 5.32267e+09
+torch: 6,503,424 MACs (0.1%), cost 2.60137e+07
+total cost 5.34868e+09
