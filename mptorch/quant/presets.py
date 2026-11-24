@@ -29,8 +29,10 @@ from mptorch.number import (
 )
 
 from .mac import BlockMac, FusedMac, Quant, SplitMac
+from .norm import NormFormats, SoftmaxFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .recipe import _KINDS, GemmFormats, Recipe
+from .reduce import ReductionFormats
 from .scaled import ScaledQuant
 
 __all__ = ["uniform", "fp8", "mx"]
@@ -55,7 +57,10 @@ def uniform(
     rounding)``; the bias and the output are not rounded. The other kinds
     round every slot with that ``Quant``: an activation's gate, result and
     gradient (``ActivationFormats.uniform``), a pointwise op's or an
-    embedding's result and gradients (``PointwiseFormats.uniform``).
+    embedding's result and gradients (``PointwiseFormats.uniform``), and
+    each step of a softmax, a norm or a mean (``SoftmaxFormats.uniform``,
+    ``NormFormats.uniform``, ``ReductionFormats.uniform``), whose sums run in
+    the GEMMs' ``SplitMac``.
 
     Args:
         fmt (Number): the format.
@@ -64,8 +69,9 @@ def uniform(
         rounding (RoundMode): the rounding mode of every rounding.
             Default: ``RoundMode.RNE``
         kinds (Sequence[str]): the kinds the recipe sets: any of ``linear``,
-            ``conv``, ``matmul``, ``activation``, ``elementwise`` and
-            ``embedding``. Default: ``("linear", "conv")``
+            ``conv``, ``matmul``, ``activation``, ``elementwise``,
+            ``embedding``, ``softmax``, ``norm`` and ``reduction``.
+            Default: ``("linear", "conv")``
 
     Example::
 
@@ -77,11 +83,15 @@ def uniform(
     if unknown:
         raise ValueError(f"unknown kinds {unknown}: the kinds are {', '.join(_KINDS)}")
     quant = Quant(fmt, rounding)
-    gf = GemmFormats.uniform(SplitMac(fmt, acc, rounding=rounding), quant)
+    mac = SplitMac(fmt, acc, rounding=rounding)
+    gf = GemmFormats.uniform(mac, quant)
     values = {
         "activation": ActivationFormats.uniform(quant),
         "elementwise": PointwiseFormats.uniform(quant),
         "embedding": PointwiseFormats.uniform(quant),
+        "softmax": SoftmaxFormats.uniform(mac, quant),
+        "norm": NormFormats.uniform(mac, quant),
+        "reduction": ReductionFormats.uniform(mac, quant),
     }
     return Recipe(**{kind: values.get(kind, gf) for kind in kinds})
 

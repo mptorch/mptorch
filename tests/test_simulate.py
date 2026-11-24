@@ -21,7 +21,11 @@ The claims checked here:
 - the kinds past the GEMMs: an activation is the converted module's, an
   embedding too, a model's arithmetic under ``elementwise`` the q-ops written
   out by hand; a recipe that names none of them reports what it reported
-  before, and installs none of their handlers.
+  before, and installs none of their handlers;
+- softmax and the norms are the converted modules', running statistics
+  included; a norm written out of elementwise ops and registered with its
+  forward is reached whole, its own calls passed through; ``torch.sum`` and
+  ``torch.mean`` under ``reduction`` are ``qsum`` and ``qmean`` written out.
 """
 
 import copy
@@ -37,28 +41,36 @@ from mptorch.quant import (
     QGELU,
     ActivationFormats,
     GemmFormats,
+    NormFormats,
     PointwiseFormats,
     QLinear,
     QMatmul,
     QSiLU,
     Quant,
     Recipe,
+    ReductionFormats,
+    SoftmaxFormats,
     SplitMac,
     convert,
     convert_,
     qadd,
     qdiv,
     qexp,
+    qmean,
     qmul,
     qpow,
+    qrmsnorm,
     qrsqrt,
     qsqrt,
     qsub,
+    qsum,
+    register,
     simulate,
 )
-from mptorch.quant.simulate import _HANDLERS, OWNED, PLAIN, SIMULATED
+from mptorch.quant.convert import _REGISTRY
+from mptorch.quant.simulate import _HANDLERS, OWNED, PLAIN, SIMULATED, WHOLE
 from tests.markers import available_devices
-from tests.models import Conv1D, GPT2Attention, LlamaAttention, MiniGPT2, MiniLlama
+from tests.models import Conv1D, GPT2Attention, LlamaAttention, LlamaRMSNorm, MiniGPT2, MiniLlama
 from tests.models import attention_modules as _attention_modules
 from tests.test_convert import _equal, _Net
 
@@ -716,6 +728,194 @@ def test_in_place_arithmetic_is_reported_and_strict_raises():
         model(torch.randn(4))
 
 
+# --- softmax, the norms and the sums ----------------------------------------------------
+
+
+def _norm_formats(rounding, p=8, grad=True):
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, p, prng_bits=8) if sr else BinaryK(16, p)
+    q = Quant(fmt, rounding)
+    return NormFormats.uniform(SplitMac(fmt, ACC, rounding=rounding), q, grad=q if grad else None)
+
+
+def _softmax_formats(rounding, p=8):
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, p, prng_bits=8) if sr else BinaryK(16, p)
+    return SoftmaxFormats.uniform(SplitMac(fmt, ACC, rounding=rounding), Quant(fmt, rounding))
+
+
+class _Norms(nn.Module):
+    """Each of torch's norm modules, and a softmax module."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, 3, padding=1)
+        self.bn = nn.BatchNorm2d(8)
+        self.gn = nn.GroupNorm(4, 8)
+        self.bn1 = nn.BatchNorm1d(8)
+        self.ln = nn.LayerNorm(8)
+        self.rms = nn.RMSNorm(8)
+        self.fc = nn.Linear(8, 6)
+        self.sm = nn.Softmax(-1)
+
+    def forward(self, x):
+        h = self.gn(self.bn(self.conv(x)))
+        h = h.flatten(2).amax(-1)
+        return self.sm(self.fc(self.rms(self.ln(self.bn1(h)))))
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.parametrize("grad", [True, False], ids=["closed-form", "torch's gradient"])
+def test_norms_and_softmax_are_the_converted_modules(device, rounding, grad):
+    """convert turns torch's norm and softmax modules into mptorch's, simulate
+    rounds their functional calls, and the two agree word for word, the
+    batch norms' running statistics included."""
+    torch.manual_seed(0)
+    model = _Norms().to(device).train()
+    inputs = [torch.randn(4, 3, 5, 5, device=device)]
+    recipe = Recipe(
+        gemm=_formats(rounding),
+        norm=_norm_formats(rounding, grad=grad),
+        softmax=_softmax_formats(rounding),
+    ).override("ln", norm=_norm_formats(rounding, p=6, grad=grad))
+    converted, report = convert(model, recipe)
+    assert len(report.converted) == 8
+    want = _run(converted, inputs, device)
+    sim = simulate(recipe, model)
+    got = _run(model, inputs, device, sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    for name in ("bn", "bn1"):
+        for buf in ("running_mean", "running_var", "num_batches_tracked"):
+            a, b = getattr(model, name), getattr(converted, name)
+            assert torch.equal(getattr(a, buf), getattr(b, buf)), (name, buf)
+    rows = [r for r in sim.report().rows if r.kind in ("norm", "softmax")]
+    assert len(rows) == 6 and all(r.action == SIMULATED for r in rows)
+
+
+def _llama_rms(module, formats, x):
+    return qrmsnorm(x, module.weight.shape, module.weight, module.variance_epsilon, formats)
+
+
+@pytest.fixture
+def registered_llama_norm():
+    register(LlamaRMSNorm, kind="norm", forward=_llama_rms)
+    yield
+    del _REGISTRY[LlamaRMSNorm]
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.usefixtures("registered_llama_norm")
+def test_a_registered_norm_is_the_converted_module(device, rounding):
+    """Llama's RMSNorm, written out of elementwise ops, is registered with the
+    forward it simulates: convert switches it to a class that runs it, and
+    simulate runs it in place of the module's own forward."""
+    model, inputs = _mini("llama", device)
+    recipe = Recipe(linear=_formats(rounding), norm=_norm_formats(rounding))
+    converted, report = convert(model, recipe)
+    assert sum(r.type == "LlamaRMSNorm" for r in report.converted) == 5
+    want = _run(converted, inputs, device)
+    sim = simulate(recipe, model)
+    got = _run(model, inputs, device, sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    norms = [r for r in sim.report().rows if r.kind == "norm"]
+    assert len(norms) == 5 and {r.call for r in norms} == {"LlamaRMSNorm.forward"}
+    model, inputs = _mini("gpt2", device)  # nn.LayerNorm, through the registry
+    recipe = Recipe(norm=_norm_formats(rounding))
+    converted, _ = convert(model, recipe)
+    want = _run(converted, inputs, device)
+    got = _run(model, inputs, device, simulate(recipe, model))
+    for k in want:
+        assert _same(got[k], want[k]), k
+
+
+@pytest.mark.usefixtures("registered_llama_norm")
+def test_a_whole_module_passes_its_own_calls_through():
+    """Inside a norm simulated whole, the elementwise kind rounds nothing, even
+    under strict: its calls are reported as inside it."""
+    model, inputs = _mini("llama", "cpu")
+    recipe = Recipe(norm=_norm_formats(RoundMode.RNE), elementwise=_pw_formats(RoundMode.RNE))
+    sim = simulate(recipe, model, strict=True)
+    _run(model, inputs, "cpu", sim)
+    norm = "model.layers.0.input_layernorm"
+    rows = {(r.call, r.action) for r in sim.report().rows if r.scope == norm}
+    assert ("LlamaRMSNorm.forward", SIMULATED) in rows
+    assert ("Tensor.pow", WHOLE) in rows and ("torch.rsqrt", WHOLE) in rows
+    assert not any(a == SIMULATED for c, a in rows if c != "LlamaRMSNorm.forward")
+
+
+class _Sums(nn.Module):
+    def forward(self, x, ids):
+        s = x.sum(axis=1)
+        m = torch.mean(x, (0, 2), keepdim=True)
+        return s, m, ids.sum()  # the integers' sum is counting
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_sums_and_means_are_qsum_and_qmean(device, rounding):
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, 8, prng_bits=8) if sr else BinaryK(16, 8)
+    f = ReductionFormats.uniform(SplitMac(fmt, ACC, rounding=rounding), Quant(fmt, rounding))
+    sums = _Sums()
+    model = nn.Sequential()
+    model.add_module("sums", sums)
+    x = torch.randn(3, 4, 5, device=device, requires_grad=True)
+    ids = torch.arange(6, device=device)
+    sim = simulate(Recipe(reduction=f), model)
+    torch.manual_seed(2)
+    with sim:
+        s, m, total = sums(x, ids)
+    torch.manual_seed(2)
+    ws = qsum(x, 1, f.mac, grad_quant=f.grad)
+    wm = qmean(x, (0, 2), f.mac, keepdim=True, quant=f.div, grad_quant=f.grad)
+    assert _same(s, ws) and _same(m, wm) and total.item() == 15
+    torch.manual_seed(4)
+    gs = torch.autograd.grad((s.sum() + m.sum()), x)[0]
+    torch.manual_seed(4)
+    gw = torch.autograd.grad((ws.sum() + wm.sum()), x)[0]
+    assert _same(gs, gw)
+    rows = sim.report().rows
+    assert {(r.call, r.action) for r in rows} == {
+        ("Tensor.sum", SIMULATED),
+        ("torch.mean", SIMULATED),
+    }
+
+
+def test_reduction_strict():
+    class _Converting(nn.Module):
+        def forward(self, x):
+            return x.sum(dtype=torch.float64)
+
+    model = nn.Sequential()
+    model.add_module("inner", _Converting())
+    f = ReductionFormats.uniform(BinaryK(16, 8), Quant(BinaryK(16, 8)))
+    sim = simulate(Recipe(reduction=f), model)
+    with sim:
+        model(torch.randn(4))
+    assert [r.action for r in sim.report().rows] == [
+        "not covered: dtype= converts the operand first"
+    ]
+    with pytest.raises(RuntimeError, match="Tensor.sum in inner is not simulated"):
+        with simulate(Recipe(reduction=f), model, strict=True):
+            model(torch.randn(4))
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_a_llama_mean_under_reduction(device):
+    """Without the registration, a Llama norm's ``mean`` is a reduction."""
+    model, inputs = _mini("llama", device)
+    f = ReductionFormats.uniform(BinaryK(16, 8), Quant(BinaryK(16, 8)))
+    sim = simulate(Recipe(reduction=f), model)
+    _run(model, inputs, device, sim)
+    rows = {(r.scope, r.call, r.action) for r in sim.report().rows}
+    assert ("model.layers.0.input_layernorm", "Tensor.mean", SIMULATED) in rows
+    assert {r.kind for r in sim.report().simulated} == {"reduction"}
+
+
 # --- Hugging Face's own classes --------------------------------------------------------
 
 
@@ -894,3 +1094,33 @@ def test_torchvision_swin(device):
     simulated = {(r.scope.rsplit(".", 1)[-1], r.kind, r.site) for r in sim.report().simulated}
     assert {("qkv", "linear", None), ("proj", "linear", None)} <= simulated
     assert {("attn", "matmul", "matmul#0"), ("attn", "matmul", "matmul#1")} <= simulated
+
+
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_hf_norms(rounding):
+    """transformers' ``LlamaRMSNorm`` registered with its forward, and GPT-2's
+    ``nn.LayerNorm``: simulate is the converted model, and eager attention's
+    ``F.softmax`` (with ``dtype=float32`` in Llama) is reported."""
+    pytest.importorskip("transformers")
+    from transformers.models.llama.modeling_llama import LlamaRMSNorm as HFRMSNorm
+
+    register(HFRMSNorm, kind="norm", forward=_llama_rms)
+    try:
+        model = _Logits(_hf_llama("eager"))
+        inputs = [_ids("cpu")]
+        recipe = Recipe(linear=_formats(rounding), norm=_norm_formats(rounding))
+        converted, report = convert(model, recipe)
+        assert sum(r.type == "LlamaRMSNorm" for r in report.converted) == 5
+        want = _run(converted, inputs, "cpu")
+        got = _run(model, inputs, "cpu", simulate(recipe, model))
+        for k in want:
+            assert _same(got[k], want[k]), k
+    finally:
+        del _REGISTRY[HFRMSNorm]
+    model = _Logits(_hf_gpt2())
+    recipe = Recipe(norm=_norm_formats(rounding), softmax=_softmax_formats(rounding))
+    converted, _ = convert(model, Recipe(norm=_norm_formats(rounding)))
+    sim = simulate(recipe, model)
+    _run(model, [_ids("cpu")], "cpu", sim)
+    calls = {(r.kind, r.call) for r in sim.report().simulated}
+    assert calls == {("norm", "F.layer_norm"), ("softmax", "F.softmax")}

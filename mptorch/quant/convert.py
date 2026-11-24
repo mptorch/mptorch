@@ -14,7 +14,11 @@ Which classes convert, and to what, is a registry of exact classes:
 :func:`register` adds one. The built-in entries are ``nn.Linear`` and
 ``nn.Conv1d/2d/3d``, torch's activation modules (``nn.GELU``, ``nn.SiLU``,
 ``nn.Sigmoid``, ``nn.Tanh``, ``nn.Hardswish``, ``nn.Hardsigmoid``,
-``nn.ReLU``) and ``nn.Embedding``. A subclass of a registered class, such as a module
+``nn.ReLU``), ``nn.Embedding``, ``nn.Softmax``, and torch's norms
+(``nn.LayerNorm``, ``nn.RMSNorm``, ``nn.GroupNorm``,
+``nn.BatchNorm1d/2d/3d``). A class a model defines itself, such as a norm
+written out of elementwise ops, is registered with the forward it simulates
+(``register(cls, kind=..., forward=...)``). A subclass of a registered class, such as a module
 that ``torch.nn.utils.parametrize`` has wrapped, is not converted, since the
 class switch would drop what the subclass adds; the report lists it, and
 ``strict=True`` raises instead.
@@ -28,10 +32,28 @@ from typing import Any, NamedTuple
 from torch import nn
 from torch.nn.utils import parametrize
 
-from .modules.activation import QGELU, QHardsigmoid, QHardswish, QReLU, QSigmoid, QSiLU, QTanh
+from .modules.activation import (
+    QGELU,
+    QHardsigmoid,
+    QHardswish,
+    QReLU,
+    QSigmoid,
+    QSiLU,
+    QSoftmax,
+    QTanh,
+)
 from .modules.conv import QConv1d, QConv2d, QConv3d
 from .modules.embedding import QEmbedding
 from .modules.linear import QLinear, QPackedLinear, _switch_class
+from .modules.normalization import (
+    QBatchNorm1d,
+    QBatchNorm2d,
+    QBatchNorm3d,
+    QGroupNorm,
+    QLayerNorm,
+    QRMSNorm,
+)
+from .norm import NormFormats, SoftmaxFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .recipe import _GEMM_KINDS, _KINDS, GemmFormats, Recipe, Rule
 
@@ -42,6 +64,8 @@ class _Entry(NamedTuple):
     cls: type
     kind: str
     qcls: type
+    # the simulated forward of a class registered with one, which `simulate` runs too
+    forward: Callable[..., Any] | None = None
 
 
 _REGISTRY: dict[type, _Entry] = {}
@@ -54,30 +78,58 @@ _CONTAINER: dict[str, Callable[[Any], Any]] = {
     "matmul": GemmFormats.matmul,
     "activation": lambda formats: formats,
     "embedding": lambda formats: formats,
+    "softmax": lambda formats: formats,
+    "norm": lambda formats: formats,
 }
 
 
-def register(cls: type, *, kind: str, qcls: type) -> None:
-    """Make :func:`convert_` turn modules of exactly ``cls`` into ``qcls``.
+def register(
+    cls: type,
+    *,
+    kind: str,
+    qcls: type | None = None,
+    forward: Callable[..., Any] | None = None,
+) -> None:
+    """Make :func:`convert_` turn modules of exactly ``cls`` into mptorch's.
 
-    ``qcls`` must subclass ``cls`` and compute through ``self.formats``: the
-    container that the kind's :class:`GemmFormats` builds
-    (:meth:`GemmFormats.affine` for ``linear``, :meth:`GemmFormats.conv` for
-    ``conv``, :meth:`GemmFormats.matmul` for ``matmul``), or the kind's
-    formats themselves for ``activation`` (an
-    :class:`~mptorch.quant.ActivationFormats`) and ``embedding`` (a
-    :class:`~mptorch.quant.PointwiseFormats`). A conversion switches the
-    module's class and sets that attribute, and runs no ``__init__``.
-    Registering a class again replaces its entry. The built-in entries are
-    ``nn.Linear`` (``linear``), ``nn.Conv1d``, ``nn.Conv2d`` and
-    ``nn.Conv3d`` (``conv``), torch's activation modules (``activation``)
-    and ``nn.Embedding`` (``embedding``).
+    Give exactly one of ``qcls`` and ``forward``:
+
+    * ``qcls`` must subclass ``cls`` and compute through ``self.formats``: the
+      container that the kind's :class:`GemmFormats` builds
+      (:meth:`GemmFormats.affine` for ``linear``, :meth:`GemmFormats.conv`
+      for ``conv``, :meth:`GemmFormats.matmul` for ``matmul``), or the
+      kind's formats themselves for ``activation`` (an
+      :class:`~mptorch.quant.ActivationFormats`), ``embedding`` (a
+      :class:`~mptorch.quant.PointwiseFormats`), ``softmax`` (a
+      :class:`~mptorch.quant.SoftmaxFormats`) and ``norm`` (a
+      :class:`~mptorch.quant.NormFormats`).
+    * ``forward(module, formats, *args, **kwargs)`` is the module's forward
+      in mptorch's arithmetic, given that container or those formats, for a
+      class a model defines itself, such as HF's ``LlamaRMSNorm``, a norm
+      written out of elementwise ops::
+
+          register(LlamaRMSNorm, kind="norm",
+                   forward=lambda m, f, x: qrmsnorm(x, m.weight.shape, m.weight,
+                                                    m.variance_epsilon, f))
+
+      A conversion switches the module to a subclass of ``cls`` that calls
+      it, and :class:`~mptorch.quant.simulate` runs it in place of the
+      module's own forward, which it then passes through.
+
+    A conversion switches the module's class and sets ``formats``, and runs
+    no ``__init__``. Registering a class again replaces its entry. The
+    built-in entries are ``nn.Linear`` (``linear``), ``nn.Conv1d``,
+    ``nn.Conv2d`` and ``nn.Conv3d`` (``conv``), torch's activation modules
+    (``activation``), ``nn.Embedding`` (``embedding``), ``nn.Softmax``
+    (``softmax``) and torch's norms (``norm``).
 
     Raises:
-        ValueError: for an unknown kind, or ``elementwise``, which has no
-            module to convert (only :class:`~mptorch.quant.simulate`
-            reaches it).
-        TypeError: if ``qcls`` is not a subclass of ``cls``.
+        ValueError: for an unknown kind, ``elementwise`` or ``reduction``,
+            which have no module to convert (only
+            :class:`~mptorch.quant.simulate` reaches them), or both or
+            neither of ``qcls`` and ``forward``.
+        TypeError: if ``qcls`` is not a subclass of ``cls``, or ``forward``
+            is not callable.
     """
     if kind not in _KINDS:
         raise ValueError(f"unknown kind {kind!r}: the kinds are {', '.join(_KINDS)}")
@@ -87,12 +139,42 @@ def register(cls: type, *, kind: str, qcls: type) -> None:
             f"arithmetic is not a module): the kinds a module converts to are "
             f"{', '.join(_CONTAINER)}"
         )
-    if not (isinstance(cls, type) and isinstance(qcls, type) and issubclass(qcls, cls)):
+    if (qcls is None) == (forward is None):
+        raise ValueError(
+            "register takes exactly one of qcls (a class that computes through self.formats) "
+            "and forward (the module's forward in mptorch's arithmetic)"
+        )
+    if forward is not None:
+        if not (isinstance(cls, type) and callable(forward)):
+            raise TypeError(f"forward must be callable, got {type(forward).__name__}")
+        qcls = _forward_class(cls, forward)
+    elif not (isinstance(cls, type) and isinstance(qcls, type) and issubclass(qcls, cls)):
         raise TypeError(
             f"qcls must be a subclass of cls, which a conversion switches the module's class "
             f"to: got {qcls!r} for {cls!r}"
         )
-    _REGISTRY[cls] = _Entry(cls, kind, qcls)
+    assert qcls is not None
+    _REGISTRY[cls] = _Entry(cls, kind, qcls, forward)
+
+
+def _forward_class(cls: type, forward: Callable[..., Any]) -> type:
+    """The class a module registered with ``forward`` converts to: ``cls``
+    with its forward replaced by ``forward(self, self.formats, ...)``."""
+
+    def converted_forward(self, *args: Any, **kwargs: Any) -> Any:
+        return forward(self, self.formats, *args, **kwargs)
+
+    converted_forward.__doc__ = f"{cls.__name__}'s forward in the arithmetic of its formats."
+    return type(
+        f"Q{cls.__name__}",
+        (cls,),
+        {
+            "forward": converted_forward,
+            "_mptorch_owned": True,
+            "__module__": cls.__module__,
+            "__doc__": f"{cls.__name__}, computed by the forward registered for it.",
+        },
+    )
 
 
 register(nn.Linear, kind="linear", qcls=QLinear)
@@ -107,6 +189,13 @@ register(nn.Hardswish, kind="activation", qcls=QHardswish)
 register(nn.Hardsigmoid, kind="activation", qcls=QHardsigmoid)
 register(nn.ReLU, kind="activation", qcls=QReLU)
 register(nn.Embedding, kind="embedding", qcls=QEmbedding)
+register(nn.Softmax, kind="softmax", qcls=QSoftmax)
+register(nn.LayerNorm, kind="norm", qcls=QLayerNorm)
+register(nn.RMSNorm, kind="norm", qcls=QRMSNorm)
+register(nn.GroupNorm, kind="norm", qcls=QGroupNorm)
+register(nn.BatchNorm1d, kind="norm", qcls=QBatchNorm1d)
+register(nn.BatchNorm2d, kind="norm", qcls=QBatchNorm2d)
+register(nn.BatchNorm3d, kind="norm", qcls=QBatchNorm3d)
 
 
 class ConvertRow(NamedTuple):
@@ -117,7 +206,9 @@ class ConvertRow(NamedTuple):
     name: str
     type: str
     kind: str
-    formats: GemmFormats | ActivationFormats | PointwiseFormats | None
+    formats: (
+        GemmFormats | ActivationFormats | PointwiseFormats | SoftmaxFormats | NormFormats | None
+    )
     action: str
 
 
@@ -127,7 +218,8 @@ class ConvertReport:
 
     It has one row per module of a registered class or of a subclass of one,
     in the model's order, except the modules of a kind past the GEMMs
-    (activations, embeddings) that no rule of the recipe names, so that a
+    (activations, embeddings, softmaxes, norms) that no rule of the recipe
+    names, so that a
     recipe for the GEMMs reports its layers alone. ``str(report)`` is a
     table.
     """
@@ -279,12 +371,12 @@ def convert_(
     """Convert ``model``'s layers in place, as ``recipe`` says.
 
     Each module of a registered class (``nn.Linear``, ``nn.Conv1d/2d/3d``,
-    torch's activations, ``nn.Embedding``, and any :func:`register` adds)
-    that the recipe gives formats to becomes its mptorch counterpart: the
-    same object, with its class switched and a new ``formats`` container
-    built from the formats (:meth:`GemmFormats.affine` or
-    :meth:`GemmFormats.conv`; an activation's or an embedding's formats are
-    the recipe's value itself). Its parameters,
+    torch's activations, ``nn.Embedding``, ``nn.Softmax``, torch's norms, and
+    any :func:`register` adds) that the recipe gives formats to becomes its
+    mptorch counterpart: the same object, with its class switched and a new
+    ``formats`` container built from the formats (:meth:`GemmFormats.affine`
+    or :meth:`GemmFormats.conv`; the formats of an activation, an embedding,
+    a softmax or a norm are the recipe's value itself). Its parameters,
     buffers, hooks and ``state_dict`` keys are unchanged, so an optimizer
     built before the conversion still updates it. A module reachable under
     two names converts once. A model is saved through its ``state_dict``: the
@@ -356,7 +448,8 @@ def unconvert_(model: nn.Module) -> int:
 
     Every module whose class is exactly a registered mptorch class
     (:class:`~mptorch.quant.QLinear`, ``QConv1d/2d/3d``, the activations,
-    :class:`~mptorch.quant.QEmbedding`, and any :func:`register` added) gets
+    :class:`~mptorch.quant.QEmbedding`, :class:`~mptorch.quant.QSoftmax`,
+    the norms, and any :func:`register` added) gets
     back its PyTorch class, and its ``formats`` are removed. Its parameters
     and their values are unchanged. A layer built as an mptorch layer, not
     converted, is turned back too.

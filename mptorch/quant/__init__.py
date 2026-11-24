@@ -27,22 +27,38 @@ from .matmul import qbmm, qmatmul, qmm
 from .modules import (
     QGELU,
     QAffineFormats,
+    QBatchNorm1d,
+    QBatchNorm2d,
+    QBatchNorm3d,
     QConv1d,
     QConv2d,
     QConv3d,
     QEmbedding,
+    QGroupNorm,
     QHardsigmoid,
     QHardswish,
+    QLayerNorm,
     QLinear,
     QMatmul,
     QMatmulFormats,
     QPackedLinear,
     QReLU,
+    QRMSNorm,
     QSigmoid,
     QSiLU,
+    QSoftmax,
     QTanh,
     Quantizer,
     freeze_packed_,
+)
+from .norm import (
+    NormFormats,
+    SoftmaxFormats,
+    qbatchnorm,
+    qgroupnorm,
+    qlayernorm,
+    qrmsnorm,
+    qsoftmax,
 )
 from .ops import (
     BlockPacked,
@@ -90,6 +106,7 @@ from .pointwise import (
 )
 from .profile import Profile, ProfileRecord, profile
 from .recipe import GemmFormats, Recipe, Rule
+from .reduce import ReductionFormats, qmean, qsum
 from .scaled import ScaledQuant
 from .simulate import SimulatedModule, SimulateReport, SimulateRow, simulate
 
@@ -179,6 +196,24 @@ __all__ = [
     "QHardsigmoid",
     "QReLU",
     "QEmbedding",
+    # reductions, softmax and the norms, each step rounded
+    "ReductionFormats",
+    "SoftmaxFormats",
+    "NormFormats",
+    "qsum",
+    "qmean",
+    "qsoftmax",
+    "qlayernorm",
+    "qrmsnorm",
+    "qgroupnorm",
+    "qbatchnorm",
+    "QSoftmax",
+    "QLayerNorm",
+    "QRMSNorm",
+    "QGroupNorm",
+    "QBatchNorm1d",
+    "QBatchNorm2d",
+    "QBatchNorm3d",
     # converting or simulating a model from a recipe, and counting its products
     "GemmFormats",
     "Rule",

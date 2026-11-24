@@ -18,6 +18,11 @@ name, by type or by a predicate:
   ``elementwise`` kind (a model's additions, products, quotients and the
   other pointwise ops with an mptorch twin, which only
   :class:`~mptorch.quant.simulate` reaches) and of the ``embedding`` kind.
+* :class:`~mptorch.quant.SoftmaxFormats` is the value of the ``softmax``
+  kind, :class:`~mptorch.quant.NormFormats` that of the ``norm`` kind (layer,
+  RMS, group and batch norms), and :class:`~mptorch.quant.ReductionFormats`
+  that of the ``reduction`` kind (a model's ``torch.sum`` and ``torch.mean``
+  calls, which only :class:`~mptorch.quant.simulate` reaches).
 * :class:`Rule` gives some kinds their values where its ``where`` matches.
 * :class:`Recipe` is an ordered set of rules, of which the last that matches
   and names a kind wins: :meth:`Recipe.resolve` answers what one module
@@ -71,9 +76,11 @@ from .mac import (
     spec_for_mac,
 )
 from .modules.format import QAffineFormats, QMatmulFormats
+from .norm import NormFormats, SoftmaxFormats
 from .ops._operands import _gemm_nd
 from .ops._spec import _run_gemm
 from .pointwise import ActivationFormats, PointwiseFormats
+from .reduce import ReductionFormats
 from .scaled import ScaledQuant
 
 if TYPE_CHECKING:
@@ -83,7 +90,17 @@ __all__ = ["GemmFormats", "Rule", "Recipe"]
 
 # The kinds a recipe can give formats to, and the three GEMM kinds among them,
 # which `gemm` (a shorthand, not a kind) names at once.
-_KINDS = ("linear", "conv", "matmul", "elementwise", "activation", "embedding")
+_KINDS = (
+    "linear",
+    "conv",
+    "matmul",
+    "elementwise",
+    "activation",
+    "embedding",
+    "softmax",
+    "norm",
+    "reduction",
+)
 _GEMM_KINDS = ("linear", "conv", "matmul")
 
 # The default of `GemmFormats.uniform`'s gradient arguments: the forward's.
@@ -399,6 +416,9 @@ _KIND_VALUES: dict[str, type] = {
     "activation": ActivationFormats,
     "elementwise": PointwiseFormats,
     "embedding": PointwiseFormats,
+    "softmax": SoftmaxFormats,
+    "norm": NormFormats,
+    "reduction": ReductionFormats,
 }
 
 Where = str | type | tuple[type, ...] | Callable[[str, nn.Module], bool]
@@ -461,7 +481,10 @@ class Rule:
     ``kinds`` maps a kind to its formats (a :class:`GemmFormats` for the
     three GEMM kinds, an :class:`~mptorch.quant.ActivationFormats` for
     ``activation``, a :class:`~mptorch.quant.PointwiseFormats` for
-    ``elementwise`` and ``embedding``), or to ``None`` for plain PyTorch, and
+    ``elementwise`` and ``embedding``, a :class:`~mptorch.quant.SoftmaxFormats`
+    for ``softmax``, a :class:`~mptorch.quant.NormFormats` for ``norm``, a
+    :class:`~mptorch.quant.ReductionFormats` for ``reduction``), or to
+    ``None`` for plain PyTorch, and
     ``gemm`` names the three GEMM kinds at once. ``site``
     restricts the rule to one call site inside a module, such as the first of
     an attention block's two activation products; ``None`` matches every site.
@@ -514,7 +537,8 @@ class Recipe:
 
     ``Recipe(**kinds)`` gives every module the formats of each kind named
     (``linear``, ``conv``, ``matmul``, or ``gemm`` for all three;
-    ``activation``, ``elementwise``, ``embedding``), and
+    ``activation``, ``elementwise``, ``embedding``, ``softmax``, ``norm``,
+    ``reduction``), and
     :meth:`override` adds a rule for some modules. Rules are applied in
     order, so a later rule wins for the kinds it names, and a kind it does not
     name keeps what the earlier rules gave it. A kind no rule names, and one

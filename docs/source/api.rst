@@ -343,6 +343,48 @@ See :doc:`kernels/pointwise`, and :doc:`layers` for the modules.
 
 .. autoclass:: QEmbedding
 
+Sums, softmax and norms
+-----------------------
+
+See :doc:`kernels/reductions`, and :doc:`layers` for the modules.
+
+.. autoclass:: ReductionFormats
+   :members: uniform, label
+
+.. autoclass:: SoftmaxFormats
+   :members: uniform, label
+
+.. autoclass:: NormFormats
+   :members: uniform, label
+
+.. autofunction:: qsum
+
+.. autofunction:: qmean
+
+.. autofunction:: qsoftmax
+
+.. autofunction:: qlayernorm
+
+.. autofunction:: qrmsnorm
+
+.. autofunction:: qgroupnorm
+
+.. autofunction:: qbatchnorm
+
+.. autoclass:: QSoftmax
+
+.. autoclass:: QLayerNorm
+
+.. autoclass:: QRMSNorm
+
+.. autoclass:: QGroupNorm
+
+.. autoclass:: QBatchNorm1d
+
+.. autoclass:: QBatchNorm2d
+
+.. autoclass:: QBatchNorm3d
+
 Converting or simulating a model
 --------------------------------
 

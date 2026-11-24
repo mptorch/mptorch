@@ -5,6 +5,7 @@ torch module's own forward, ``inplace`` included, and an
 :class:`~mptorch.quant.ActivationFormats` runs the matching
 ``mptorch.quant.pointwise`` op, out of place even when ``inplace`` is set (a
 rounded result is a new tensor, so the input is never written).
+:class:`QSoftmax` takes a :class:`~mptorch.quant.SoftmaxFormats` instead.
 :func:`~mptorch.quant.convert_` turns torch's activation modules into these.
 """
 
@@ -13,9 +14,9 @@ from typing import Any
 import torch
 from torch import nn
 
-# A module reference rather than names: `pointwise` imports this package for
-# `_opaque`, and the names are read when a forward runs.
-from .. import pointwise
+# Module references rather than names: `pointwise` and `norm` import this package
+# for `_opaque`, and the names are read when a forward runs.
+from .. import norm, pointwise
 
 
 class QGELU(nn.GELU):
@@ -131,3 +132,20 @@ class QReLU(nn.ReLU):
         if self.formats is None:
             return super().forward(input)
         return pointwise.qrelu(input, self.formats)
+
+
+class QSoftmax(nn.Softmax):
+    """:class:`torch.nn.Softmax` that rounds as ``formats``, a
+    :class:`~mptorch.quant.SoftmaxFormats`, says (:func:`~mptorch.quant.qsoftmax`)."""
+
+    _mptorch_owned = True
+
+    def __init__(self, dim: int | None = None, formats: Any = None) -> None:
+        super().__init__(dim)
+        self.formats = formats
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """The softmax, rounded as ``formats`` says (torch's with ``None``)."""
+        if self.formats is None:
+            return super().forward(input)
+        return norm.qsoftmax(input, self.dim, self.formats)

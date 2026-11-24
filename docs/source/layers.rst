@@ -578,7 +578,10 @@ A model that already exists need not be rebuilt from mptorch's layers. A
 - :class:`~mptorch.quant.Recipe` gives formats to the *kinds* ``linear``,
   ``conv`` and ``matmul`` (``gemm`` names the three), ``activation`` (an
   :class:`~mptorch.quant.ActivationFormats`), ``embedding`` and
-  ``elementwise`` (a :class:`~mptorch.quant.PointwiseFormats`), and
+  ``elementwise`` (a :class:`~mptorch.quant.PointwiseFormats`), ``softmax``
+  (a :class:`~mptorch.quant.SoftmaxFormats`), ``norm`` (a
+  :class:`~mptorch.quant.NormFormats`) and ``reduction`` (a
+  :class:`~mptorch.quant.ReductionFormats`), and
   ``override(where, ...)`` changes them for the modules ``where`` chooses: a
   glob over their names (``"encoder.*"``), a type, or a predicate. The last
   rule that matches wins, and ``None`` keeps a module PyTorch's.
@@ -589,9 +592,11 @@ A model that already exists need not be rebuilt from mptorch's layers. A
 ``recipe.plan(model)`` shows what a conversion would do. Each ``nn.Linear``
 and ``nn.Conv1d/2d/3d`` that the recipe gives formats to becomes a
 :class:`~mptorch.quant.QLinear` or a ``QConv*d``, each of torch's activation
-modules its mptorch twin, and an ``nn.Embedding`` a
-:class:`~mptorch.quant.QEmbedding` (these two only when the recipe names
-their kind, which keeps a recipe for the layers' report to the layers): the
+modules its mptorch twin, an ``nn.Embedding`` a
+:class:`~mptorch.quant.QEmbedding`, an ``nn.Softmax`` a
+:class:`~mptorch.quant.QSoftmax` and each of torch's norms its twin (these
+only when the recipe names their kind, which keeps a recipe for the layers'
+report to the layers): the
 same object with its
 class changed, so its parameters, buffers, hooks and ``state_dict`` keys stay
 as they were, and an optimizer built before the conversion still trains it.
@@ -686,5 +691,43 @@ products alone installs nothing for them and reports nothing about them.
    :caption: docs/snippets/layers_activations.py
 
 .. literalinclude:: ../snippets/layers_activations.out
+   :language: text
+   :caption: output
+
+Softmax, norms and sums
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Softmax and the norms have modules of their own:
+:class:`~mptorch.quant.QSoftmax`, :class:`~mptorch.quant.QLayerNorm`,
+:class:`~mptorch.quant.QRMSNorm`, :class:`~mptorch.quant.QGroupNorm` and
+``QBatchNorm1d/2d/3d``, each its torch module with a ``formats`` (a
+:class:`~mptorch.quant.SoftmaxFormats` or a
+:class:`~mptorch.quant.NormFormats`; ``None`` is torch's forward). Their
+arithmetic is :doc:`kernels/reductions`'s. A recipe reaches them by kind:
+
+- ``softmax`` is ``nn.Softmax`` for a conversion, and ``F.softmax``,
+  ``torch.softmax`` and ``Tensor.softmax`` for a simulation, which also
+  reaches the softmax an attention block calls as a function;
+- ``norm`` is torch's norm modules for a conversion, and ``F.layer_norm``,
+  ``F.rms_norm``, ``F.group_norm`` and ``F.batch_norm`` for a simulation;
+- ``reduction``, for a simulation only, is a model's ``torch.sum`` and
+  ``torch.mean`` over float tensors, through :func:`~mptorch.quant.qsum` and
+  :func:`~mptorch.quant.qmean`. A sum of integers, such as a mask's count,
+  is left alone.
+
+A norm that a model writes out of elementwise ops, such as Hugging Face's
+``LlamaRMSNorm``, is no torch class, and no functional call reveals it.
+Registering its class with the forward it should compute,
+``register(cls, kind="norm", forward=...)``, reaches it as a whole: a
+conversion switches it to a class that runs that forward, and a simulation
+runs that forward in place of the module's own, whose calls it then passes
+through. Without the registration, its ``mean`` is a ``reduction`` and its
+other steps ``elementwise``, each rounded on its own.
+
+.. literalinclude:: ../snippets/layers_norms.py
+   :language: python
+   :caption: docs/snippets/layers_norms.py
+
+.. literalinclude:: ../snippets/layers_norms.out
    :language: text
    :caption: output

@@ -35,6 +35,7 @@ from mptorch.quant import (
     BlockQuant,
     FusedMac,
     GemmFormats,
+    NormFormats,
     Palette,
     QAffineFormats,
     QConv2d,
@@ -44,8 +45,10 @@ from mptorch.quant import (
     Quant,
     Quantizer,
     Recipe,
+    ReductionFormats,
     Rule,
     ScaledQuant,
+    SoftmaxFormats,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
@@ -368,13 +371,13 @@ def test_gemm_sets_the_three_kinds_and_an_explicit_kind_wins():
 @pytest.mark.parametrize(
     "build,error,match",
     [
-        (lambda: Recipe(norm=A), TypeError, "no kind 'norm'"),
+        (lambda: Recipe(dropout=A), TypeError, "no kind 'dropout'"),
         (lambda: Recipe(linear=Quant(P8)), TypeError, "GemmFormats or None"),
         (lambda: Recipe(conv=GemmFormats(fwd_mac=BlockMac(MXFP8_E4M3))), ValueError, "linear="),
         (lambda: Recipe(gemm=GemmFormats(fwd_mac=BlockMac(MXFP8_E4M3))), ValueError, "linear="),
         (lambda: Recipe([A]), TypeError, "Rule"),  # ty: ignore[invalid-argument-type]
         (lambda: Rule(3, {}), TypeError, "where"),  # ty: ignore[invalid-argument-type]
-        (lambda: Recipe().resolve("", nn.Linear(1, 1), "norm"), ValueError, "no kind"),
+        (lambda: Recipe().resolve("", nn.Linear(1, 1), "dropout"), ValueError, "no kind"),
     ],
 )
 def test_what_a_recipe_refuses(build, error, match):
@@ -429,7 +432,19 @@ def test_uniform_preset():
     )
     assert set(_formats_of(presets.uniform(P8, kinds=("matmul",)))) == {"matmul"}
     with pytest.raises(ValueError, match="unknown kinds"):
-        presets.uniform(P8, kinds=("norm",))
+        presets.uniform(P8, kinds=("dropout",))
+    # softmax, the norms and the sums: every step the Quant, every sum the GEMMs' mac
+    mac, q = SplitMac(P8, P16, rounding=RoundMode.RZ), Quant(P8, RoundMode.RZ)
+    kinds = _formats_of(
+        presets.uniform(P8, acc=P16, rounding=RoundMode.RZ, kinds=("softmax", "norm", "reduction"))
+    )
+    assert kinds == {
+        "softmax": SoftmaxFormats.uniform(mac, q),
+        "norm": NormFormats.uniform(mac, q),
+        "reduction": ReductionFormats.uniform(mac, q),
+    }
+    with pytest.raises(TypeError, match="the norm kind takes a NormFormats or None"):
+        Recipe(norm=GemmFormats())
 
 
 def test_fp8_preset():

@@ -1,0 +1,5 @@
+torch.sum:                16.9375
+each step to the format:  1.0
+KAHAN:                    16.0
+blocks of 16:             16.0
+their mean, one division: 0.0625

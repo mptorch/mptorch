@@ -31,6 +31,7 @@ from torch.nn.utils import parametrize
 from mptorch import MXFP8_E4M3, BinaryK, RoundMode
 from mptorch.quant import (
     GemmFormats,
+    NormFormats,
     QConv1d,
     QConv2d,
     QConv3d,
@@ -44,6 +45,7 @@ from mptorch.quant import (
     convert,
     convert_,
     presets,
+    qmul,
     register,
     unconvert_,
 )
@@ -317,7 +319,7 @@ def test_kinds():
     report = convert_(model, presets.uniform(P8), kinds=("conv",))
     assert [r.name for r in report.converted] == ["conv"] and type(model.plain) is nn.Linear
     with pytest.raises(ValueError, match="unknown kinds"):
-        convert_(_Odd(), presets.uniform(P8), kinds=("norm",))
+        convert_(_Odd(), presets.uniform(P8), kinds=("dropout",))
 
 
 def test_a_shared_module():
@@ -341,7 +343,7 @@ def test_register():
     with pytest.raises(TypeError, match="subclass"):
         register(Dense, kind="linear", qcls=QConv2d)
     with pytest.raises(ValueError, match="unknown kind"):
-        register(Dense, kind="norm", qcls=QDense)
+        register(Dense, kind="dropout", qcls=QDense)
     register(Dense, kind="linear", qcls=QDense)
     try:
         layer = Dense(4, 4)
@@ -375,6 +377,70 @@ def test_activations_and_embeddings_convert_when_the_recipe_names_them():
     assert [type(m).__name__ for m in converted] == ["Embedding", "Linear", "ReLU", "_Swish"]
     with pytest.raises(ValueError, match="only simulate reaches"):
         register(nn.Softplus, kind="elementwise", qcls=nn.Softplus)
+
+
+def test_softmax_and_norms_convert_when_the_recipe_names_them():
+    """``nn.Softmax`` and torch's norms convert, and report, only under a recipe
+    that names their kind; their state is kept, and ``unconvert_`` turns them
+    back; the ``reduction`` kind has no module to convert."""
+    model = nn.Sequential(nn.Linear(8, 8), nn.LayerNorm(8), nn.RMSNorm(8), nn.Softmax(-1))
+    assert [r.name for r in convert_(copy.deepcopy(model), presets.uniform(P8)).rows] == ["0"]
+    converted = copy.deepcopy(model)
+    convert_(converted, presets.uniform(P8, kinds=("linear", "norm", "softmax")))
+    assert [type(m).__name__ for m in converted] == [
+        "QLinear",
+        "QLayerNorm",
+        "QRMSNorm",
+        "QSoftmax",
+    ]
+    conv = nn.Sequential(
+        nn.Conv2d(3, 8, 3), nn.BatchNorm2d(8), nn.GroupNorm(2, 8), nn.BatchNorm1d(8)
+    )
+    keys = list(conv.state_dict())
+    report = convert_(conv, presets.uniform(P8, kinds=("conv", "norm")))
+    assert [type(m).__name__ for m in conv] == [
+        "QConv2d",
+        "QBatchNorm2d",
+        "QGroupNorm",
+        "QBatchNorm1d",
+    ]
+    assert list(conv.state_dict()) == keys and len(report.converted) == 4
+    assert unconvert_(conv) == 4
+    assert [type(m).__name__ for m in conv] == ["Conv2d", "BatchNorm2d", "GroupNorm", "BatchNorm1d"]
+    with pytest.raises(ValueError, match="only simulate reaches"):
+        register(nn.Softplus, kind="reduction", qcls=nn.Softplus)
+
+
+class _Halve(nn.Module):
+    def forward(self, x):
+        return x / 2
+
+
+def _halve(module, formats, x):
+    return qmul(x, 0.5, formats.out)
+
+
+def test_register_a_forward():
+    """A class registered with the forward it simulates converts to a subclass
+    that runs it, which ``unconvert_`` turns back."""
+    register(_Halve, kind="norm", forward=_halve)
+    try:
+        model = nn.Sequential(_Halve())
+        convert_(model, Recipe(norm=NormFormats(out=Quant(P8))))
+        layer = model[0]
+        assert type(layer).__name__ == "Q_Halve" and isinstance(layer, _Halve)
+        x = torch.randn(6)
+        assert torch.equal(model(x), qmul(x, 0.5, Quant(P8)))
+        assert unconvert_(model) == 1 and type(model[0]) is _Halve
+        assert not hasattr(model[0], "formats")
+    finally:
+        del _REGISTRY[_Halve]
+    with pytest.raises(ValueError, match="exactly one"):
+        register(_Halve, kind="norm")
+    with pytest.raises(ValueError, match="exactly one"):
+        register(_Halve, kind="norm", qcls=_Halve, forward=_halve)
+    with pytest.raises(TypeError, match="callable"):
+        register(_Halve, kind="norm", forward=3)  # ty: ignore[invalid-argument-type]
 
 
 def test_a_recipe_is_required():

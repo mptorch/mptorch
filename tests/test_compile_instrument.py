@@ -29,12 +29,22 @@ from mptorch.quant import (
     PointwiseFormats,
     Quant,
     Recipe,
+    ReductionFormats,
     SplitMac,
     simulate,
 )
 from tests.markers import available_devices
 from tests.models import MiniLlama
-from tests.test_simulate import _formats, _ids, _run, _same, _site_recipe
+from tests.test_simulate import (
+    _formats,
+    _ids,
+    _norm_formats,
+    _run,
+    _same,
+    _site_recipe,
+    _softmax_formats,
+    registered_llama_norm,  # noqa: F401 (a fixture, used by name)
+)
 
 
 def _functions(counter: CompileCounterWithBackend) -> int:
@@ -128,6 +138,37 @@ def test_the_pointwise_kinds_compile_in_one_graph(device, rounding):
     recipe = Recipe(
         linear=_formats(rounding), activation=ActivationFormats.uniform(Quant(fmt, rounding))
     ).override("*.layers.*", elementwise=PointwiseFormats.uniform(Quant(fmt, rounding)))
+    sim = simulate(recipe, model)
+    want = _run(model, inputs, device, sim)
+    counter = CompileCounterWithBackend("aot_eager")
+    wrapped = sim.wrap()
+    compiled = torch.compile(wrapped, backend=counter, fullgraph=True)
+    first = _run(model, inputs, device, call=compiled)
+    second = _run(model, inputs, device, call=compiled)
+    wrapped.close()
+    assert counter.frame_count == 1
+    for k in want:
+        assert _same(first[k], want[k]) and _same(second[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.parametrize("grad", [True, False], ids=["closed-form", "torch's gradient"])
+@pytest.mark.usefixtures("registered_llama_norm")
+def test_the_norm_kinds_compile_in_one_graph(device, rounding, grad):
+    """The norms (reached whole through their registered forward), the
+    attention's softmax and the final norm's sums routed as well as the
+    linears: one graph, no recompile on a second call, and eager's words."""
+    torch._dynamo.reset()
+    model, inputs = _llama(device)
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(16, 8, prng_bits=8) if sr else BinaryK(16, 8)
+    recipe = Recipe(
+        linear=_formats(rounding),
+        norm=_norm_formats(rounding, grad=grad),
+        softmax=_softmax_formats(rounding),
+        reduction=ReductionFormats.uniform(fmt, Quant(fmt, rounding)),
+    )
     sim = simulate(recipe, model)
     want = _run(model, inputs, device, sim)
     counter = CompileCounterWithBackend("aot_eager")

@@ -28,12 +28,18 @@ from mptorch import NVFP4, BinaryK, RoundMode
 from mptorch.quant import (
     QGELU,
     ActivationFormats,
+    FusedMac,
     GemmFormats,
+    NormFormats,
+    QBatchNorm2d,
     QConv2d,
+    QLayerNorm,
     QLinear,
     QMatmul,
+    QSoftmax,
     Quant,
     Quantizer,
+    SoftmaxFormats,
     SplitMac,
     binaryK_gemm_formats,
     block_gemm_formats,
@@ -41,11 +47,13 @@ from mptorch.quant import (
     qadd,
     qdiv,
     qexp,
+    qmean,
     qmul,
     qpow,
     qrsqrt,
     qsqrt,
     qsub,
+    qsum,
 )
 from mptorch.quant.modules.linear import CustomArithLinear
 from tests.markers import available_devices, requires_cuda
@@ -108,8 +116,38 @@ def _activation():
     return QGELU(formats=ActivationFormats(inner=q, out=q, grad=Quant(BinaryK(8, 5)))), [(3, 5)]
 
 
+class _Reductions(torch.nn.Module):
+    """A sum and a mean, rounded at every step and in their gradients."""
+
+    def forward(self, x):
+        mac, g = FusedMac(BinaryK(8, 4, prng_bits=8), rounding=SR), Quant(BinaryK(8, 5))
+        return qadd(qsum(x, 0, mac, grad_quant=g), qmean(x, 0, mac, quant=g, grad_quant=g), g)
+
+
+def _reductions():
+    return _Reductions(), [(5, 4)]
+
+
+def _softmax():
+    q = Quant(BinaryK(8, 4, prng_bits=8), SR)
+    return QSoftmax(-1, SoftmaxFormats.uniform(FusedMac(BinaryK(16, 8)), q)), [(3, 6)]
+
+
+def _closed_form_norm():
+    q = Quant(BinaryK(8, 4, prng_bits=8), SR)
+    return QLayerNorm(6, formats=NormFormats.uniform(FusedMac(BinaryK(16, 8)), q)), [(3, 6)]
+
+
+def _torchs_gradient_norm():
+    q = Quant(BinaryK(8, 4, prng_bits=8), SR)
+    f = NormFormats.uniform(FusedMac(BinaryK(16, 8)), q, grad=None)
+    return QBatchNorm2d(4, formats=f), [(3, 4, 2, 2)]
+
+
 # CustomArithLinear, CustomArithConvNd, CustomArithMatmul, _StraightThrough,
-# and the pointwise ops' and an activation's Functions.
+# the pointwise ops' and an activation's Functions, and those of the sums,
+# softmax and the norms (their closed-form backward, and the rounded forward
+# over torch's own gradient).
 MODELS = {
     "linear": _linear,
     "conv": _conv,
@@ -117,6 +155,10 @@ MODELS = {
     "quantizer": _quantizer,
     "pointwise": _pointwise,
     "activation": _activation,
+    "reductions": _reductions,
+    "softmax": _softmax,
+    "closed-form norm": _closed_form_norm,
+    "torch's-gradient norm": _torchs_gradient_norm,
 }
 
 

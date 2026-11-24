@@ -1,0 +1,14 @@
+module  type       kind    formats                                                                                                                action
+norm    RMSNorm    norm    mac SplitMac(BinaryK(K=14, P=8, bias=32), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=14, P=8, bias=32), RNE)  converted
+proj    Linear     linear  plain torch                                                                                                            kept: the recipe gives it None
+ln      LayerNorm  norm    mac SplitMac(BinaryK(K=14, P=8, bias=32), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=14, P=8, bias=32), RNE)  converted
+2 converted, 1 kept
+
+module   kind     site      call             formats                                                                                                                action
+norm     norm               RMSNorm.forward  mac SplitMac(BinaryK(K=14, P=8, bias=32), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=14, P=8, bias=32), RNE)  simulated
+proj     linear             F.linear                                                                                                                                plain: the recipe gives None
+(model)  matmul   matmul#0  Tensor.matmul                                                                                                                           plain: the recipe gives None
+(model)  softmax            F.softmax        mac SplitMac(BinaryK(K=14, P=8, bias=32), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=14, P=8, bias=32), RNE)  simulated
+(model)  matmul   matmul#1  Tensor.matmul                                                                                                                           plain: the recipe gives None
+ln       norm               F.layer_norm     mac SplitMac(BinaryK(K=14, P=8, bias=32), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=14, P=8, bias=32), RNE)  simulated
+3 simulated, 0 not covered, 3 left plain

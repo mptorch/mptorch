@@ -42,6 +42,18 @@ about them:
   a call with no float tensor operand (index arithmetic), unrecorded.
 * ``embedding``: ``F.embedding``, resolved under its weight's owner, as
   ``linear`` is.
+* ``softmax``: ``F.softmax``, ``torch.softmax`` and ``Tensor.softmax``, with
+  their ``dtype``, under the innermost module.
+* ``norm``: ``F.layer_norm``, ``F.rms_norm``, ``F.group_norm`` and
+  ``F.batch_norm``, resolved under the owner of their weight, as ``linear``
+  is (the innermost module, without one). A norm a model writes out of
+  elementwise ops is reached as a whole when its class is registered with
+  the forward it simulates (``register(cls, kind="norm", forward=...)``):
+  the module's own calls pass through, and that forward's result replaces
+  its output.
+* ``reduction``: ``torch.sum`` and ``torch.mean`` (and their ``Tensor.``
+  spellings) over a float tensor, under the innermost module; a sum of
+  integers passes through, unrecorded.
 
 Everything is resolved, and every format container built, when the
 ``simulate`` is made, so that a call only looks its route up: Dynamo can
@@ -58,7 +70,8 @@ from torch import nn
 from torch.nn.modules.utils import _pair, _single, _triple
 from torch.overrides import TorchFunctionMode, resolve_name
 
-from . import pointwise
+from . import norm, pointwise, reduce
+from .convert import _REGISTRY
 from .modules.conv import CustomArithConvNd
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
@@ -69,6 +82,7 @@ __all__ = ["simulate", "SimulateReport", "SimulateRow"]
 SIMULATED = "simulated"
 PLAIN = "plain: the recipe gives None"
 OWNED = "an mptorch layer's own call"
+WHOLE = "inside a module simulated whole"
 
 
 class SimulateRow(NamedTuple):
@@ -131,7 +145,7 @@ class _Route(NamedTuple):
 
 
 # The kinds past the GEMMs, which a simulate reaches only when the recipe names them.
-_OPT_IN_KINDS = ("activation", "elementwise", "embedding")
+_OPT_IN_KINDS = ("activation", "elementwise", "embedding", "softmax", "norm", "reduction")
 
 
 class _State:
@@ -142,6 +156,9 @@ class _State:
         self.names: dict[int, str] = {}
         self.owners: dict[int, tuple[str, ...]] = {}
         self.owned: set[str] = set()
+        # the modules whose registered forward replaces their own: name -> (forward,
+        # its formats, kind, label, the module's class name)
+        self.whole: dict[str, tuple[Any, Any, str, str, str]] = {}
         self.routes: dict[tuple[str, str, str | None], _Route | None] = {}
         self.covered: dict[str, set[str]] = {}  # each module's kinds with formats
         self.sites = {r.site for r in recipe.rules if r.site is not None}
@@ -190,12 +207,25 @@ class _State:
                     build = {"linear": gf.affine, "conv": gf.conv, "matmul": gf.matmul}[kind]
                     containers[key] = build()
                 self.routes[(name, kind, site)] = _Route(containers[key], gf.label())
+            entry = _REGISTRY.get(type(module))
+            if entry is not None and entry.forward is not None:
+                route = self.routes.get((name, entry.kind, None))
+                if route is not None:
+                    cls = type(module).__name__
+                    self.whole[name] = (
+                        entry.forward,
+                        route.container,
+                        entry.kind,
+                        route.label,
+                        cls,
+                    )
 
     def record(self, scope: str, kind: str, site: str | None, call: Any, action: str, label=""):
         # Not while Dynamo traces: it guards on what it reads, and a report
         # that grew during the first compiled call made the second recompile.
         if not torch.compiler.is_compiling():
-            self.rows[SimulateRow(scope, kind, site, _NAMES[call], action, label)] = None
+            name = call if isinstance(call, str) else _NAMES[call]
+            self.rows[SimulateRow(scope, kind, site, name, action, label)] = None
 
 
 def _bind(args: tuple, kwargs: dict, names: tuple[str, ...], defaults: tuple) -> list:
@@ -262,6 +292,9 @@ def _route(state: _State, func: Any, kind: str, scope: str, site: str | None = N
     if top in state.owned:
         state.record(top, kind, site, func, OWNED)
         return None
+    if top in state.whole:
+        state.record(top, kind, site, func, WHOLE)
+        return None
     key = (scope, kind, site if site in state.sites else None)
     route = state.routes.get(key)
     if route is None:
@@ -284,8 +317,8 @@ def _not_covered(state: _State, func: Any, kind: str, reason: str, args, kwargs)
     when the recipe gives the module formats of the call's kind, or, for a
     product, of some GEMM kind."""
     scope = state.stack[-1][0]
-    if scope in state.owned:
-        state.record(scope, kind, None, func, OWNED)
+    if scope in state.owned or scope in state.whole:
+        state.record(scope, kind, None, func, OWNED if scope in state.owned else WHOLE)
         return func(*args, **kwargs)
     kinds = state.covered.get(scope, set())
     covered = kind in kinds if kind in _OPT_IN_KINDS else not kinds.isdisjoint(_GEMM_KINDS)
@@ -649,6 +682,88 @@ def _embedding(state: _State, func, args, kwargs):
     return pointwise.qembedding(input, weight, f, padding_idx, max_norm, norm_type, by_freq, sparse)
 
 
+def _softmax(names: tuple[str, ...], defaults: tuple):
+    """The handler of a softmax call whose parameters are ``names``."""
+
+    def handler(state: _State, func, args, kwargs):
+        values = _bind(args, kwargs, names, defaults)
+        x, dim, dtype = values[0], values[1], values[-1]
+        if not _floats(x):
+            return _not_covered(state, func, "softmax", _NOT_FLOAT_TENSOR, args, kwargs)
+        route = _route(state, func, "softmax", state.stack[-1][0])
+        if route is None:
+            return func(*args, **kwargs)
+        return norm.qsoftmax(x, dim, route.container, dtype=dtype)
+
+    return handler
+
+
+def _is_float_param(p: Any) -> bool:
+    return p is None or (isinstance(p, torch.Tensor) and p.is_floating_point())
+
+
+def _norm(op: str, names: tuple[str, ...], defaults: tuple):
+    """The handler of a norm functional whose parameters are ``names``, the
+    ones of its mptorch op before ``formats``."""
+    weight_at = names.index("weight")
+    params = [i for i, n in enumerate(names) if n in ("weight", "bias")]
+
+    def handler(state: _State, func, args, kwargs):
+        values = _bind(args, kwargs, names, defaults)
+        if not _floats(values[0]) or not all(_is_float_param(values[i]) for i in params):
+            return _not_covered(state, func, "norm", _NOT_FLOAT, args, kwargs)
+        scope = _owner(state, values[weight_at]) or state.stack[-1][0]
+        route = _route(state, func, "norm", scope)
+        if route is None:
+            return func(*args, **kwargs)
+        return _NORM_OPS[op](*values, route.container)
+
+    return handler
+
+
+_NORM_OPS = {
+    "layer_norm": norm.qlayernorm,
+    "rms_norm": norm.qrmsnorm,
+    "group_norm": norm.qgroupnorm,
+    "batch_norm": norm.qbatchnorm,
+}
+
+_REDUCTION_KEYWORDS = {"input", "dim", "keepdim", "axis", "dtype", "out"}
+
+
+def _reduction(op: str):
+    """The handler of ``torch.sum`` or ``torch.mean``, or their ``Tensor.``
+    spellings. NumPy's ``axis`` is read as ``dim``, as torch reads it."""
+
+    def handler(state: _State, func, args, kwargs):
+        x = args[0] if args else kwargs.get("input")
+        if not (isinstance(x, torch.Tensor) and x.is_floating_point()):
+            return func(*args, **kwargs)  # counting, not arithmetic
+        if kwargs.get("out") is not None:
+            return _not_covered(state, func, "reduction", _OUT, args, kwargs)
+        if kwargs.get("dtype") is not None:
+            reason = "dtype= converts the operand first"
+            return _not_covered(state, func, "reduction", reason, args, kwargs)
+        unknown = set(kwargs) - _REDUCTION_KEYWORDS
+        if unknown or ("axis" in kwargs and "dim" in kwargs):
+            reason = f"its arguments ({', '.join(sorted(kwargs))}) are not sum's or mean's"
+            return _not_covered(state, func, "reduction", reason, args, kwargs)
+        named = {
+            ("dim" if k == "axis" else k): v for k, v in kwargs.items() if k not in ("dtype", "out")
+        }
+        _, dim, keepdim = _bind(args, named, ("input", "dim", "keepdim"), (None, False))
+        route = _route(state, func, "reduction", state.stack[-1][0])
+        if route is None:
+            return func(*args, **kwargs)
+        f = route.container
+        dims = reduce._reduced(x, dim)
+        if op == "sum":
+            return reduce._qsum(x, dims, keepdim, f._spec, f.grad, f.carrier)
+        return reduce._qmean(x, dims, keepdim, f._spec, f.div, f.grad, f.carrier)
+
+    return handler
+
+
 _OPT_IN_HANDLERS: dict[str, dict[Any, Any]] = {
     "activation": {
         F.gelu: _activation("gelu", ("input", "approximate"), ("none",)),
@@ -714,6 +829,40 @@ _OPT_IN_HANDLERS: dict[str, dict[Any, Any]] = {
         },
     },
     "embedding": {F.embedding: _embedding},
+    "softmax": {
+        F.softmax: _softmax(("input", "dim", "_stacklevel", "dtype"), (None, 3, None)),
+        torch.softmax: _softmax(("input", "dim", "dtype"), (None,)),
+        torch.Tensor.softmax: _softmax(("input", "dim", "dtype"), (None,)),
+    },
+    "norm": {
+        F.layer_norm: _norm(
+            "layer_norm", ("input", "normalized_shape", "weight", "bias", "eps"), (None, None, 1e-5)
+        ),
+        F.rms_norm: _norm("rms_norm", ("input", "normalized_shape", "weight", "eps"), (None, None)),
+        F.group_norm: _norm(
+            "group_norm", ("input", "num_groups", "weight", "bias", "eps"), (None, None, 1e-5)
+        ),
+        F.batch_norm: _norm(
+            "batch_norm",
+            (
+                "input",
+                "running_mean",
+                "running_var",
+                "weight",
+                "bias",
+                "training",
+                "momentum",
+                "eps",
+            ),
+            (None, None, False, 0.1, 1e-5),
+        ),
+    },
+    "reduction": {
+        torch.sum: _reduction("sum"),
+        torch.Tensor.sum: _reduction("sum"),
+        torch.mean: _reduction("mean"),
+        torch.Tensor.mean: _reduction("mean"),
+    },
 }
 
 # each call's name in a report: F.linear, Tensor.matmul, torch.einsum
@@ -744,7 +893,10 @@ class simulate:
     that names the ``activation``, ``elementwise`` or ``embedding`` kinds
     reaches a model's activations, its pointwise arithmetic (residual sums,
     scalings, a norm's ``rsqrt``) and its embeddings too, through
-    ``mptorch.quant.pointwise``'s ops. The module docstring says which
+    ``mptorch.quant.pointwise``'s ops, and one that names ``softmax``,
+    ``norm`` or ``reduction`` its softmaxes, norms, sums and means, through
+    ``mptorch.quant.norm``'s and ``mptorch.quant.reduce``'s. The module
+    docstring says which
     formats a call gets: by kind, under the innermost module running, and
     at a site for a product of two activations.
 
@@ -811,6 +963,10 @@ class simulate:
             for module in self.model.modules():
                 name = state.names[id(module)]
                 self._hooks.append(module.register_forward_pre_hook(_push(state, name)))
+                whole = state.whole.get(name)
+                if whole is not None:  # before the pop, so that the module is still running
+                    hook = _replace(state, name, whole)
+                    self._hooks.append(module.register_forward_hook(hook, with_kwargs=True))
                 self._hooks.append(module.register_forward_hook(post, always_call=True))
         self._users += 1
 
@@ -869,6 +1025,19 @@ def _push(state: _State, name: str):
         state.stack.append([name, 0])
 
     return pre
+
+
+def _replace(state: _State, name: str, whole: tuple):
+    """The hook that runs a module's registered forward and returns its result
+    in place of the module's own (which ran with its calls passed through)."""
+    forward, formats, kind, label, cls = whole
+    call = f"{cls}.forward"
+
+    def hook(module, args, kwargs, output):
+        state.record(name, kind, None, call, SIMULATED, label)
+        return forward(module, formats, *args, **kwargs)
+
+    return hook
 
 
 class SimulatedModule(nn.Module):
