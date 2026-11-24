@@ -6,7 +6,8 @@ classifier head left in float32. None of them sets the ``matmul`` kind for
 the whole model: that kind is every product of two activations, which in a
 transformer means its attention's scores and weighted sums, and whatever
 else the model's own code multiplies. A recipe that means to round some of
-them names them, by module or by site.
+them names them, by module or by site, or gives an attention its formats with
+:meth:`~mptorch.quant.Recipe.attention_parts`.
 
 The formats a model is converted to are named in :mod:`mptorch` itself
 (``E4M3``, ``MXFP8_E4M3`` and the others, from ``mptorch.number.presets``);
@@ -28,6 +29,7 @@ from mptorch.number import (
     SaturationMode,
 )
 
+from .attention import AttentionFormats
 from .mac import BlockMac, FusedMac, Quant, SplitMac
 from .norm import NormFormats, SoftmaxFormats
 from .pointwise import ActivationFormats, PointwiseFormats
@@ -60,7 +62,8 @@ def uniform(
     embedding's result and gradients (``PointwiseFormats.uniform``), and
     each step of a softmax, a norm or a mean (``SoftmaxFormats.uniform``,
     ``NormFormats.uniform``, ``ReductionFormats.uniform``), whose sums run in
-    the GEMMs' ``SplitMac``.
+    the GEMMs' ``SplitMac``, and an attention's two products and softmax
+    (``AttentionFormats.uniform``).
 
     Args:
         fmt (Number): the format.
@@ -70,7 +73,8 @@ def uniform(
             Default: ``RoundMode.RNE``
         kinds (Sequence[str]): the kinds the recipe sets: any of ``linear``,
             ``conv``, ``matmul``, ``activation``, ``elementwise``,
-            ``embedding``, ``softmax``, ``norm`` and ``reduction``.
+            ``embedding``, ``softmax``, ``norm``, ``reduction`` and
+            ``attention``.
             Default: ``("linear", "conv")``
 
     Example::
@@ -92,6 +96,7 @@ def uniform(
         "softmax": SoftmaxFormats.uniform(mac, quant),
         "norm": NormFormats.uniform(mac, quant),
         "reduction": ReductionFormats.uniform(mac, quant),
+        "attention": AttentionFormats.uniform(mac, quant),
     }
     return Recipe(**{kind: values.get(kind, gf) for kind in kinds})
 

@@ -31,6 +31,7 @@ from mptorch import (
     SuperFP,
 )
 from mptorch.quant import (
+    AttentionFormats,
     BlockMac,
     BlockQuant,
     FusedMac,
@@ -436,15 +437,20 @@ def test_uniform_preset():
     # softmax, the norms and the sums: every step the Quant, every sum the GEMMs' mac
     mac, q = SplitMac(P8, P16, rounding=RoundMode.RZ), Quant(P8, RoundMode.RZ)
     kinds = _formats_of(
-        presets.uniform(P8, acc=P16, rounding=RoundMode.RZ, kinds=("softmax", "norm", "reduction"))
+        presets.uniform(
+            P8, acc=P16, rounding=RoundMode.RZ, kinds=("softmax", "norm", "reduction", "attention")
+        )
     )
     assert kinds == {
         "softmax": SoftmaxFormats.uniform(mac, q),
         "norm": NormFormats.uniform(mac, q),
         "reduction": ReductionFormats.uniform(mac, q),
+        "attention": AttentionFormats.uniform(mac, q),
     }
     with pytest.raises(TypeError, match="the norm kind takes a NormFormats or None"):
         Recipe(norm=GemmFormats())
+    with pytest.raises(TypeError, match="the attention kind takes an AttentionFormats or None"):
+        Recipe(attention=SoftmaxFormats())
 
 
 def test_fp8_preset():

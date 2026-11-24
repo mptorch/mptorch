@@ -1,0 +1,8 @@
+SDPA and eager, the same words: True
+module   kind     site      call          formats                                                                                                            action
+qkv      linear             F.linear      mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+(model)  matmul   matmul#0  torch.matmul  mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+(model)  softmax            F.softmax     mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+(model)  matmul   matmul#1  torch.matmul  mac SplitMac(BinaryK(K=8, P=4, bias=8), BinaryK(K=14, P=8, bias=32)), quant Quant(BinaryK(K=8, P=4, bias=8), RNE)  simulated
+4 simulated, 0 not covered, 0 left plain
+QMultiheadAttention ['converted']

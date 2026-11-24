@@ -17,11 +17,14 @@ here:
   that ``skip`` names; ``strict`` raises for the first kind;
 - ``unconvert_`` undoes a conversion, and ``from_float`` makes a layer over
   another's parameters;
+- ``nn.MultiheadAttention`` converts under the ``linear`` kind (its
+  projections) and the ``attention`` kind (its core), its ``out_proj``
+  claimed: never converted or reported on its own;
 - a converted model compiles in one graph; torchvision's models convert.
 """
 
 import copy
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import torch
@@ -30,12 +33,14 @@ from torch.nn.utils import parametrize
 
 from mptorch import MXFP8_E4M3, BinaryK, RoundMode
 from mptorch.quant import (
+    AttentionFormats,
     GemmFormats,
     NormFormats,
     QConv1d,
     QConv2d,
     QConv3d,
     QLinear,
+    QMultiheadAttention,
     Quant,
     Recipe,
     SplitMac,
@@ -548,3 +553,84 @@ def test_an_in_place_op_after_a_layer(device, layer, shape, recipe):
         convert_(model, recipe)
         grads.append(_step(model, x, device))
     _equal(grads[0], grads[1])
+
+
+# --- nn.MultiheadAttention ---------------------------------------------------------------
+
+
+class _Encoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(16, 4, batch_first=True)
+        self.fc = nn.Linear(16, 4)
+
+    def forward(self, x):
+        return self.fc(self.attn(x, x, x, need_weights=False)[0])
+
+
+def _attention_formats():
+    return AttentionFormats.uniform(SplitMac(P8, P16), Quant(P8))
+
+
+def test_mha_converts_under_the_linear_kind():
+    """A recipe for the GEMMs converts the layer for its projections, its core
+    left PyTorch's; ``out_proj``, a ``Linear`` subclass the layer computes
+    itself, has no row, so ``strict`` passes; ``kinds`` and ``unconvert_``
+    work on it as on any layer."""
+    model = _Encoder()
+    keys = list(model.state_dict())
+    report = convert_(model, presets.uniform(P8, acc=P16), strict=True)
+    assert [(r.name, r.kind, r.action) for r in report.rows] == [
+        ("attn", "attention", "converted"),
+        ("fc", "linear", "converted"),
+    ]
+    assert type(model.attn) is QMultiheadAttention and type(model.attn.out_proj) is not QLinear
+    f = model.attn.formats
+    assert f is not None
+    assert f.in_proj is not None and f.out_proj is not None and f.attention is None
+    assert "attention [torch]" in cast(Any, report.rows[0].formats).label()
+    assert list(model.state_dict()) == keys
+    assert unconvert_(model) == 2 and type(model.attn) is nn.MultiheadAttention
+    report = convert_(_Encoder(), presets.uniform(P8), kinds=("conv",))
+    assert report.rows == ()
+    model = _Encoder()
+    convert_(model, presets.uniform(P8, kinds=("linear", "attention")), kinds=("attention",))
+    f = model.attn.formats
+    assert f is not None and f.in_proj is None and f.attention is not None
+    assert type(model.fc) is nn.Linear
+
+
+def test_mha_converts_under_the_attention_kind():
+    """The ``attention`` kind alone gives the layer its core; two layers get
+    containers of their own, the core's two products' included."""
+    model = nn.Sequential(_Encoder(), _Encoder())
+    convert_(model, Recipe(attention=_attention_formats()))
+    a, b = (cast(Any, encoder).attn.formats for encoder in model)
+    assert a.in_proj is None and a.attention == b.attention == _attention_formats()
+    assert a.qk is not None and a.qk is not b.qk and a.qk is not a.attention._qk
+    assert type(model[0].fc) is nn.Linear
+    x = torch.randn(2, 5, 16)
+    assert model[0](x).isfinite().all() and model[1](x).isfinite().all()
+
+
+def test_mha_already_converted_and_subclassed():
+    class _MyMHA(nn.MultiheadAttention):
+        pass
+
+    model = nn.Sequential(_Encoder(), nn.Module())
+    model[1].attn = _MyMHA(16, 4)
+    convert_(model, presets.uniform(P8))
+    report = convert_(model, presets.uniform(P8))
+    assert [(r.name, r.action) for r in report.rows] == [
+        ("0.attn", "kept: already a QMultiheadAttention"),
+        ("0.fc", "kept: already a QLinear"),
+        ("1.attn", "kept: a subclass of MultiheadAttention, and only the exact class converts"),
+    ]
+    with pytest.raises(ValueError, match="1.attn"):
+        convert_(model, presets.uniform(P8), strict=True)
+
+
+def test_register_claims():
+    with pytest.raises(TypeError, match="claims is a tuple"):
+        register(nn.Sequential, kind="linear", qcls=nn.Sequential, claims="0")  # ty: ignore[invalid-argument-type]
+    assert _REGISTRY[nn.MultiheadAttention].claims == ("out_proj",)

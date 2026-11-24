@@ -19,6 +19,12 @@ of their names), and from the kind of product:
   innermost module if that module owns the Parameter (a tied ``lm_head``
   does), and otherwise under the module that does (swin's ``qkv``).
 * ``conv``: ``F.conv1d/2d/3d``, resolved as ``linear`` is.
+* ``nn.MultiheadAttention``'s ``F.multi_head_attention_forward``: its
+  projections take the ``linear`` kind's formats of their weights' owners,
+  and its core the ``attention`` kind's, as a converted
+  :class:`~mptorch.quant.QMultiheadAttention` takes them. Without an
+  ``attention`` kind in the recipe the core is PyTorch's, and reported. (The
+  mode keeps the module off its fast path, compiled code included.)
 * ``matmul``: a product of two activations (anything but a Parameter itself:
   a view of one, ``W.T``, counts as an activation). It is resolved under the
   innermost module, at a *site*: ``"matmul#0"`` for that module's first
@@ -54,6 +60,9 @@ about them:
 * ``reduction``: ``torch.sum`` and ``torch.mean`` (and their ``Tensor.``
   spellings) over a float tensor, under the innermost module; a sum of
   integers passes through, unrecorded.
+* ``attention``: ``F.scaled_dot_product_attention``, under the innermost
+  module, as :func:`~mptorch.quant.qattention`. Without the kind it is
+  reported as not covered, since its two products run inside that one call.
 
 Everything is resolved, and every format container built, when the
 ``simulate`` is made, so that a call only looks its route up: Dynamo can
@@ -70,7 +79,7 @@ from torch import nn
 from torch.nn.modules.utils import _pair, _single, _triple
 from torch.overrides import TorchFunctionMode, resolve_name
 
-from . import norm, pointwise, reduce
+from . import attention, norm, pointwise, reduce
 from .convert import _REGISTRY
 from .modules.conv import CustomArithConvNd
 from .modules.linear import CustomArithLinear
@@ -145,7 +154,15 @@ class _Route(NamedTuple):
 
 
 # The kinds past the GEMMs, which a simulate reaches only when the recipe names them.
-_OPT_IN_KINDS = ("activation", "elementwise", "embedding", "softmax", "norm", "reduction")
+_OPT_IN_KINDS = (
+    "activation",
+    "elementwise",
+    "embedding",
+    "softmax",
+    "norm",
+    "reduction",
+    "attention",
+)
 
 
 class _State:
@@ -164,6 +181,9 @@ class _State:
         self.sites = {r.site for r in recipe.rules if r.site is not None}
         named = {kind for rule in recipe.rules for kind, _ in rule.kinds}
         opt_in = tuple(kind for kind in _OPT_IN_KINDS if kind in named)
+        # whether a missing attention route means "plain" (the recipe names the
+        # kind) or "not covered" (it does not), for nn.MultiheadAttention's core
+        self.attention_named = "attention" in named
         self.handlers = dict(_HANDLERS)
         for kind in opt_in:
             self.handlers.update(_OPT_IN_HANDLERS[kind])
@@ -320,8 +340,21 @@ def _not_covered(state: _State, func: Any, kind: str, reason: str, args, kwargs)
     if scope in state.owned or scope in state.whole:
         state.record(scope, kind, None, func, OWNED if scope in state.owned else WHOLE)
         return func(*args, **kwargs)
+    _uncovered_call(state, func, kind, reason, scope)
+    return func(*args, **kwargs)
+
+
+def _uncovered_call(state: _State, func: Any, kind: str, reason: str, scope: str) -> None:
+    """Record that ``func`` in ``scope`` is not simulated, or, under
+    ``strict``, raise when the recipe covers it: when it gives the module
+    formats of the call's kind, or, for a product (attention's included), of
+    some GEMM kind."""
     kinds = state.covered.get(scope, set())
-    covered = kind in kinds if kind in _OPT_IN_KINDS else not kinds.isdisjoint(_GEMM_KINDS)
+    products = not kinds.isdisjoint(_GEMM_KINDS)
+    if kind == "attention":
+        covered = kind in kinds or products
+    else:
+        covered = kind in kinds if kind in _OPT_IN_KINDS else products
     if state.strict and covered:
         raise RuntimeError(
             f"{_NAMES[func]} in {scope or '(the model)'} is not simulated: {reason}. With "
@@ -329,7 +362,6 @@ def _not_covered(state: _State, func: Any, kind: str, reason: str, args, kwargs)
             "pass strict=False to let it run in PyTorch's arithmetic, as the report then says"
         )
     state.record(scope, kind, None, func, f"not covered: {reason}")
-    return func(*args, **kwargs)
 
 
 def _linear(state: _State, func, args, kwargs):
@@ -477,6 +509,87 @@ def _uncovered(kind: str, reason: str):
     return handler
 
 
+# --- nn.MultiheadAttention -----------------------------------------------------------
+
+_NO_ATTENTION = "the recipe names no attention kind, and its products run inside this one call"
+
+_MHA_NAMES = (
+    "query",
+    "key",
+    "value",
+    "embed_dim_to_check",
+    "num_heads",
+    "in_proj_weight",
+    "in_proj_bias",
+    "bias_k",
+    "bias_v",
+    "add_zero_attn",
+    "dropout_p",
+    "out_proj_weight",
+    "out_proj_bias",
+    "training",
+    "key_padding_mask",
+    "need_weights",
+    "attn_mask",
+    "use_separate_proj_weight",
+    "q_proj_weight",
+    "k_proj_weight",
+    "v_proj_weight",
+    "static_k",
+    "static_v",
+    "average_attn_weights",
+    "is_causal",
+)
+_MHA_DEFAULTS = (True, None, True, None, False, None, None, None, None, None, True, False)
+
+
+def _projection(state: _State, weight: Any) -> _Route | None:
+    """The ``linear`` route of a projection with ``weight``, under its owner."""
+    owner = _owner(state, weight)
+    return None if owner is None else state.routes.get((owner, "linear", None))
+
+
+def _mha(state: _State, func, args, kwargs):
+    """``F.multi_head_attention_forward``, its projections as their weights'
+    owners' ``linear`` routes say and its core as the ``attention`` route of
+    the in-projection's owner says, as a converted ``QMultiheadAttention``
+    computes it."""
+    values = _bind(args, kwargs, _MHA_NAMES, _MHA_DEFAULTS)
+    top = state.stack[-1][0]
+    if top in state.owned or top in state.whole:
+        state.record(top, "attention", None, func, OWNED if top in state.owned else WHOLE)
+        return func(*args, **kwargs)
+    separate = bool(values[17])
+    weights = values[18:21] if separate else values[5:6]
+    scope = _owner(state, weights[0]) or top
+    in_routes = [_projection(state, w) for w in weights]
+    out_route = _projection(state, values[11])
+    core = state.routes.get((scope, "attention", None))
+    if not state.attention_named:
+        _uncovered_call(state, func, "attention", _NO_ATTENTION, scope)
+    containers = [None if r is None else r.container for r in in_routes]
+    af = None if core is None else core.container
+    if all(c is None for c in containers) and out_route is None and (af is None or af._plain):
+        if state.attention_named:
+            state.record(scope, "attention", None, func, PLAIN)
+        return func(*args, **kwargs)
+    label = "; ".join(
+        f"{name} [{'torch' if r is None else r.label}]"
+        for name, r in (("in_proj", in_routes[0]), ("out_proj", out_route), ("attention", core))
+    )
+    state.record(scope, "attention", None, func, SIMULATED, label)
+    return attention._qmha_forward(
+        *values,
+        in_proj=tuple(containers) if separate else containers[0],
+        out_proj=None if out_route is None else out_route.container,
+        attention=af,
+        qk=None if af is None else af._qk,
+        pv=None if af is None else af._pv,
+    )
+
+
+# --- the handlers ----------------------------------------------------------------------
+
 _HANDLERS: dict[Any, Any] = {
     F.linear: _linear,
     torch.matmul: _matmul,
@@ -494,6 +607,7 @@ _HANDLERS: dict[Any, Any] = {
     F.conv1d: _conv(1),
     F.conv2d: _conv(2),
     F.conv3d: _conv(3),
+    F.multi_head_attention_forward: _mha,
 }
 _OTHER_PRODUCTS = {
     "gemm": [
@@ -512,12 +626,12 @@ _OTHER_PRODUCTS = {
         torch.Tensor.baddbmm_,
     ],
     "conv": [F.conv_transpose1d, F.conv_transpose2d, F.conv_transpose3d],
-    "attention": [F.scaled_dot_product_attention, F.multi_head_attention_forward],
+    "attention": [F.scaled_dot_product_attention],
 }
 _REASONS = {
     "gemm": "simulate runs F.linear, matmul, mm, bmm, addmm and baddbmm, out of place, only",
     "conv": "simulate runs conv1d, conv2d and conv3d only",
-    "attention": "attention is not simulated yet: its products run inside one call",
+    "attention": _NO_ATTENTION,
 }
 for _kind, _funcs in _OTHER_PRODUCTS.items():
     for _f in _funcs:
@@ -764,6 +878,40 @@ def _reduction(op: str):
     return handler
 
 
+_SDPA_NAMES = (
+    "query",
+    "key",
+    "value",
+    "attn_mask",
+    "dropout_p",
+    "is_causal",
+    "scale",
+    "enable_gqa",
+)
+
+
+def _sdpa(state: _State, func, args, kwargs):
+    q, k, v, mask, p, causal, scale, gqa = _bind(
+        args, kwargs, _SDPA_NAMES, (None, 0.0, False, None, False)
+    )
+    if not _floats(q, k, v):
+        return _not_covered(state, func, "attention", _NOT_FLOAT, args, kwargs)
+    route = _route(state, func, "attention", state.stack[-1][0])
+    if route is None:
+        return func(*args, **kwargs)
+    return attention.qattention(
+        q,
+        k,
+        v,
+        route.container,
+        attn_mask=mask,
+        dropout_p=p,
+        is_causal=causal,
+        scale=scale,
+        enable_gqa=gqa,
+    )
+
+
 _OPT_IN_HANDLERS: dict[str, dict[Any, Any]] = {
     "activation": {
         F.gelu: _activation("gelu", ("input", "approximate"), ("none",)),
@@ -863,6 +1011,7 @@ _OPT_IN_HANDLERS: dict[str, dict[Any, Any]] = {
         torch.mean: _reduction("mean"),
         torch.Tensor.mean: _reduction("mean"),
     },
+    "attention": {F.scaled_dot_product_attention: _sdpa},
 }
 
 # each call's name in a report: F.linear, Tensor.matmul, torch.einsum

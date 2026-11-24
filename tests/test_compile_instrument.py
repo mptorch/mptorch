@@ -31,11 +31,13 @@ from mptorch.quant import (
     Recipe,
     ReductionFormats,
     SplitMac,
+    convert,
     simulate,
 )
 from tests.markers import available_devices
 from tests.models import MiniLlama
 from tests.test_simulate import (
+    _attention_formats,
     _formats,
     _ids,
     _norm_formats,
@@ -180,6 +182,56 @@ def test_the_norm_kinds_compile_in_one_graph(device, rounding, grad):
     assert counter.frame_count == 1
     for k in want:
         assert _same(first[k], want[k]) and _same(second[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_the_attention_kind_compiles_in_one_graph(device, rounding):
+    """An SDPA Llama under the ``attention`` kind: its two attentions'
+    products, scores and softmax with the linears, in one graph, with no
+    recompile on a second call, and eager's words."""
+    torch._dynamo.reset()
+    torch.manual_seed(0)
+    model, inputs = MiniLlama(attn="sdpa").to(device), [_ids(device)]
+    recipe = Recipe(linear=_formats(rounding), attention=_attention_formats(rounding))
+    sim = simulate(recipe, model)
+    want = _run(model, inputs, device, sim)
+    counter = CompileCounterWithBackend("aot_eager")
+    wrapped = sim.wrap()
+    compiled = torch.compile(wrapped, backend=counter, fullgraph=True)
+    first = _run(model, inputs, device, call=compiled)
+    second = _run(model, inputs, device, call=compiled)
+    wrapped.close()
+    assert counter.frame_count == 1
+    for k in want:
+        assert _same(first[k], want[k]) and _same(second[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("train", [True, False])
+def test_a_compiled_vit(device, train):
+    """A ViT's ``nn.MultiheadAttention`` under a compiled ``simulate``, in
+    training and in eval with no gradient, where torch's fast path would run
+    if the mode did not keep it off: the converted model's words."""
+    models = pytest.importorskip("torchvision.models")
+    torch._dynamo.reset()
+    torch.manual_seed(0)
+    model = models.VisionTransformer(
+        image_size=32,
+        patch_size=8,
+        num_layers=2,
+        num_heads=2,
+        hidden_dim=32,
+        mlp_dim=64,
+        num_classes=10,
+    ).to(device)
+    model.train(train)
+    x = torch.randn(2, 3, 32, 32, device=device)
+    recipe = Recipe(gemm=_formats(RoundMode.RNE), attention=_attention_formats(RoundMode.RNE))
+    converted, _ = convert(model, recipe)
+    compiled = torch.compile(simulate(recipe, model).wrap(), backend="aot_eager", fullgraph=True)
+    with torch.set_grad_enabled(train):
+        assert _same(compiled(x), converted(x))
 
 
 def test_entering_inside_compiled_code_raises():

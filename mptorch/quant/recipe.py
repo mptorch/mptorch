@@ -23,6 +23,10 @@ name, by type or by a predicate:
   RMS, group and batch norms), and :class:`~mptorch.quant.ReductionFormats`
   that of the ``reduction`` kind (a model's ``torch.sum`` and ``torch.mean``
   calls, which only :class:`~mptorch.quant.simulate` reaches).
+* :class:`~mptorch.quant.AttentionFormats` is the value of the ``attention`` kind
+  (``F.scaled_dot_product_attention``, and ``nn.MultiheadAttention``'s core),
+  made of the values above: a :class:`GemmFormats` for each of its two
+  products, a softmax's and a pointwise op's formats.
 * :class:`Rule` gives some kinds their values where its ``where`` matches.
 * :class:`Recipe` is an ordered set of rules, of which the last that matches
   and names a kind wins: :meth:`Recipe.resolve` answers what one module
@@ -46,6 +50,7 @@ from mptorch.number import BlockFormat, Number, RoundMode
 from mptorch.number import presets as number_presets
 from mptorch.number.block import _block_label, _part_label
 
+from .attention import AttentionFormats
 from .conv import _conv_formats
 from .gemm import (
     _block_linear_fwd,
@@ -100,6 +105,7 @@ _KINDS = (
     "softmax",
     "norm",
     "reduction",
+    "attention",
 )
 _GEMM_KINDS = ("linear", "conv", "matmul")
 
@@ -419,6 +425,7 @@ _KIND_VALUES: dict[str, type] = {
     "softmax": SoftmaxFormats,
     "norm": NormFormats,
     "reduction": ReductionFormats,
+    "attention": AttentionFormats,
 }
 
 Where = str | type | tuple[type, ...] | Callable[[str, nn.Module], bool]
@@ -483,7 +490,8 @@ class Rule:
     ``activation``, a :class:`~mptorch.quant.PointwiseFormats` for
     ``elementwise`` and ``embedding``, a :class:`~mptorch.quant.SoftmaxFormats`
     for ``softmax``, a :class:`~mptorch.quant.NormFormats` for ``norm``, a
-    :class:`~mptorch.quant.ReductionFormats` for ``reduction``), or to
+    :class:`~mptorch.quant.ReductionFormats` for ``reduction``, an
+    :class:`~mptorch.quant.AttentionFormats` for ``attention``), or to
     ``None`` for plain PyTorch, and
     ``gemm`` names the three GEMM kinds at once. ``site``
     restricts the rule to one call site inside a module, such as the first of
@@ -538,7 +546,7 @@ class Recipe:
     ``Recipe(**kinds)`` gives every module the formats of each kind named
     (``linear``, ``conv``, ``matmul``, or ``gemm`` for all three;
     ``activation``, ``elementwise``, ``embedding``, ``softmax``, ``norm``,
-    ``reduction``), and
+    ``reduction``, ``attention``), and
     :meth:`override` adds a rule for some modules. Rules are applied in
     order, so a later rule wins for the kinds it names, and a kind it does not
     name keeps what the earlier rules gave it. A kind no rule names, and one
@@ -586,6 +594,50 @@ class Recipe:
         """A new recipe with one more rule, which wins over the earlier ones
         for the kinds it names (see :class:`Rule` for ``where`` and ``site``)."""
         return Recipe((*self.rules, Rule(where, kinds, site)))
+
+    def attention_parts(self, where: Where, formats: AttentionFormats) -> "Recipe":
+        """A new recipe that gives ``formats`` to the attention at ``where``,
+        however the model spells it.
+
+        Four rules: the ``attention`` kind, which
+        ``F.scaled_dot_product_attention`` and ``nn.MultiheadAttention``
+        take, and the parts of an eager attention, written out of two
+        matmuls and a softmax as transformers' ``eager_attention_forward``
+        is: ``formats.qk`` for the module's first product of two activations
+        (site ``"matmul#0"``), ``formats.softmax`` for its softmax, and
+        ``formats.pv`` for its second product (site ``"matmul#1"``). A model
+        and its eager twin then compute the same words (see
+        :func:`~mptorch.quant.qattention` for the cases where they cannot).
+
+        Raises:
+            TypeError: if ``formats`` is not an :class:`~mptorch.quant.AttentionFormats`.
+            ValueError: if ``formats.scores`` is set: an eager attention
+                multiplies its scores by the scale in a pointwise op, which
+                no rule reaches apart from every other pointwise op of the
+                module (the ``elementwise`` kind) -- round the product with
+                ``qk``'s ``output_quant`` instead, or give the ``attention``
+                kind alone.
+        """
+        if not isinstance(formats, AttentionFormats):
+            raise TypeError(
+                f"attention_parts takes an AttentionFormats, got {type(formats).__name__}"
+            )
+        if formats.scores is not None:
+            raise ValueError(
+                "attention_parts was given formats whose scores are rounded: an eager "
+                "attention multiplies its scores by the scale in a pointwise op, which no "
+                "rule reaches apart from the module's other pointwise ops -- round the "
+                "product with qk's output_quant instead, or give the attention kind alone"
+            )
+        return Recipe(
+            (
+                *self.rules,
+                Rule(where, {"attention": formats}),
+                Rule(where, {"matmul": formats.qk}, "matmul#0"),
+                Rule(where, {"softmax": formats.softmax}),
+                Rule(where, {"matmul": formats.pv}, "matmul#1"),
+            )
+        )
 
     def resolve(self, name: str, module: nn.Module, kind: str, site: Any = None) -> Any:
         """The formats ``module``, named ``name``, gets for ``kind`` at ``site``:

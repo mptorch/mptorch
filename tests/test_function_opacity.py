@@ -28,14 +28,18 @@ from mptorch import NVFP4, BinaryK, RoundMode
 from mptorch.quant import (
     QGELU,
     ActivationFormats,
+    AttentionFormats,
     FusedMac,
     GemmFormats,
     NormFormats,
+    PointwiseFormats,
+    QAttentionFormats,
     QBatchNorm2d,
     QConv2d,
     QLayerNorm,
     QLinear,
     QMatmul,
+    QMultiheadAttention,
     QSoftmax,
     Quant,
     Quantizer,
@@ -45,6 +49,7 @@ from mptorch.quant import (
     block_gemm_formats,
     conv_formats,
     qadd,
+    qattention,
     qdiv,
     qexp,
     qmean,
@@ -144,10 +149,52 @@ def _torchs_gradient_norm():
     return QBatchNorm2d(4, formats=f), [(3, 4, 2, 2)]
 
 
+def _attention_formats():
+    q = Quant(BinaryK(8, 4, prng_bits=8), SR)
+    mac = SplitMac(BinaryK(8, 4, prng_bits=8), BinaryK(16, 11, prng_bits=8), rounding=SR)
+    f = AttentionFormats.uniform(mac, q, grad_quant=Quant(BinaryK(8, 5)))
+    return AttentionFormats(qk=f.qk, scores=PointwiseFormats(quant=q), softmax=f.softmax, pv=f.pv)
+
+
+class _Attention(torch.nn.Module):
+    """``qattention`` with every part rounded, GQA and a boolean mask."""
+
+    formats: AttentionFormats
+    keep: torch.Tensor
+
+    def __init__(self):
+        super().__init__()
+        self.formats = _attention_formats()
+        self.register_buffer("keep", torch.ones(5, 7, dtype=torch.bool).tril(2))
+
+    def forward(self, q, k, v):
+        return qattention(q, k, v, self.formats, attn_mask=self.keep, enable_gqa=True)
+
+
+def _attention():
+    return _Attention(), [(2, 4, 5, 8), (2, 2, 7, 8), (2, 2, 7, 8)]
+
+
+class _MultiheadAttention(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        gf = GemmFormats.uniform(SplitMac(BinaryK(8, 4), BinaryK(16, 11)), Quant(BinaryK(8, 4)))
+        formats = QAttentionFormats(gf.affine(), gf.affine(), _attention_formats())
+        self.mha = QMultiheadAttention(16, 4, batch_first=True, formats=formats)
+
+    def forward(self, x):
+        return self.mha(x, x, x, need_weights=False)[0]
+
+
+def _multihead_attention():
+    return _MultiheadAttention(), [(2, 5, 16)]
+
+
 # CustomArithLinear, CustomArithConvNd, CustomArithMatmul, _StraightThrough,
 # the pointwise ops' and an activation's Functions, and those of the sums,
 # softmax and the norms (their closed-form backward, and the rounded forward
-# over torch's own gradient).
+# over torch's own gradient); attention's composition of them, and
+# QMultiheadAttention's.
 MODELS = {
     "linear": _linear,
     "conv": _conv,
@@ -159,6 +206,8 @@ MODELS = {
     "softmax": _softmax,
     "closed-form norm": _closed_form_norm,
     "torch's-gradient norm": _torchs_gradient_norm,
+    "attention": _attention,
+    "multihead attention": _multihead_attention,
 }
 
 

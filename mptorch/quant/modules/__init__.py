@@ -1,6 +1,7 @@
 """The quantized layers and their format containers, re-exported by ``mptorch.quant``."""
 
 from .activation import QGELU, QHardsigmoid, QHardswish, QReLU, QSigmoid, QSiLU, QSoftmax, QTanh
+from .attention import MultiheadAttentionFormats, QAttentionFormats, QMultiheadAttention
 from .conv import QConv1d, QConv2d, QConv3d
 from .embedding import QEmbedding
 from .format import QAffineFormats, QMatmulFormats
@@ -42,4 +43,7 @@ __all__ = [
     "QBatchNorm1d",
     "QBatchNorm2d",
     "QBatchNorm3d",
+    "QAttentionFormats",
+    "QMultiheadAttention",
+    "MultiheadAttentionFormats",
 ]
