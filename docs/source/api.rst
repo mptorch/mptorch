@@ -385,6 +385,23 @@ See :doc:`kernels/reductions`, and :doc:`layers` for the modules.
 
 .. autoclass:: QBatchNorm3d
 
+Attention
+---------
+
+See :doc:`kernels/attention`, and :doc:`layers` for the module and the recipes.
+
+.. autoclass:: AttentionFormats
+   :members: uniform, label
+
+.. autofunction:: qattention
+
+.. autoclass:: QMultiheadAttention
+
+.. autoclass:: QAttentionFormats
+
+.. autoclass:: MultiheadAttentionFormats
+   :members: label, container
+
 Converting or simulating a model
 --------------------------------
 

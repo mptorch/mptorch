@@ -1,0 +1,3 @@
+largest difference from SDPA: 0.1542
+enable_gqa is the repeated heads: True
+fully masked query's output: [0.0, 0.0, 0.0, 0.0]

@@ -25,7 +25,12 @@ The claims checked here:
 - softmax and the norms are the converted modules', running statistics
   included; a norm written out of elementwise ops and registered with its
   forward is reached whole, its own calls passed through; ``torch.sum`` and
-  ``torch.mean`` under ``reduction`` are ``qsum`` and ``qmean`` written out.
+  ``torch.mean`` under ``reduction`` are ``qsum`` and ``qmean`` written out;
+- attention: an SDPA model under the ``attention`` kind computes its eager
+  twin's words under ``Recipe.attention_parts``, gradients and SR included;
+  ``nn.MultiheadAttention`` is the converted ``QMultiheadAttention``, its
+  projections under the ``linear`` kind, its core reported without an
+  ``attention`` kind.
 """
 
 import copy
@@ -40,6 +45,7 @@ from mptorch import BinaryK, RoundMode
 from mptorch.quant import (
     QGELU,
     ActivationFormats,
+    AttentionFormats,
     GemmFormats,
     NormFormats,
     PointwiseFormats,
@@ -1044,10 +1050,10 @@ def test_hf_sdpa_is_reported():
 
 @pytest.mark.parametrize("device", available_devices)
 def test_torchvision_vit(device):
-    """A small ViT: its patch projection, MLPs and head are the converted
-    model's, and ``nn.MultiheadAttention``, one call to
-    ``multi_head_attention_forward``, is reported and left to PyTorch, as
-    convert leaves it."""
+    """A small ViT under a recipe for the GEMMs: its patch projection, MLPs,
+    head and ``nn.MultiheadAttention``'s projections are the converted
+    model's, and the attention's core, which the recipe gives no formats, is
+    reported and left to PyTorch, as the converted layer leaves it."""
     models = pytest.importorskip("torchvision.models")
     torch.manual_seed(0)
     model = models.VisionTransformer(
@@ -1124,3 +1130,184 @@ def test_hf_norms(rounding):
     _run(model, [_ids("cpu")], "cpu", sim)
     calls = {(r.kind, r.call) for r in sim.report().simulated}
     assert calls == {("norm", "F.layer_norm"), ("softmax", "F.softmax")}
+
+
+# --- attention ----------------------------------------------------------------------------
+
+
+def _attention_formats(rounding: RoundMode, acc: int = 11) -> AttentionFormats:
+    """Both products and the softmax in an 8-bit format, summed in a 16-bit one
+    with ``acc`` bits of precision."""
+    sr = rounding is RoundMode.SR
+    fmt = BinaryK(8, 4, prng_bits=8) if sr else BinaryK(8, 4)
+    total = BinaryK(16, acc, prng_bits=8) if sr else BinaryK(16, acc)
+    mac = SplitMac(fmt, total, rounding=rounding)
+    return AttentionFormats.uniform(mac, Quant(fmt, rounding))
+
+
+def _twins(name, device, dtype=torch.float32, **kwargs):
+    """The same model twice, by seed: once calling SDPA, once eager attention."""
+    models = []
+    for attn in ("sdpa", "eager"):
+        model, inputs = _mini(name, device, attn=attn, **kwargs)
+        models.append(model.to(dtype))
+    return models, inputs
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.parametrize(
+    "name,dtype",
+    [("llama", torch.float32), ("gpt2", torch.float32), ("llama", torch.bfloat16)],
+)
+def test_sdpa_is_its_eager_twin(device, rounding, name, dtype):
+    """An SDPA model under the ``attention`` kind and its eager twin under the
+    same recipe's ``attention_parts`` compute the same words, outputs and
+    gradients, Llama's GQA (SDPA's ``enable_gqa`` against ``repeat_kv``)
+    included. Llama's softmax is the same in bfloat16 too: its eager one
+    computes in float32 as ``qattention`` does."""
+    if device == "mps" and dtype is torch.bfloat16:
+        pytest.skip("bfloat16 GEMMs are tested on the CPU and CUDA")
+    (sdpa, eager), inputs = _twins(name, device, dtype)
+    acc = 8 if dtype is torch.bfloat16 else 11
+    gf = _formats(rounding) if dtype is torch.float32 else GemmFormats()
+    recipe = Recipe(linear=gf).attention_parts("*", _attention_formats(rounding, acc))
+    sim_sdpa = simulate(recipe, sdpa)
+    want = _run(eager, inputs, device, simulate(recipe, eager))
+    got = _run(sdpa, inputs, device, sim_sdpa)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    calls = {(r.kind, r.call) for r in sim_sdpa.report().simulated}
+    assert ("attention", "F.scaled_dot_product_attention") in calls
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_sdpa_dropout_is_its_eager_twins(device):
+    """In training, dropout draws the same mask in both spellings."""
+    (sdpa, eager), inputs = _twins("gpt2", device, dropout=0.25)
+    sdpa.train()
+    eager.train()
+    recipe = Recipe().attention_parts("*", _attention_formats(RoundMode.RNE))
+    want = _run(eager, inputs, device, simulate(recipe, eager))
+    got = _run(sdpa, inputs, device, simulate(recipe, sdpa))
+    for k in want:
+        assert _same(got[k], want[k]), k
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_the_attention_kind_and_strict(device):
+    """A recipe for the GEMMs reports SDPA and the MHA core, and ``strict``
+    raises for both; naming the kind with ``None`` leaves them to PyTorch,
+    reported as plain; naming it with formats simulates them."""
+    torch.manual_seed(0)
+    model = nn.Sequential(_Encoder()).to(device)
+    x = torch.randn(2, 5, 16, device=device)
+    gemm = Recipe(gemm=_formats(RoundMode.RNE))
+    sim = simulate(gemm, model)
+    with sim, torch.no_grad():
+        model(x)
+    report = sim.report()
+    assert {r.call for r in report.not_covered} == {
+        "F.multi_head_attention_forward",
+        "F.scaled_dot_product_attention",
+    }
+    assert "F.multi_head_attention_forward" in {r.call for r in report.simulated}
+    with pytest.raises(RuntimeError, match="multi_head_attention_forward in 0.mha"):
+        with simulate(gemm, model, strict=True), torch.no_grad():
+            model(x)
+    plain = gemm.override("*", attention=None)
+    sim = simulate(plain, model, strict=True)
+    with sim, torch.no_grad():
+        model(x)
+    assert not sim.report().not_covered
+    assert {r.action for r in sim.report().rows if r.kind == "attention"} == {SIMULATED, PLAIN}
+    full = gemm.override("*", attention=_attention_formats(RoundMode.RNE))
+    sim = simulate(full, model, strict=True)
+    with sim, torch.no_grad():
+        model(x)
+    assert {r.action for r in sim.report().rows if r.kind == "attention"} == {SIMULATED}
+
+
+class _Encoder(nn.Module):
+    """An ``nn.MultiheadAttention`` and an SDPA call side by side."""
+
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(16, 4, batch_first=True)
+        self.fc = nn.Linear(16, 16)
+
+    def forward(self, x):
+        h = self.mha(x, x, x, need_weights=False)[0]
+        q = self.fc(h).view(2, 5, 4, 4).transpose(1, 2)
+        return F.scaled_dot_product_attention(q, q, q, is_causal=True).transpose(1, 2).flatten(2)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_torchvision_vit_with_an_attention_kind(device, rounding):
+    models = pytest.importorskip("torchvision.models")
+    torch.manual_seed(0)
+    model = models.VisionTransformer(
+        image_size=32,
+        patch_size=8,
+        num_layers=2,
+        num_heads=2,
+        hidden_dim=32,
+        mlp_dim=64,
+        num_classes=10,
+    ).to(device)
+    inputs = [torch.randn(2, 3, 32, 32, device=device)]
+    recipe = Recipe(gemm=_formats(rounding), attention=_attention_formats(rounding))
+    converted, _ = convert(model, recipe, strict=True)
+    want = _run(converted, inputs, device)
+    sim = simulate(recipe, model, strict=True)
+    got = _run(model, inputs, device, sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    assert not sim.report().not_covered
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+def test_a_transformer_encoder_layer(device, rounding):
+    """``nn.TransformerEncoderLayer`` with a causal mask and a padding mask:
+    simulate is the converted model, its fast path kept off by the mode."""
+    torch.manual_seed(0)
+    model = nn.TransformerEncoderLayer(16, 4, 32, dropout=0.0, batch_first=True).to(device)
+    x = torch.randn(2, 5, 16, device=device)
+    mask = torch.ones(5, 5, dtype=torch.bool, device=device).triu(1)  # True: masked
+    pad = torch.zeros(2, 5, dtype=torch.bool, device=device)
+    pad[1, -2:] = True
+    recipe = Recipe(gemm=_formats(rounding), attention=_attention_formats(rounding))
+    converted, report = convert(model, recipe, strict=True)
+    assert [r.name for r in report.rows] == ["self_attn", "linear1", "linear2"]
+
+    class _Masked(nn.Module):
+        def __init__(self, layer):
+            super().__init__()
+            self.layer = layer
+
+        def forward(self, x):
+            return self.layer(x, src_mask=mask, src_key_padding_mask=pad)
+
+    want = _run(_Masked(converted), [x], device)
+    got = _run(_Masked(model), [x], device, simulate(recipe, _Masked(model)))
+    for k in want:
+        assert _same(got[k], want[k]), k
+
+
+@pytest.mark.parametrize("rounding", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.parametrize("name", ["llama", "gpt2"])
+def test_hf_sdpa_is_its_eager_twin(rounding, name):
+    """transformers' own models: SDPA under the ``attention`` kind computes the
+    eager implementation's words under ``attention_parts``."""
+    build = {"llama": _hf_llama, "gpt2": _hf_gpt2}[name]
+    sdpa, eager = _Logits(build("sdpa")), _Logits(build("eager"))
+    recipe = Recipe(linear=_formats(rounding)).attention_parts("*", _attention_formats(rounding))
+    inputs = [_ids("cpu")]
+    want = _run(eager, inputs, "cpu", simulate(recipe, eager))
+    sim = simulate(recipe, sdpa)
+    got = _run(sdpa, inputs, "cpu", sim)
+    for k in want:
+        assert _same(got[k], want[k]), k
+    assert "F.scaled_dot_product_attention" in {r.call for r in sim.report().simulated}

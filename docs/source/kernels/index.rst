@@ -28,7 +28,7 @@ The pointwise ops and activations are the exception: they run PyTorch's own
 arithmetic in the carrier and round its result with a quantizer, and
 :doc:`pointwise` says what that rounds. A rounded sum is the core routine
 again, a product with a ones vector, and :doc:`reductions` builds softmax
-and the norms on it.
+and the norms on it. :doc:`attention` composes two products and a softmax.
 
 .. toctree::
    :maxdepth: 1
@@ -39,6 +39,7 @@ and the norms on it.
    calling
    pointwise
    reductions
+   attention
 
 Matrix multiplication as the core routine
 -----------------------------------------

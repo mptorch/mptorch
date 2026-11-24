@@ -580,8 +580,9 @@ A model that already exists need not be rebuilt from mptorch's layers. A
   :class:`~mptorch.quant.ActivationFormats`), ``embedding`` and
   ``elementwise`` (a :class:`~mptorch.quant.PointwiseFormats`), ``softmax``
   (a :class:`~mptorch.quant.SoftmaxFormats`), ``norm`` (a
-  :class:`~mptorch.quant.NormFormats`) and ``reduction`` (a
-  :class:`~mptorch.quant.ReductionFormats`), and
+  :class:`~mptorch.quant.NormFormats`), ``reduction`` (a
+  :class:`~mptorch.quant.ReductionFormats`) and ``attention`` (an
+  :class:`~mptorch.quant.AttentionFormats`), and
   ``override(where, ...)`` changes them for the modules ``where`` chooses: a
   glob over their names (``"encoder.*"``), a type, or a predicate. The last
   rule that matches wins, and ``None`` keeps a module PyTorch's.
@@ -596,7 +597,8 @@ modules its mptorch twin, an ``nn.Embedding`` a
 :class:`~mptorch.quant.QEmbedding`, an ``nn.Softmax`` a
 :class:`~mptorch.quant.QSoftmax` and each of torch's norms its twin (these
 only when the recipe names their kind, which keeps a recipe for the layers'
-report to the layers): the
+report to the layers), and an ``nn.MultiheadAttention`` a
+:class:`~mptorch.quant.QMultiheadAttention` (below): the
 same object with its
 class changed, so its parameters, buffers, hooks and ``state_dict`` keys stay
 as they were, and an optimizer built before the conversion still trains it.
@@ -647,9 +649,10 @@ word, gradients included. A product is resolved by kind:
 
 ``sim.report()`` lists every product seen, what ran it, and why a product
 was left to PyTorch: the recipe gave it ``None``, or simulate cannot run it
-(an ``einsum``, ``F.scaled_dot_product_attention``, which computes an
-attention block's products in one call), and ``strict=True`` raises for the
-latter in a module the recipe covers. A converted model's layers run as
+(an ``einsum``; ``F.scaled_dot_product_attention``, which computes an
+attention block's products in one call, under a recipe with no
+``attention`` kind), and ``strict=True`` raises for the latter in a module
+the recipe covers. A converted model's layers run as
 converted. Under ``torch.compile``, compile ``sim.wrap()``, which enters the
 simulation inside the compiled code; a compiled call is not recorded in the
 report.
@@ -729,5 +732,43 @@ other steps ``elementwise``, each rounded on its own.
    :caption: docs/snippets/layers_norms.py
 
 .. literalinclude:: ../snippets/layers_norms.out
+   :language: text
+   :caption: output
+
+Attention
+~~~~~~~~~
+
+:func:`~mptorch.quant.qattention` is ``F.scaled_dot_product_attention`` with
+each part of an :class:`~mptorch.quant.AttentionFormats` rounding its step
+(:doc:`kernels/attention`), and :class:`~mptorch.quant.QMultiheadAttention`
+is ``nn.MultiheadAttention`` with a ``formats`` (a
+:class:`~mptorch.quant.QAttentionFormats`: a ``QLinear``'s container for its
+in-projections and one for its output projection, and an
+``AttentionFormats`` for its core; ``None`` is torch's forward). A recipe
+reaches a model's attention by kind:
+
+- ``attention`` is ``nn.MultiheadAttention``'s core for a conversion, and
+  for a simulation also ``F.scaled_dot_product_attention`` wherever a model
+  calls it (transformers' default), through ``qattention``. Without the
+  kind both are reported as not covered.
+- ``linear`` gives ``nn.MultiheadAttention``'s projections their formats, as
+  for any layer with a weight: a recipe for the GEMMs converts the module
+  for them, its core left PyTorch's. Its ``out_proj`` is the module's own
+  and converts with it.
+
+An eager attention, written out of two ``torch.matmul`` calls and a
+softmax, has no single call to reach. ``recipe.attention_parts(where,
+formats)`` gives one ``AttentionFormats`` to both spellings: the
+``attention`` kind, and the eager parts, ``formats.qk`` at site
+``"matmul#0"``, ``formats.softmax`` and ``formats.pv`` at ``"matmul#1"``.
+An SDPA model and its eager twin then compute the same words, gradients
+included (:func:`~mptorch.quant.qattention` lists the cases where they
+cannot).
+
+.. literalinclude:: ../snippets/layers_attention.py
+   :language: python
+   :caption: docs/snippets/layers_attention.py
+
+.. literalinclude:: ../snippets/layers_attention.out
    :language: text
    :caption: output
