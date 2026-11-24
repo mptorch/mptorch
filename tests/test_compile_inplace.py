@@ -46,6 +46,10 @@ def _same_words(got, want):
         assert torch.equal(g.view(torch.int32), w.view(torch.int32))
 
 
+# The flat quantizers look their format up per call, so Dynamo says once per
+# function that it traces through the format checks' lru_cache (and block.py's
+# _code_fields); the checks are pure, so the cache only saves time.
+@pytest.mark.filterwarnings("ignore:Dynamo detected a call to a `functools.lru_cache`:UserWarning")
 @pytest.mark.parametrize("device", available_devices)
 def test_the_in_place_quantizers(device):
     """Each family's in-place quantizer, with its first result returned."""
