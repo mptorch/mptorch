@@ -64,14 +64,13 @@ Tensor binaryK_quantize_meta(Tensor a, int64_t K, int64_t P, int64_t bias, int64
   return quantized_like(a, "binaryK_quant");
 }
 
-Tensor &binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
-                               int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
+void binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
+                            int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
   check_in_place(a, "binaryK_quant_", "binaryK_quant");
   check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
                      prng_bits, round_mode, "binaryK_quant");
   check_quant_dtype(a, "binaryK_quant_");
-  return a;
 }
 
 Tensor superfp_quantize_meta(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
@@ -82,14 +81,13 @@ Tensor superfp_quantize_meta(Tensor a, int64_t man_bits, int64_t exp_bits, int64
   return quantized_like(a, "superfp_quant");
 }
 
-Tensor &superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
-                               int64_t bias, int64_t prng_bits, bool, int64_t round_mode, int64_t saturation_mode)
+void superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
+                            int64_t bias, int64_t prng_bits, bool, int64_t round_mode, int64_t saturation_mode)
 {
   check_in_place(a, "superfp_quant_", "superfp_quant");
   check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
                      prng_bits, round_mode, "superfp_quant");
   check_quant_dtype(a, "superfp_quant_");
-  return a;
 }
 
 Tensor fixedpoint_quantize_meta(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool,
@@ -100,14 +98,13 @@ Tensor fixedpoint_quantize_meta(Tensor a, int64_t wl, int64_t fl, int64_t prng_b
   return quantized_like(a, "fixedpoint_quant");
 }
 
-Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool,
-                                  int64_t round_mode)
+void fixedpoint_quantize_meta_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool,
+                               int64_t round_mode)
 {
   check_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
   check_quant_format(a, mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl), prng_bits, round_mode,
                      "fixedpoint_quant");
   check_quant_dtype(a, "fixedpoint_quant_");
-  return a;
 }
 
 // The checks and the result of narrow_float64_tensors (common/narrow_host.h).
@@ -146,15 +143,14 @@ Tensor block_quantize_meta(Tensor x, c10::IntArrayRef fmt, double elem_max, doub
   return o;
 }
 
-Tensor &block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
-                             double tensor_scale, int64_t round_mode)
+void block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
+                          double tensor_scale, int64_t round_mode)
 {
   TORCH_CHECK(x.is_non_overlapping_and_dense(), "block_quant_ writes its argument in place and "
               "needs a tensor whose elements do not overlap, got strides ", x.sym_strides(),
               " for sizes ", x.sym_sizes(), ": use block_quant, which writes a new tensor");
   meta_block_quantize_checks(x, fmt, elem_max, scale_max, tensor_scale, round_mode,
                              "block_quant_");
-  return x;
 }
 
 Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op)

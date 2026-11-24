@@ -285,7 +285,7 @@ def binaryK_quantize_(
     if widen:
         _refuse_widening_in_place("binaryK_quantize", dtype)
 
-    return torch.ops.mptorch.binaryK_quant_.default(
+    torch.ops.mptorch.binaryK_quant_.default(
         x,
         K,
         P,
@@ -296,6 +296,7 @@ def binaryK_quantize_(
         saturation_mode.value,
         subnormals_mode.value,
     )
+    return x
 
 
 def _binaryK_quant_spec(

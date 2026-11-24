@@ -36,10 +36,14 @@ extern "C"
 // tensor holding each output element's slot index.
 //
 // The four ops whose name ends in an underscore write their argument, and
-// say so as ATen's own in-place ops do: `Tensor(a!)` on the argument and on
-// the return, which is the same tensor. That annotation is what lets the
+// say so with `Tensor(a!)` on it. That annotation is what lets the
 // ADInplaceOrView kernel (autograd_ops.cpp) increment the tensor's version
-// counter, and what torch.compile's functionalization reads.
+// counter, and what torch.compile's functionalization reads. They return
+// nothing, where ATen's own in-place ops return their argument: Inductor
+// (torch 2.15) took a custom op's returned argument for a buffer of its own,
+// handed the argument's memory to a later kernel while that return was still
+// in use, and so returned overwritten values from compiled code. The Python
+// wrappers return the argument.
 //
 // The four *_accumulated ops are the single-format GEMMs under an accumulate
 // algorithm other than NAIVE (common/gemm_accumulate.h): their twin's
@@ -56,14 +60,10 @@ TORCH_LIBRARY(mptorch, m)
   // draws its RNG state from the default generator under SR, so
   // torch.compile must not merge two identical calls of it:
   // nondeterministic_seeded is what makes a custom op impure to its common
-  // subexpression elimination. An op that writes its argument and returns it
-  // is also `inplace`, without which functionalization (and so torch.compile
-  // and torch.export) refuses its aliased return.
+  // subexpression elimination.
   const std::vector<at::Tag> plain = {at::Tag::pt2_compliant_tag};
   const std::vector<at::Tag> seeded = {at::Tag::nondeterministic_seeded,
                                        at::Tag::pt2_compliant_tag};
-  const std::vector<at::Tag> seeded_inplace = {
-      at::Tag::nondeterministic_seeded, at::Tag::inplace, at::Tag::pt2_compliant_tag};
   m.def("binaryK_quant(Tensor a, int K, int P, "
         "int bias, int prng_bits, bool is_signed, "
         "int round_mode, int saturation_mode, int subnormals_mode) -> Tensor", seeded);
@@ -75,13 +75,13 @@ TORCH_LIBRARY(mptorch, m)
         "int round_mode) -> Tensor", seeded);
   m.def("binaryK_quant_(Tensor(a!) a, int K, int P, "
         "int bias, int prng_bits, bool is_signed, "
-        "int round_mode, int saturation_mode, int subnormals_mode) -> Tensor(a!)", seeded_inplace);
+        "int round_mode, int saturation_mode, int subnormals_mode) -> ()", seeded);
   m.def("superfp_quant_(Tensor(a!) a, int man_bits, int exp_bits, int normal_binades, "
         "int bias, int prng_bits, bool is_signed, "
-        "int round_mode, int saturation_mode) -> Tensor(a!)", seeded_inplace);
+        "int round_mode, int saturation_mode) -> ()", seeded);
   m.def("fixedpoint_quant_(Tensor(a!) a, int wl, int fl, "
         "int prng_bits, bool is_signed, bool symmetric, "
-        "int round_mode) -> Tensor(a!)", seeded_inplace);
+        "int round_mode) -> ()", seeded);
   m.def("narrow_float64(Tensor a, ScalarType dtype) -> Tensor", plain);
   m.def("custom_matmul_binaryK(Tensor a, Tensor b, bool trans_a, bool trans_b, "
         "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
@@ -246,7 +246,7 @@ TORCH_LIBRARY(mptorch, m)
   m.def("block_quant(Tensor x, int[] fmt, float elem_max, float scale_max, float tensor_scale, "
         "int round_mode) -> Tensor", seeded);
   m.def("block_quant_(Tensor(a!) x, int[] fmt, float elem_max, float scale_max, "
-        "float tensor_scale, int round_mode) -> Tensor(a!)", seeded_inplace);
+        "float tensor_scale, int round_mode) -> ()", seeded);
   m.def("custom_matmul_block(Tensor a_data, Tensor a_scales, int a_cols, bool trans_a, "
         "Tensor b_data, Tensor b_scales, int b_cols, bool trans_b, "
         "int[] a_fmt, float a_elem_max, float a_scale_max, float a_tensor_scale, "

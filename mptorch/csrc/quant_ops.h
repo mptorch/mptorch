@@ -55,47 +55,47 @@ at::Tensor fixedpoint_quantize_mps(at::Tensor a, int64_t wl, int64_t fl, int64_t
                                    bool is_signed, bool symmetric, int64_t round_mode);
 
 // The in-place twins, mptorch::binaryK_quant_, mptorch::superfp_quant_ and
-// mptorch::fixedpoint_quant_: the same rounding, written over `a`, which is
-// returned. They copy nothing, so each refuses what its out-of-place op
+// mptorch::fixedpoint_quant_: the same rounding, written over `a`. They
+// return nothing (quant_ops.cpp says why) and copy nothing, so each refuses what its out-of-place op
 // would copy (a strided tensor, and on CUDA a view that does not start on a
 // 16-byte boundary). On MPS they bind the tensor as both the Metal kernel's
 // input and its output.
-at::Tensor &binaryK_quantize_cuda_(at::Tensor &a, int64_t K, int64_t P,
-                                   int64_t bias, int64_t prng_bits,
-                                   bool is_signed, int64_t round_mode,
-                                   int64_t saturation_mode,
-                                   int64_t subnormals_mode);
+void binaryK_quantize_cuda_(at::Tensor &a, int64_t K, int64_t P,
+                            int64_t bias, int64_t prng_bits,
+                            bool is_signed, int64_t round_mode,
+                            int64_t saturation_mode,
+                            int64_t subnormals_mode);
 
-at::Tensor &binaryK_quantize_cpu_(at::Tensor &a, int64_t K, int64_t P,
-                                  int64_t bias, int64_t prng_bits, bool is_signed,
-                                  int64_t round_mode, int64_t saturation_mode,
-                                  int64_t subnormals_mode);
+void binaryK_quantize_cpu_(at::Tensor &a, int64_t K, int64_t P,
+                           int64_t bias, int64_t prng_bits, bool is_signed,
+                           int64_t round_mode, int64_t saturation_mode,
+                           int64_t subnormals_mode);
 
-at::Tensor &binaryK_quantize_mps_(at::Tensor &a, int64_t K, int64_t P,
-                                  int64_t bias, int64_t prng_bits, bool is_signed,
-                                  int64_t round_mode, int64_t saturation_mode,
-                                  int64_t subnormals_mode);
+void binaryK_quantize_mps_(at::Tensor &a, int64_t K, int64_t P,
+                           int64_t bias, int64_t prng_bits, bool is_signed,
+                           int64_t round_mode, int64_t saturation_mode,
+                           int64_t subnormals_mode);
 
-at::Tensor &superfp_quantize_cuda_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
-                                   int64_t normal_binades, int64_t bias, int64_t prng_bits,
-                                   bool is_signed, int64_t round_mode, int64_t saturation_mode);
+void superfp_quantize_cuda_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
+                            int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                            bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
-at::Tensor &superfp_quantize_cpu_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
-                                  int64_t normal_binades, int64_t bias, int64_t prng_bits,
-                                  bool is_signed, int64_t round_mode, int64_t saturation_mode);
+void superfp_quantize_cpu_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
+                           int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                           bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
-at::Tensor &superfp_quantize_mps_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
-                                  int64_t normal_binades, int64_t bias, int64_t prng_bits,
-                                  bool is_signed, int64_t round_mode, int64_t saturation_mode);
+void superfp_quantize_mps_(at::Tensor &a, int64_t man_bits, int64_t exp_bits,
+                           int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                           bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
-at::Tensor &fixedpoint_quantize_cuda_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                      bool is_signed, bool symmetric, int64_t round_mode);
+void fixedpoint_quantize_cuda_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                               bool is_signed, bool symmetric, int64_t round_mode);
 
-at::Tensor &fixedpoint_quantize_cpu_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                     bool is_signed, bool symmetric, int64_t round_mode);
+void fixedpoint_quantize_cpu_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                              bool is_signed, bool symmetric, int64_t round_mode);
 
-at::Tensor &fixedpoint_quantize_mps_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                     bool is_signed, bool symmetric, int64_t round_mode);
+void fixedpoint_quantize_mps_(at::Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                              bool is_signed, bool symmetric, int64_t round_mode);
 
 
 // A float64 tensor rounded once, to nearest even, onto float32, float16 or
@@ -767,9 +767,9 @@ at::Tensor block_quantize_cuda(at::Tensor x, c10::IntArrayRef fmt, double elem_m
 at::Tensor block_quantize_cpu(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 at::Tensor block_quantize_mps(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 
-at::Tensor & block_quantize_cuda_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
-at::Tensor & block_quantize_cpu_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
-at::Tensor & block_quantize_mps_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+void block_quantize_cuda_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+void block_quantize_cpu_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+void block_quantize_mps_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 
 at::Tensor block_matmul_cuda(at::Tensor a_data, at::Tensor a_scales, int64_t a_cols, bool trans_a, at::Tensor b_data, at::Tensor b_scales, int64_t b_cols, bool trans_b, c10::IntArrayRef a_fmt, double a_elem_max, double a_scale_max, double a_tensor_scale, c10::IntArrayRef b_fmt, double b_elem_max, double b_scale_max, double b_tensor_scale, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits, bool binary64);
 at::Tensor block_matmul_cpu(at::Tensor a_data, at::Tensor a_scales, int64_t a_cols, bool trans_a, at::Tensor b_data, at::Tensor b_scales, int64_t b_cols, bool trans_b, c10::IntArrayRef a_fmt, double a_elem_max, double a_scale_max, double a_tensor_scale, c10::IntArrayRef b_fmt, double b_elem_max, double b_scale_max, double b_tensor_scale, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits, bool binary64);

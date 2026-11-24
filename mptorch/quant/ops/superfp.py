@@ -231,7 +231,7 @@ def superfp_quantize_(
     if widen:
         _refuse_widening_in_place("superfp_quantize", dtype)
 
-    return torch.ops.mptorch.superfp_quant_.default(
+    torch.ops.mptorch.superfp_quant_.default(
         x,
         man_bits,
         exp_bits,
@@ -242,6 +242,7 @@ def superfp_quantize_(
         rounding_mode.value,
         saturation_mode.value,
     )
+    return x
 
 
 def _superfp_quant_spec(

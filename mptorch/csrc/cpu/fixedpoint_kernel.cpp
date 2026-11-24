@@ -177,8 +177,8 @@ Tensor fixedpoint_quantize_cpu(Tensor a, int64_t wl, int64_t fl, int64_t prng_bi
 
 // The CPU kernel of mptorch::fixedpoint_quant_: the same rounding written
 // over `a`, which must be contiguous, as in binaryK_quantize_cpu_.
-Tensor &fixedpoint_quantize_cpu_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                 bool is_signed, bool symmetric, int64_t round_mode)
+void fixedpoint_quantize_cpu_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                              bool is_signed, bool symmetric, int64_t round_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "fixedpoint_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -189,5 +189,4 @@ Tensor &fixedpoint_quantize_cpu_(Tensor &a, int64_t wl, int64_t fl, int64_t prng
                                   mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                   round_mode, "fixedpoint_quant");
   fixedpoint_quantize_into(a, a, wl, fl, prng_bits, is_signed, symmetric, round_mode);
-  return a;
 }

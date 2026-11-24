@@ -180,7 +180,7 @@ def fixedpoint_quantize_(
     if widen:
         _refuse_widening_in_place("fixedpoint_quantize", dtype)
 
-    return torch.ops.mptorch.fixedpoint_quant_.default(
+    torch.ops.mptorch.fixedpoint_quant_.default(
         x,
         wl,
         fl,
@@ -189,6 +189,7 @@ def fixedpoint_quantize_(
         symmetric,
         rounding_mode.value,
     )
+    return x
 
 
 def _fixedpoint_quant_spec(

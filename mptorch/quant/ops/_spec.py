@@ -284,13 +284,14 @@ class _QuantSpec(NamedTuple):
     The last three fields serve a pointwise op (``mptorch.quant.pointwise``),
     which rounds a result it has just computed (``_round_result``):
     ``plain_op`` and ``fresh_op`` are the out-of-place and in-place ops,
-    whatever ``in_place`` says, and ``result_stored`` holds the findings on
-    storing that result in a narrower dtype, under the rule for a GEMM's
-    result (``elementwise=False``): a computed result reaches the format's
-    whole value set, where a quantizer's input is already a value of its dtype.
+    whatever ``in_place`` says (the in-place op returns nothing), and
+    ``result_stored`` holds the findings on storing that result in a narrower
+    dtype, under the rule for a GEMM's result (``elementwise=False``): a
+    computed result reaches the format's whole value set, where a quantizer's
+    input is already a value of its dtype.
     """
 
-    op: Callable[..., torch.Tensor]
+    op: Callable[..., Any]
     args: tuple[Any, ...]
     name: str
     in_place: bool
@@ -298,7 +299,7 @@ class _QuantSpec(NamedTuple):
     findings: tuple[_Pair | None, _Pair | None]
     stored: tuple[dict[torch.dtype, _Pair], dict[torch.dtype, _Pair]]
     plain_op: Callable[..., torch.Tensor]
-    fresh_op: Callable[..., torch.Tensor]
+    fresh_op: Callable[..., None]
     result_stored: tuple[dict[torch.dtype, _Pair], dict[torch.dtype, _Pair]]
 
 
@@ -308,7 +309,7 @@ def _said(pair: _Pair) -> _Pair | None:
 
 
 def _quant_spec(
-    ops: tuple[Callable[..., torch.Tensor], Callable[..., torch.Tensor]],
+    ops: tuple[Callable[..., torch.Tensor], Callable[..., None]],
     args: tuple[Any, ...],
     name: str,
     in_place: bool,
@@ -318,12 +319,13 @@ def _quant_spec(
 ) -> _QuantSpec:
     """Build a ``_QuantSpec``, finding the format's verdicts once.
 
-    ``ops`` is the out-of-place op and the in-place one. ``finding(carrier)``
-    is the format's finding in a carrier dtype, and ``storage(dtype,
-    elementwise)`` its finding on storing a result in ``dtype``, under the
-    quantizer's rule (``elementwise=True``) or a computed result's; each
-    family's builder passes its own two. Every carrier and every storage dtype
-    narrower than it is looked up, since a call's dtype is not known yet.
+    ``ops`` is the out-of-place op and the in-place one, which writes its
+    argument and returns nothing. ``finding(carrier)`` is the format's finding
+    in a carrier dtype, and ``storage(dtype, elementwise)`` its finding on
+    storing a result in ``dtype``, under the quantizer's rule
+    (``elementwise=True``) or a computed result's; each family's builder
+    passes its own two. Every carrier and every storage dtype narrower than it
+    is looked up, since a call's dtype is not known yet.
     """
     findings = (_said(finding(_CARRIER[0])), _said(finding(_CARRIER[1])))
 
@@ -368,7 +370,8 @@ def _run_quant(spec: _QuantSpec, x: torch.Tensor) -> torch.Tensor:
     if spec.in_place:
         if widen:
             _refuse_widening_in_place(spec.name, dtype)
-        return spec.op(x, *spec.args)
+        spec.op(x, *spec.args)
+        return x
     out = spec.op(_quantizer_operand(x, widen), *spec.args)
     return _narrowed(out, dtype) if widen else out
 
@@ -400,8 +403,11 @@ def _round_result(
         stored = spec.result_stored[wide].get(dtype)
         if stored is not None:
             _report_per_call(*stored)
-        op = spec.fresh_op if t.is_contiguous() else spec.plain_op
-        out = op(t, *spec.args)
+        if t.is_contiguous():
+            spec.fresh_op(t, *spec.args)
+            out = t
+        else:
+            out = spec.plain_op(t, *spec.args)
     return _stored(out, dtype)
 
 

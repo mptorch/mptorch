@@ -15,19 +15,19 @@ using at::Tensor;
 Tensor binaryK_quantize_meta(Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
                              bool is_signed, int64_t round_mode, int64_t saturation_mode,
                              int64_t subnormals_mode);
-Tensor &binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
-                               bool is_signed, int64_t round_mode, int64_t saturation_mode,
-                               int64_t subnormals_mode);
+void binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
+                            bool is_signed, int64_t round_mode, int64_t saturation_mode,
+                            int64_t subnormals_mode);
 Tensor superfp_quantize_meta(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                              int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
                              int64_t saturation_mode);
-Tensor &superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits,
-                               int64_t normal_binades, int64_t bias, int64_t prng_bits,
-                               bool is_signed, int64_t round_mode, int64_t saturation_mode);
+void superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits,
+                            int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                            bool is_signed, int64_t round_mode, int64_t saturation_mode);
 Tensor fixedpoint_quantize_meta(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
                                 bool is_signed, bool symmetric, int64_t round_mode);
-Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                  bool is_signed, bool symmetric, int64_t round_mode);
+void fixedpoint_quantize_meta_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                               bool is_signed, bool symmetric, int64_t round_mode);
 Tensor narrow_float64_meta(Tensor a, c10::ScalarType dtype);
 std::tuple<Tensor, Tensor> block_pack_meta(Tensor x, c10::IntArrayRef fmt, double elem_max,
                                            double scale_max, double tensor_scale,
@@ -37,8 +37,8 @@ Tensor block_unpack_meta(Tensor data, Tensor scales, int64_t cols, c10::IntArray
                          at::ScalarType dtype);
 Tensor block_quantize_meta(Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max,
                            double tensor_scale, int64_t round_mode);
-Tensor &block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
-                             double tensor_scale, int64_t round_mode);
+void block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
+                          double tensor_scale, int64_t round_mode);
 Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op);
 Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
                             int64_t stochastic_mode);

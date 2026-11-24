@@ -253,12 +253,11 @@ Tensor block_quantize_mps(Tensor x, c10::IntArrayRef fmt, double elem_max, doubl
   return o;
 }
 
-Tensor &block_quantize_mps_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
-                            double tensor_scale, int64_t round_mode)
+void block_quantize_mps_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
+                         double tensor_scale, int64_t round_mode)
 {
   TORCH_CHECK(x.is_non_overlapping_and_dense(), "block_quant_ writes its argument in place and "
               "needs a tensor whose elements do not overlap, got strides ", x.strides(),
               " for sizes ", x.sizes(), ": use block_quant, which writes a new tensor");
   quantize_into(x, x, fmt, elem_max, scale_max, tensor_scale, round_mode, "block_quant_");
-  return x;
 }

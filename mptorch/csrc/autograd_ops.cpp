@@ -27,9 +27,11 @@
 // through to the backend on operands that require grad, and their own
 // backward supplies the gradient.
 
+#include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/core/grad_mode.h>
-#include <torch/csrc/autograd/autograd_not_implemented_fallback.h>
+#include <c10/util/SmallVector.h>
+#include <torch/csrc/autograd/variable.h>
 #include <torch/library.h>
 
 namespace
@@ -94,6 +96,29 @@ namespace
           ". Detach the operand if no gradient was wanted.");
     }
     op.redispatchBoxed(ks & c10::after_autograd_keyset, stack);
+  }
+
+  // The ADInplaceOrView kernel of the four in-place quantizers: the op below
+  // the key, then one version more on every argument its schema marks as
+  // written (`Tensor(a!)`). torch's boxed fallback for the key,
+  // autogradNotImplementedInplaceOrViewFallback, increments only an op's
+  // mutable returns, and these ops return nothing (quant_ops.cpp says why).
+  void bump_written_arguments(const c10::OperatorHandle &op, c10::DispatchKeySet ks,
+                              torch::jit::Stack *stack)
+  {
+    const c10::FunctionSchema &schema = op.schema();
+    const size_t n = schema.arguments().size();
+    const size_t first = stack->size() - n;
+    c10::SmallVector<at::Tensor, 1> written;
+    for (size_t i = 0; i < n; ++i)
+      if (schema.is_mutable({c10::SchemaArgType::input, i}))
+        written.push_back((*stack)[first + i].toTensor());
+    {
+      at::AutoDispatchBelowADInplaceOrView guard;
+      op.redispatchBoxed(ks & c10::after_ADInplaceOrView_keyset, stack);
+    }
+    for (const at::Tensor &t : written)
+      torch::autograd::impl::bump_version(t);
   }
 
 } // namespace
@@ -179,13 +204,15 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
 // ATen entirely, so nothing else would increment it: a tensor saved for
 // backward and then quantized in place would be used as if it still held
 // what was saved, instead of raising "one of the variables needed for
-// gradient computation has been modified by an inplace operation". torch's
-// boxed fallback for the key reads the schema's `Tensor(a!)` annotation and
+// gradient computation has been modified by an inplace operation".
+// bump_written_arguments reads the schema's `Tensor(a!)` annotation and
 // increments the counter.
 TORCH_LIBRARY_IMPL(mptorch, ADInplaceOrView, m)
 {
-  m.impl("binaryK_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
-  m.impl("superfp_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
-  m.impl("block_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
-  m.impl("fixedpoint_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
+  const auto kernel = []
+  { return torch::CppFunction::makeFromBoxedFunction<&bump_written_arguments>(); };
+  m.impl("binaryK_quant_", kernel());
+  m.impl("superfp_quant_", kernel());
+  m.impl("block_quant_", kernel());
+  m.impl("fixedpoint_quant_", kernel());
 }

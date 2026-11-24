@@ -215,7 +215,7 @@ Tensor superfp_quantize_cuda(
 
 // mptorch::superfp_quant_: the same rounding written over `a`, which is
 // checked rather than copied, as in binaryK_quantize_cuda_.
-Tensor &superfp_quantize_cuda_(
+void superfp_quantize_cuda_(
     Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
     int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
@@ -227,5 +227,4 @@ Tensor &superfp_quantize_cuda_(
         mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
     superfp_quantize_into(a, a, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
                           round_mode, saturation_mode);
-    return a;
 }

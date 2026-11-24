@@ -371,19 +371,20 @@ def test_without_the_flag_every_odd_accumulated_op_raises_naming_it():
 
 
 def test_the_tags():
-    """Every op passes opcheck (pt2_compliant_tag); an op that takes a round
-    mode can draw, so compile must not merge or fold it
-    (nondeterministic_seeded); an op that writes its argument returns it
-    (inplace)."""
+    """Every op passes opcheck (pt2_compliant_tag), and an op that takes a
+    round mode can draw, so compile must not merge or fold it
+    (nondeterministic_seeded). An op that writes its argument returns nothing,
+    so it is not ``inplace``: Inductor reused the memory of a custom op's
+    argument while the op's returned alias of it was still live."""
     for name in _op_names():
         op = getattr(torch.ops.mptorch, name).default
         args = [a.name for a in op._schema.arguments]
         want = {torch.Tag.pt2_compliant_tag}
         if "round_mode" in args:
             want.add(torch.Tag.nondeterministic_seeded)
-        if op._schema.is_mutable:
-            want.add(torch.Tag.inplace)
         assert set(op.tags) == want, name
+        if op._schema.is_mutable:
+            assert not op._schema.returns, name
 
 
 # --- opcheck and the meta device ------------------------------------------------
@@ -408,16 +409,21 @@ def test_the_meta_device_gives_the_cpu_layout(name):
     if _unbuilt(name):
         pytest.skip("this build has no kernels for it")
     for func, args in _calls()[name]:
-        want = pytree.tree_leaves(func(*_fresh(args)))
+        cpu_args = _fresh(args)
+        want_out = func(*cpu_args)
         meta_args = _on_meta(args)
         got_out = func(*meta_args)
+        if func._schema.is_mutable:
+            # An in-place op returns nothing; its result is the argument it wrote.
+            assert want_out is None and got_out is None, "an in-place op returns nothing"
+            (i,) = [k for k, a in enumerate(func._schema.arguments) if a.is_write]
+            want_out, got_out = cpu_args[i], meta_args[i]
+        want = pytree.tree_leaves(want_out)
         got = pytree.tree_leaves(got_out)
         assert len(got) == len(want)
         for w, g in zip(want, got, strict=True):
             assert g.device.type == "meta"
             assert (g.shape, g.dtype, g.stride()) == (w.shape, w.dtype, w.stride()), name
-        if func._schema.is_mutable:
-            assert got_out is meta_args[0], "an in-place op returns its argument"
 
 
 def test_a_meta_call_draws_nothing():

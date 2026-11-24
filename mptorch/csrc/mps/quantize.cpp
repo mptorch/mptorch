@@ -168,9 +168,9 @@ Tensor fixedpoint_quantize_mps(Tensor a, int64_t wl, int64_t fl, int64_t prng_bi
 // mptorch::binaryK_quant_, mptorch::superfp_quant_ and
 // mptorch::fixedpoint_quant_ on an MPS tensor: the kernel above, run over `a`
 // in place, after the CPU's contiguity check, worded as the CPU words it.
-Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
-                              bool is_signed, int64_t round_mode, int64_t saturation_mode,
-                              int64_t subnormals_mode)
+void binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
+                           bool is_signed, int64_t round_mode, int64_t saturation_mode,
+                           int64_t subnormals_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "binaryK_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -179,12 +179,11 @@ Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int
                      prng_bits, round_mode, "binaryK_quantize_mps_");
   quantize_into("binaryK_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
-  return a;
 }
 
-Tensor &superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
-                              int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
-                              int64_t saturation_mode)
+void superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
+                           int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
+                           int64_t saturation_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "superfp_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -193,11 +192,10 @@ Tensor &superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int
                      prng_bits, round_mode, "superfp_quantize_mps_");
   quantize_into("superfp_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
-  return a;
 }
 
-Tensor &fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
-                                 bool is_signed, bool symmetric, int64_t round_mode)
+void fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                              bool is_signed, bool symmetric, int64_t round_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "fixedpoint_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -206,5 +204,4 @@ Tensor &fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng
                      "fixedpoint_quantize_mps_");
   quantize_into("fixedpoint_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 fixedpoint_format_lines(wl, fl, is_signed, symmetric));
-  return a;
 }

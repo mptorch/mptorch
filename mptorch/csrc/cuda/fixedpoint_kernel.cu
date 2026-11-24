@@ -203,7 +203,7 @@ Tensor fixedpoint_quantize_cuda(
 
 // mptorch::fixedpoint_quant_: the same rounding written over `a`, which is
 // checked rather than copied, as in binaryK_quantize_cuda_.
-Tensor &fixedpoint_quantize_cuda_(
+void fixedpoint_quantize_cuda_(
     Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode)
 {
     mptorch::check_vector_loadable_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
@@ -213,5 +213,4 @@ Tensor &fixedpoint_quantize_cuda_(
                                     mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
                                     round_mode, "fixedpoint_quant");
     fixedpoint_quantize_into(a, a, wl, fl, prng_bits, is_signed, symmetric, round_mode);
-    return a;
 }

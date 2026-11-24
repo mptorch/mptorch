@@ -254,7 +254,7 @@ Tensor binaryK_quantize_cuda(
 // allocation. A copy would defeat it (the kernel would write the copy), so
 // this op refuses the inputs that the out-of-place op copies: a strided
 // tensor, and a view that does not start on a 16-byte boundary.
-Tensor &binaryK_quantize_cuda_(
+void binaryK_quantize_cuda_(
     Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
     int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
@@ -266,5 +266,4 @@ Tensor &binaryK_quantize_cuda_(
         mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "binaryK_quant");
     binaryK_quantize_into(a, a, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
                           subnormals_mode);
-    return a;
 }

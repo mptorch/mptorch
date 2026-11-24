@@ -192,9 +192,9 @@ Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
 
 // The CPU kernel of mptorch::superfp_quant_: the same rounding written over
 // `a`, which must be contiguous, as in binaryK_quantize_cpu_.
-Tensor &superfp_quantize_cpu_(Tensor &a, int64_t man_bits, int64_t exp_bits,
-                              int64_t normal_binades, int64_t bias, int64_t prng_bits,
-                              bool is_signed, int64_t round_mode, int64_t saturation_mode)
+void superfp_quantize_cpu_(Tensor &a, int64_t man_bits, int64_t exp_bits,
+                           int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                           bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "superfp_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -206,5 +206,4 @@ Tensor &superfp_quantize_cpu_(Tensor &a, int64_t man_bits, int64_t exp_bits,
       mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
   superfp_quantize_into(a, a, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
                         round_mode, saturation_mode);
-  return a;
 }

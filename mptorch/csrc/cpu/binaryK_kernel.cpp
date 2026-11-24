@@ -239,10 +239,10 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
 // `a`, with no output allocation. The copy that the out-of-place op makes of
 // a strided input would defeat it (the kernel would write the copy and leave
 // the caller's tensor as it was), so a strided tensor is refused instead.
-Tensor &binaryK_quantize_cpu_(Tensor &a, int64_t K, int64_t P, int64_t bias,
-                              int64_t prng_bits, bool is_signed,
-                              int64_t round_mode, int64_t saturation_mode,
-                              int64_t subnormals_mode)
+void binaryK_quantize_cpu_(Tensor &a, int64_t K, int64_t P, int64_t bias,
+                           int64_t prng_bits, bool is_signed,
+                           int64_t round_mode, int64_t saturation_mode,
+                           int64_t subnormals_mode)
 {
   TORCH_CHECK(a.is_contiguous(), "binaryK_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
@@ -254,5 +254,4 @@ Tensor &binaryK_quantize_cpu_(Tensor &a, int64_t K, int64_t P, int64_t bias,
       mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "binaryK_quant");
   binaryK_quantize_into(a, a, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
                         subnormals_mode);
-  return a;
 }
