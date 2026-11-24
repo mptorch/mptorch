@@ -540,7 +540,7 @@ def test_inductor():
 @requires_mps
 @pytest.mark.parametrize("name", OPS)
 def test_mps_is_the_cpu(name):
-    cpu, _, ours = _case(name, "cpu")
-    mps, _, _ = _case(name, "mps")
+    cpu, _, ours_cpu = _case(name, "cpu")
+    mps, _, ours_mps = _case(name, "mps")  # its own closure: batch_norm_eval's running stats
     f = _formats(name)
-    assert _same(ours(f, *mps).cpu(), ours(f, *cpu))
+    assert _same(ours_mps(f, *mps).cpu(), ours_cpu(f, *cpu))

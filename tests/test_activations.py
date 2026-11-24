@@ -274,13 +274,22 @@ def _embedding(device, dtype=torch.float32, **kwargs):
 @pytest.mark.parametrize("padding_idx", [None, 2, -1])
 def test_without_slots_the_embedding_is_torchs(device, padding_idx):
     layer, idx = _embedding(device, padding_idx=padding_idx)
+
+    def same_grad(a, b):
+        # torch's embedding_dense_backward_mps has no deterministic implementation:
+        # a row summed from three repeated indices (2, here) varies by an ulp between calls
+        if device == "mps":
+            torch.testing.assert_close(a, b)
+            return True
+        return _same(a, b)
+
     for formats in (None, PointwiseFormats()):
         got = qembedding(idx, layer.weight, formats, layer.padding_idx)
         want = layer(idx)
         assert _same(got, want)
-        assert _same(_grad(got, layer.weight), _grad(want, layer.weight))
+        assert same_grad(_grad(got, layer.weight), _grad(want, layer.weight))
     got = qembedding(idx, layer.weight, PointwiseFormats(quant=Quant(P8)), layer.padding_idx)
-    assert _same(_grad(got, layer.weight), _grad(layer(idx), layer.weight))
+    assert same_grad(_grad(got, layer.weight), _grad(layer(idx), layer.weight))
 
 
 @pytest.mark.parametrize("device", available_devices)
