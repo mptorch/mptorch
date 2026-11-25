@@ -67,6 +67,17 @@ namespace mptorch::gemm_mps
         set(field + ".sat", c.sat);
         set(field + ".prng_bits", int64_t{c.prng_bits});
       }
+      void set(const std::string &field, const FixedPointWidths &w)
+      {
+        set(field + ".wl", int64_t{w.wl});
+        set(field + ".fl", int64_t{w.fl});
+      }
+      void set(const std::string &field, const FixedPointCommon &c)
+      {
+        set(field + ".is_signed", c.is_signed);
+        set(field + ".symmetric", c.symmetric);
+        set(field + ".prng_bits", int64_t{c.prng_bits});
+      }
       // A palette's per-slot list: only the n_fmt slots the op fills.
       template <class W>
       void set_slots(const std::string &field, const W (&slots)[MAX_GEMM_FORMATS], int n_fmt)
@@ -97,6 +108,8 @@ namespace mptorch::gemm_mps
     static_assert(sizeof(SuperfpWidths) == 4 * sizeof(int), "set() every new SuperfpWidths field");
     static_assert(sizeof(BinaryKCommon) == 16, "set() every new BinaryKCommon field");
     static_assert(sizeof(SuperfpCommon) == 12, "set() every new SuperfpCommon field");
+    static_assert(sizeof(FixedPointWidths) == 2 * sizeof(int), "set() every new FixedPointWidths field");
+    static_assert(sizeof(FixedPointCommon) == 8, "set() every new FixedPointCommon field");
 
     // The fields of the single-format Args, under the prefix `at` ("" for the
     // Args itself, "base." inside an AccumulateArgs). Each size assertion is
@@ -159,6 +172,29 @@ namespace mptorch::gemm_mps
       w.set(at + "accumulate_quant", a.accumulate_quant);
       w.set(at + "acc", a.acc);
       w.set(at + "acc_c", a.acc_c);
+    }
+
+    // The fixed-point GEMM's Args (common/fixedpoint_gemm.h): the carrier
+    // path's, and the integer accumulator's, which also carries `wide` (always
+    // false here: the drivers refuse a wide result on MPS).
+    void write(ArgsWriter &w, const std::string &at, const FixedPointSplitArgs &a)
+    {
+      static_assert(sizeof(FixedPointSplitArgs) == 32, "write every FixedPointSplitArgs field");
+      w.set(at + "mul", a.mul);
+      w.set(at + "acc", a.acc);
+      w.set(at + "mul_c", a.mul_c);
+      w.set(at + "acc_c", a.acc_c);
+    }
+
+    template <bool FUSED, bool WRAP>
+    void write(ArgsWriter &w, const std::string &at, const FixedPointIntArgs<FUSED, WRAP> &a)
+    {
+      static_assert(sizeof(FixedPointIntArgs<FUSED, WRAP>) == 36, "write every FixedPointIntArgs field");
+      w.set(at + "mul", a.mul);
+      w.set(at + "acc", a.acc);
+      w.set(at + "mul_c", a.mul_c);
+      w.set(at + "acc_c", a.acc_c);
+      w.set(at + "wide", a.wide);
     }
 
     // The palette Args: one list per format field, n_fmt slots of each.
@@ -408,6 +444,31 @@ namespace mptorch::gemm_mps
   template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<BinaryKSuperfpArgs>> &);
   template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<SuperfpBinaryKArgs>> &);
 
+  // The fixed-point GEMM's Args: the carrier path, and the integer
+  // accumulator in its four instantiations (split or fused, saturating or
+  // wrapping), named with their template arguments.
+  std::string MpsBackend::args_source(const FixedPointSplitArgs &a)
+  {
+    ArgsWriter w("FixedPointSplitArgs");
+    write(w, "", a);
+    return w.str();
+  }
+
+  template <bool FUSED, bool WRAP>
+  std::string MpsBackend::args_source(const FixedPointIntArgs<FUSED, WRAP> &a)
+  {
+    ArgsWriter w((std::string("FixedPointIntArgs<") + (FUSED ? "true" : "false") + ", " +
+                  (WRAP ? "true" : "false") + ">")
+                     .c_str());
+    write(w, "", a);
+    return w.str();
+  }
+
+  template std::string MpsBackend::args_source(const FixedPointIntArgs<false, false> &);
+  template std::string MpsBackend::args_source(const FixedPointIntArgs<false, true> &);
+  template std::string MpsBackend::args_source(const FixedPointIntArgs<true, false> &);
+  template std::string MpsBackend::args_source(const FixedPointIntArgs<true, true> &);
+
   std::string MpsBackend::accumulate_line(AccumulateAlgorithm alg)
   {
     static const char *const names[] = {"NAIVE", "KAHAN", "BLOCK", "TREE"};
@@ -511,25 +572,21 @@ namespace mptorch::gemm_mps
 
   } // namespace
 
-  // The kernel source an Args compiles from: gemm.metal, after the odd
-  // headers for the odd carrier step's Args (metal_runtime.h).
-  static mptorch_mps::KernelSource gemm_source(bool odd)
+  // `source` is the Args' kernel source (gemm_backend.h's
+  // gemm_kernel_source): gemm.metal, after the odd headers for the odd
+  // carrier step's Args and after the fixed-point GEMM's header for its own.
+  void MpsBackend::launch_source(const GemmShape &s, const std::string &args,
+                                 mptorch_mps::KernelSource source, const LaunchContext &ctx)
   {
-    return odd ? mptorch_mps::KernelSource::GemmOdd : mptorch_mps::KernelSource::Gemm;
-  }
-
-  void MpsBackend::launch_source(const GemmShape &s, const std::string &args, bool odd,
-                                 const LaunchContext &ctx)
-  {
-    launch_gemm(s, args, gemm_source(odd), ctx, {});
+    launch_gemm(s, args, source, ctx, {});
   }
 
   void MpsBackend::launch_conv(const GemmShape &s, const std::string &args, const ConvGeom &geom,
-                               bool odd, const LaunchContext &ctx)
+                               mptorch_mps::KernelSource source, const LaunchContext &ctx)
   {
     const std::string tail = args + "#define MPT_GATHERED 1\n#define MPT_CONV_PASS mptorch::gemm::ConvPass::" +
                              conv_pass_name(geom.pass) + "\n";
-    launch_gemm(s, tail, gemm_source(odd), ctx, {mptorch_mps::KernelArg::params(geom)});
+    launch_gemm(s, tail, source, ctx, {mptorch_mps::KernelArg::params(geom)});
   }
 
   void MpsBackend::launch_block(const GemmShape &s, const std::string &args, const BlockOperand &a,

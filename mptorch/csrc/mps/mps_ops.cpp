@@ -104,4 +104,8 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("superfp_quant_scaled", TORCH_FN(superfp_quantize_scaled_mps));
   m.impl("fixedpoint_quant_scaled", TORCH_FN(fixedpoint_quantize_scaled_mps));
   m.impl("block_project", TORCH_FN(block_project_mps));
+  m.impl("custom_matmul_fixedpoint", TORCH_FN(fixedpoint_matmul_mps));
+  m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_mps));
+  m.impl("custom_conv_fixedpoint", TORCH_FN(fixedpoint_conv_mps));
+  m.impl("custom_conv_fixedpoint_fma", TORCH_FN(fixedpoint_conv_fma_mps));
 }

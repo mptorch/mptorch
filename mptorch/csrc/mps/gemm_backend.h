@@ -25,15 +25,20 @@
 //
 // The Args of the odd carrier step (OddArgs, OddPaletteArgs, and an
 // AccumulateArgs over an OddArgs) run the same kernel, compiled after
-// mps/odd.metal, which holds the headers that define them; uses_odd_kernel
-// decides that, and nothing else. Their args_source are templates,
-// instantiated in gemm_backend.cpp for the sixteen Args the odd ops build.
+// mps/odd.metal, which holds the headers that define them, and so do the
+// fixed-point GEMM's (FixedPointSplitArgs and FixedPointIntArgs), compiled
+// after mps/fixedpoint.metal; gemm_kernel_source decides that, and nothing
+// else. The odd Args' args_source are templates, instantiated in
+// gemm_backend.cpp for the sixteen Args the odd ops build, and so is the
+// one for FixedPointIntArgs, for its four.
 
+#include "../common/fixedpoint_gemm.h"
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_block.h"
 #include "../common/gemm_cross.h"
 #include "../common/gemm_gather.h"
+#include "metal_runtime.h"
 #include <ATen/core/Tensor.h>
 #include <cstdint>
 #include <string>
@@ -49,26 +54,38 @@ namespace mptorch::gemm
 namespace mptorch::gemm_mps
 {
 
-  // Whether an Args belongs to the odd carrier step, whose kernel is
-  // compiled after mps/odd.metal (KernelSource::GemmOdd).
+  // The kernel source an Args compiles from: gemm.metal after the prelude
+  // (KernelSource::Gemm), after mps/odd.metal for the odd carrier step's
+  // Args (GemmOdd), or after mps/fixedpoint.metal for the fixed-point GEMM's
+  // (GemmFixedPoint).
   template <class Args>
-  struct uses_odd_kernel
+  struct gemm_kernel_source
   {
-    static constexpr bool value = false;
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::Gemm;
   };
   template <class Base>
-  struct uses_odd_kernel<mptorch::gemm::OddArgs<Base>>
+  struct gemm_kernel_source<mptorch::gemm::OddArgs<Base>>
   {
-    static constexpr bool value = true;
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmOdd;
   };
   template <class Base>
-  struct uses_odd_kernel<mptorch::gemm::OddPaletteArgs<Base>>
+  struct gemm_kernel_source<mptorch::gemm::OddPaletteArgs<Base>>
   {
-    static constexpr bool value = true;
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmOdd;
   };
   template <class Base>
-  struct uses_odd_kernel<mptorch::gemm::AccumulateArgs<Base>> : uses_odd_kernel<Base>
+  struct gemm_kernel_source<mptorch::gemm::AccumulateArgs<Base>> : gemm_kernel_source<Base>
   {
+  };
+  template <>
+  struct gemm_kernel_source<mptorch::gemm::FixedPointSplitArgs>
+  {
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmFixedPoint;
+  };
+  template <bool FUSED, bool WRAP>
+  struct gemm_kernel_source<mptorch::gemm::FixedPointIntArgs<FUSED, WRAP>>
+  {
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmFixedPoint;
   };
 
   struct MpsBackend
@@ -114,12 +131,12 @@ namespace mptorch::gemm_mps
     // equality.)
     static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
 
-    // A NAIVE GEMM: single-family, palette, cross-family or odd.
+    // A NAIVE GEMM: single-family, palette, cross-family, odd or fixed-point.
     template <class Args>
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
                        const LaunchContext &ctx)
     {
-      launch_source(s, variant_source(args), uses_odd_kernel<Args>::value, ctx);
+      launch_source(s, variant_source(args), gemm_kernel_source<Args>::value, ctx);
     }
 
     // KAHAN, BLOCK and TREE: the AccumulateArgs, with the algorithm, which
@@ -129,7 +146,7 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s,
                        const mptorch::gemm::AccumulateArgs<Base> &args, const LaunchContext &ctx)
     {
-      launch_source(s, variant_source(args), uses_odd_kernel<Base>::value, ctx);
+      launch_source(s, variant_source(args), gemm_kernel_source<Base>::value, ctx);
     }
 
     // The conv ops: the Args of the mac each runs, with the operands
@@ -138,7 +155,7 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
                        const LaunchContext &ctx)
     {
-      launch_conv(s, variant_source(args.inner), args.geom, uses_odd_kernel<Inner>::value, ctx);
+      launch_conv(s, variant_source(args.inner), args.geom, gemm_kernel_source<Inner>::value, ctx);
     }
 
     // The block GEMM: the Args of its mac, over two packed operands. MPS has
@@ -179,6 +196,9 @@ namespace mptorch::gemm_mps
     static std::string args_source(const mptorch::gemm::OddPaletteArgs<Base> &a);
     template <class Base>
     static std::string args_source(const mptorch::gemm::AccumulateArgs<mptorch::gemm::OddArgs<Base>> &a);
+    static std::string args_source(const mptorch::gemm::FixedPointSplitArgs &a);
+    template <bool FUSED, bool WRAP>
+    static std::string args_source(const mptorch::gemm::FixedPointIntArgs<FUSED, WRAP> &a);
 
   private:
     // The instantiation's lines for an Args: its mpt_args(), and for an
@@ -197,10 +217,11 @@ namespace mptorch::gemm_mps
 
     static std::string accumulate_line(AccumulateAlgorithm alg);
 
-    static void launch_source(const mptorch::gemm::GemmShape &s, const std::string &args, bool odd,
-                              const LaunchContext &ctx);
+    static void launch_source(const mptorch::gemm::GemmShape &s, const std::string &args,
+                              mptorch_mps::KernelSource source, const LaunchContext &ctx);
     static void launch_conv(const mptorch::gemm::GemmShape &s, const std::string &args,
-                            const mptorch::gemm::ConvGeom &geom, bool odd, const LaunchContext &ctx);
+                            const mptorch::gemm::ConvGeom &geom, mptorch_mps::KernelSource source,
+                            const LaunchContext &ctx);
     static void launch_block(const mptorch::gemm::GemmShape &s, const std::string &args,
                              const mptorch::gemm::BlockOperand &a, const mptorch::gemm::BlockOperand &b,
                              const LaunchContext &ctx);

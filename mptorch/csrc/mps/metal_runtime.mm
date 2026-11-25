@@ -28,6 +28,7 @@ namespace mptorch_mps
       {
       case KernelSource::Gemm:
       case KernelSource::GemmOdd:
+      case KernelSource::GemmFixedPoint:
         return metal_sources::gemm;
       case KernelSource::Quantize:
         return metal_sources::quantize;
@@ -43,7 +44,8 @@ namespace mptorch_mps
     }
 
     // What comes between the prelude and the tail: the odd headers for the
-    // odd carrier step's kernels, and nothing for the others.
+    // odd carrier step's kernels, the fixed-point GEMM's header for its
+    // kernels, and nothing for the others.
     const char *kernel_head(KernelSource s)
     {
       switch (s)
@@ -51,6 +53,8 @@ namespace mptorch_mps
       case KernelSource::GemmOdd:
       case KernelSource::CarrierOdd:
         return metal_sources::odd;
+      case KernelSource::GemmFixedPoint:
+        return metal_sources::fixedpoint;
       default:
         return "";
       }
@@ -62,6 +66,7 @@ namespace mptorch_mps
       {
       case KernelSource::Gemm:
       case KernelSource::GemmOdd:
+      case KernelSource::GemmFixedPoint:
         return "mpt_gemm";
       case KernelSource::Quantize:
         return "mpt_quantize";

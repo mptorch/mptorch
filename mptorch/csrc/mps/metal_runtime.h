@@ -10,7 +10,8 @@
 // A kernel's source is prelude.metal, then the tail, then gemm.metal,
 // quantize.metal or block.metal. The odd carrier step's kernels put
 // odd.metal between the prelude and the tail, and end in gemm.metal or
-// carrier_odd.metal. The tail holds everything that is a constant of the
+// carrier_odd.metal; the fixed-point GEMM's put fixedpoint.metal there, and
+// end in gemm.metal. The tail holds everything that is a constant of the
 // instantiation: the storage dtype, the rounding mode and the format, from
 // which the kernel builds its cast constants at compile time (gemm.metal
 // says why). Each distinct tail is one compile, 20-300 ms the first time a
@@ -29,8 +30,9 @@ namespace mptorch_mps
 
   // Which kernel source follows the tail, and so which kernel is launched.
   // The two odd carrier step sources also put odd.metal, the odd headers,
-  // between the prelude and the tail. New sources go at the end, since the
-  // cache key starts with the source's number.
+  // between the prelude and the tail, and the fixed-point GEMM's puts
+  // fixedpoint.metal there. New sources go at the end, since the cache key
+  // starts with the source's number.
   enum class KernelSource
   {
     Gemm,          // gemm.metal's mpt_gemm
@@ -42,6 +44,7 @@ namespace mptorch_mps
     CarrierOdd,    // carrier_odd.metal's mpt_carrier_odd, after odd.metal
     QuantizeScaled, // scaled_quant.metal's mpt_quantize_scaled
     BlockProject,   // block_project.metal's mpt_block_project
+    GemmFixedPoint, // gemm.metal's mpt_gemm, after fixedpoint.metal: a fixed-point Args
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as

@@ -451,7 +451,14 @@ namespace mptorch::gemm
         const word_t w = reinterpret_cast<const MPTORCH_THREAD word_t &>(p);
         const bool p_neg = (w & F::SIGN_MASK) != 0;
         const word_t mag = w & F::ABS_MASK;
+#if defined(__METAL_VERSION__)
+        // on the words: p_top is a binary32 subnormal for a format whose top
+        // is below 2^-126, which the GPU's compare flushes to zero, and p is
+        // not a NaN here, so |p| >= p_top is the words' order
+        const bool huge = mag >= reinterpret_cast<const MPTORCH_THREAD word_t &>(p_top);
+#else
         const bool huge = !(p < p_top && p > -p_top); // an infinity too
+#endif
         if (huge && (!WRAP || mag >= F::INF_BITS))
           return p_neg ? lo : hi; // the sum saturates on the product's side
         // p = m * 2^e on the word
@@ -494,7 +501,13 @@ namespace mptorch::gemm
         const word_t nan_bits = F::INF_BITS | F::TIE;
         return reinterpret_cast<const MPTORCH_THREAD T &>(nan_bits);
       }
+#if defined(__METAL_VERSION__)
+      // out_scale is a binary32 subnormal when fl is 127 or more, which the
+      // GPU's multiply flushes as an operand; bit_helper.h's exact product
+      return metal_mul_rn(static_cast<T>(s), out_scale);
+#else
       return static_cast<T>(s) * out_scale;
+#endif
     }
 
 #if !defined(__METAL_VERSION__)

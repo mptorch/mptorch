@@ -333,6 +333,18 @@ namespace mptorch::gemm
     FixedPointGemmCall call = call_args;
     const FixedPointGemmPlan plan =
         plan_fixedpoint_gemm(call, round_mode, a.scalar_type(), op_name);
+    // MPS has no float64 tensors. The Meta kernels see meta tensors, which
+    // do not say what device they stand for, so a traced call refuses here.
+    TORCH_CHECK(!(plan.wide && a.is_mps()), op_name, ": the accumulate format has ",
+                call.acc.mag(), " magnitude bits, more than ",
+                a.scalar_type() == at::kHalf       ? "float16"
+                : a.scalar_type() == at::kBFloat16 ? "bfloat16"
+                                                   : "float32",
+                "'s ", fixedpoint_storage_precision(a.scalar_type()),
+                ", so the result is float64, which MPS does not have: use an accumulate format "
+                "of at most ",
+                fixedpoint_storage_precision(a.scalar_type()),
+                " magnitude bits, or compute on the CPU");
 
     int64_t M, K, N, batch, stride_a, stride_b;
     bool batched;

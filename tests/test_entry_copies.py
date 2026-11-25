@@ -39,16 +39,7 @@ ENTRY_FILES = (
 )
 # Entry files that only some backends have yet: file -> (backends, reason).
 # The copies are compared on those backends.
-PARTIAL_ENTRY_FILES = {
-    "custom_conv_fixedpoint_entry.cpp": (
-        ("cpu", "cuda", "meta"),
-        "the fixed-point GEMM is built a backend at a time (phase T): MPS in its step 6",
-    ),
-    "custom_matmul_fixedpoint_entry.cpp": (
-        ("cpu", "cuda", "meta"),
-        "the fixed-point GEMM is built a backend at a time (phase T): MPS in its step 6",
-    ),
-}
+PARTIAL_ENTRY_FILES: dict[str, tuple[tuple[str, ...], str]] = {}
 ODD_HOST_FILES = ("carrier_odd_host.h", "carrier_odd_gemm_host.h", "carrier_odd_conv_host.h")
 
 # Functions one backend's file has and the CPU's does not: (backend, file) ->
