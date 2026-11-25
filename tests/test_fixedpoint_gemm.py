@@ -31,6 +31,10 @@ mac) and ``custom_matmul_fixedpoint_fma`` (a fused one), on the CPU.
   stochastic rounding too, and stochastic rounding's mean is P3109's. A
   wide result is float64 and exact. The op boundary refuses what the
   integer accumulator cannot hold.
+- **On CUDA** the ops give the CPU's words in every deterministic mode, for
+  every case above, in three dtypes, over tiles, batches and transposes;
+  under stochastic rounding, which draws from CUDA's own generator, the two
+  paths give each other's words, and the mean is P3109's.
 """
 
 import math
@@ -46,6 +50,7 @@ from mptorch.number.fixedpoint import _fixedpoint_gemm, _fixedpoint_gemm_wide, _
 from mptorch.quant import fixedpoint_quantize
 
 from . import fixedpoint_gemm_reference as ref
+from .markers import cuda_devices
 
 R = RoundMode
 DETERMINISTIC = [R.RNE, R.RNA, R.RU, R.RD, R.RZ, R.RO]
@@ -529,9 +534,10 @@ def _up_probability(eta: Fraction, n: int, mode: RoundMode) -> Fraction:
     return Fraction(sum(ref._stochastic_up(eta, r, n, mode) for r in range(2**n)), 2**n)
 
 
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
 @pytest.mark.parametrize("integer", [False, True, None])  # None: the fused mac
 @pytest.mark.parametrize("mode", STOCHASTIC)
-def test_stochastic_rounding_has_p3109s_mean(mode, integer):
+def test_stochastic_rounding_has_p3109s_mean(mode, integer, device):
     """One product, 23/64 of a step above a code, rounded in 4,096 elements,
     each with its own stream: the count rounded up is within five standard
     deviations of P3109's probability. At 4 random bits that is 5/16 for
@@ -542,13 +548,14 @@ def test_stochastic_rounding_has_p3109s_mean(mode, integer):
     p = Fraction(52 * 64 + 23, 64 * 2**fl)  # 52 steps and 23/64 of one
     eta = (p * 2**fl) - math.floor(p * 2**fl)
     assert eta == Fraction(23, 64)
-    a = torch.full((64, 1), float(p))
-    b = torch.ones(1, 64)
+    a = torch.full((64, 1), float(p), device=device)
+    b = torch.ones(1, 64, device=device)
     torch.manual_seed(19)
     if integer is None:
         got = _op(a, b, acc=fmt, mode=mode)
     else:
         got = _op(a, b, acc=fmt, mul=fmt, mode=mode, integer=integer)
+    got = got.cpu()
     lo = math.floor(p * 2**fl) / 2**fl
     ups = int((got.double() > lo).sum())
     assert set(got.double().unique().tolist()) <= {lo, lo + 2**-fl}
@@ -631,3 +638,53 @@ def test_the_op_refuses_what_it_cannot_compute(case):
     a, b = torch.ones(2, 3, dtype=dtype), torch.ones(3, 2, dtype=dtype)
     with pytest.raises(RuntimeError, match=message):
         _op(a, b, acc=acc, mul=mul, mode=mode, wrap=wrap)
+
+
+# --- on CUDA --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("device", cuda_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.bfloat16])
+@pytest.mark.parametrize("case", list(OP_CASES))
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+def test_cuda_gives_the_cpus_words(mode, case, dtype, device):
+    """Over several tiles in each direction and a ragged edge."""
+    mul, acc, wrap = OP_CASES[case]
+    a, b = _operands((37, 70), (70, 45), dtype, seed=len(case) + 1)
+    want = _op(a, b, acc=acc, mul=mul, mode=mode, wrap=wrap)
+    got = _op(a.to(device), b.to(device), acc=acc, mul=mul, mode=mode, wrap=wrap)
+    assert got.device.type == "cuda" and got.dtype == want.dtype
+    assert _same_words(got.cpu(), want)
+
+
+@pytest.mark.parametrize("device", cuda_devices)
+@pytest.mark.parametrize(
+    "case", ["carrier path", "integer and wide in binary32", "wrapping", "fused"]
+)
+def test_cuda_takes_batches_transposes_and_non_finite_products(case, device):
+    mul, acc, wrap = OP_CASES[case]
+    a, b = _operands((3, 70, 20), (24, 70), torch.float32, seed=21)
+    a[1, 5, 2], a[2, 7, 3], a[0, 1, 1] = math.nan, math.inf, -math.inf
+    for mode in (R.RNE, R.RU):
+        want = _op(a, b, acc=acc, mul=mul, mode=mode, wrap=wrap, trans_a=True, trans_b=True)
+        got = _op(
+            a.to(device), b.to(device), acc=acc, mul=mul, mode=mode, wrap=wrap,
+            trans_a=True, trans_b=True,
+        )  # fmt: skip
+        assert got.shape == (3, 20, 24) and _same_words(got.cpu(), want)
+
+
+@pytest.mark.parametrize("device", cuda_devices)
+@pytest.mark.parametrize("dtype", list(CARRIER_PAIRS))
+@pytest.mark.parametrize("mode", STOCHASTIC)
+def test_on_cuda_the_carrier_path_draws_as_the_integer_path_does(mode, dtype, device):
+    """CUDA draws from its own generator, so its stochastic words are its
+    own; the two paths reserve and read the same ones."""
+    mul, acc = CARRIER_PAIRS[dtype]
+    a, b = _operands((40, 70), (70, 33), dtype, seed=22, scale=6.0)
+    a, b = a.to(device), b.to(device)
+    results = []
+    for integer in (False, True):
+        torch.manual_seed(23)
+        results.append(_op(a, b, acc=acc, mul=mul, mode=mode, integer=integer))
+    assert torch.equal(results[0], results[1])

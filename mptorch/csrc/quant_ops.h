@@ -931,6 +931,9 @@ at::Tensor block_project_cuda(at::Tensor x, at::Tensor scales, c10::IntArrayRef 
 at::Tensor block_project_mps(at::Tensor x, at::Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 
 // The fixed-point GEMM (common/fixedpoint_gemm.h): a split mac and a fused
-// one. CPU in cpu/custom_matmul_fixedpoint_entry.cpp.
+// one. CPU in cpu/custom_matmul_fixedpoint_entry.cpp, CUDA in
+// cuda/custom_matmul_fixedpoint_entry.cpp.
 at::Tensor fixedpoint_matmul_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 at::Tensor fixedpoint_matmul_fma_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
+at::Tensor fixedpoint_matmul_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
+at::Tensor fixedpoint_matmul_fma_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);

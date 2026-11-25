@@ -526,16 +526,37 @@ namespace mptorch::gemm_cuda
         // gathered policy's result is [batch, M, res_N]: this GEMM's columns
         // are all of its columns (res_N = N), or, in the input gradient, the
         // columns of one residue class of the stride.
-        if constexpr (!GATHERED)
+        //
+        // The fixed-point GEMM's integer accumulator (common/fixedpoint_gemm.h)
+        // stores float64 when its format is wider than the operands' dtype
+        // (`wide`), whatever the carrier. The condition is has_int_result_v,
+        // spelled here so that this header needs no include for it. Every
+        // other accumulator takes the first branch, which is the code from
+        // before.
+        if constexpr (!requires { Accumulator::int_result; })
         {
-            if (rId < M && cId < N)
-                store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+            if constexpr (!GATHERED)
+            {
+                if (rId < M && cId < N)
+                    store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+            }
+            else
+            {
+                if (rId < M && cId < N)
+                    store_elem<T>(C, (bId * M + rId) * acc_proto.geom.res_N + ct.res_col, dt,
+                                  acc.finalize());
+            }
         }
         else
         {
+            static_assert(!MIXED && !GATHERED, "the fixed-point GEMM has no palette or conv ops");
             if (rId < M && cId < N)
-                store_elem<T>(C, (bId * M + rId) * acc_proto.geom.res_N + ct.res_col, dt,
-                              acc.finalize());
+            {
+                if (acc.mac.wide)
+                    static_cast<double *>(C)[(bId * M + rId) * N + cId] = acc.finalize_wide();
+                else
+                    store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+            }
         }
     }
 

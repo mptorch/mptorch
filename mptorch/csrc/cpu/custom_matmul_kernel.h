@@ -607,7 +607,7 @@ namespace mptorch::gemm_cpu
         else
         {
           static_assert(!MIXED && !mptorch::gemm::is_gathered_v<Accumulator>,
-                        "the fixed-point GEMM is single-format, and has no conv ops yet");
+                        "the fixed-point GEMM has no palette or conv ops");
           if (mac_single.wide)
           {
             double *__restrict__ dst = static_cast<double *>(C) + c_off;

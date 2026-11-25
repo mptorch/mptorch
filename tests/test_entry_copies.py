@@ -40,9 +40,8 @@ ENTRY_FILES = (
 # The copies are compared on those backends.
 PARTIAL_ENTRY_FILES = {
     "custom_matmul_fixedpoint_entry.cpp": (
-        ("cpu", "meta"),
-        "the fixed-point GEMM is built a backend at a time (phase T): CUDA in its step 4, MPS in "
-        "its step 6",
+        ("cpu", "cuda", "meta"),
+        "the fixed-point GEMM is built a backend at a time (phase T): MPS in its step 6",
     ),
 }
 ODD_HOST_FILES = ("carrier_odd_host.h", "carrier_odd_gemm_host.h", "carrier_odd_conv_host.h")
