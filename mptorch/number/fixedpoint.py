@@ -3,17 +3,20 @@
 :class:`FixedPoint` describes the format. It has no exponent field, so its
 checks use neither `_carrier`'s `_Extent` nor `_storage`'s GEMM rule: they
 compare its precision and the two ends of its range with the carrier's
-directly. Only the elementwise storage rule is implemented, since there is no
-fixed-point GEMM.
+directly. Its storage rules are the elementwise one and the computed
+result's (`_fixedpoint_value_set_findings`). The end of the module holds the
+rules of the fixed-point GEMM (phase T): whether the carrier or the integer
+accumulator computes a call, what each refuses, and when a result is wide.
 """
 
 import warnings
 from dataclasses import KW_ONLY, dataclass
 from functools import lru_cache
+from typing import NamedTuple
 
 import torch
 
-from ._carrier import _Carrier, _pointing_wider
+from ._carrier import _CARRIERS, _Carrier, _pointing_wider
 from ._storage import _STORAGE, _in_storage, _Storage
 from .base import FormatRangeWarning, Number, _report_per_call
 
@@ -457,3 +460,144 @@ def _fixedpoint_value_set_findings(
             f"second time, onto {name}'s coarser spacing"
         )
     return None, None
+
+
+# --- the fixed-point GEMM (phase T) ------------------------------------------
+#
+# A mac whose formats are fixed point computes, for operands a and b in the
+# carrier c, and Q_F the rounding to format F with saturation (or, for the
+# accumulate format, wrap-around):
+#
+#     split:  p = Q_M(RN_c(a * b)),  s = Q_A(s + p)
+#     fused:                         s = Q_F(RN_c(a * b) + s)
+#
+# with every sum exact. The product is the carrier's, as every mptorch mac's
+# is. The definition is the integer accumulator's: an int64 sum, each step
+# rounded to the accumulate format's grid once. Where the carrier holds every
+# step exactly, the carrier computes it instead, the faster way, with the
+# same bits. These are the rules that choose, and that refuse what neither
+# can do; the C++ host applies the same ones.
+
+#: The accumulate format's widest magnitude: a result is held in float64,
+#: whose 53 significant bits hold every value of such a format.
+_INTEGER_ACC_BITS = 53
+
+#: The widest exact sum the integer accumulator forms, in an int64.
+_INTEGER_SPAN_BITS = 62
+
+
+def _fixedpoint_span(*formats: FixedPoint) -> int:
+    """The significant bits an exact sum of one value of each format can need.
+
+    Each value is an integer times its format's step, of magnitude at most
+    ``2**(mag_bits - fl)`` (the two's complement bottom), so a sum of them is
+    a multiple of the finest step, ``2**-max(fl)``, below
+    ``2**(max(mag_bits - fl) + 1)``."""
+    top = max(f.mag_bits - f.fl for f in formats) + 1
+    return top + max(f.fl for f in formats)
+
+
+class _FixedPointGemm(NamedTuple):
+    """How a fixed-point GEMM call is computed.
+
+    ``in_carrier`` says that the carrier computes every step exactly, so the
+    sum in the carrier gives the integer accumulator's bits. ``error`` is
+    why the call is refused, or ``None``."""
+
+    in_carrier: bool
+    error: str | None
+
+
+@lru_cache(maxsize=256)
+def _fixedpoint_gemm(
+    mul: FixedPoint | None, acc: FixedPoint, wrap: bool, carrier: torch.dtype
+) -> _FixedPointGemm:
+    """The fixed-point GEMM's rules for a call in ``carrier`` (``torch.float32``
+    for binary32, ``torch.float64`` for binary64).
+
+    ``mul`` is a split mac's multiply format, or ``None`` for a fused mac;
+    ``acc`` is the accumulate format, or the fused mac's; ``wrap`` asks for
+    wrap-around on the accumulate format's overflow, where saturation is the
+    default. The carrier computes the call when the mac is split, the sum
+    saturates, both formats are rounded in the carrier, and an exact sum of
+    a product and a running sum fits the carrier's significand
+    (`_fixedpoint_span`). Since every step saturates to its format, that
+    depends on the formats alone, never on the length of the sum. Every
+    other call runs the integer accumulator, which refuses:
+
+    - a multiply format the carrier cannot round (it is the carrier's cast);
+    - an accumulate format past `_INTEGER_ACC_BITS`, or one that float64
+      cannot hold;
+    - stochastic rounding with more random bits than the carrier's draw
+      holds below its sign and exponent;
+    - wrap-around of a symmetric format, which has no modulus;
+    - a sum past `_INTEGER_SPAN_BITS`: a split mac's exact sum, or a fused
+      mac's, with the guard bits and the random bits its rounding reads.
+    """
+    c = _CARRIERS[carrier]
+    acc_label = _fixedpoint_label(acc.wl, acc.fl, acc.is_signed, acc.symmetric)
+    if mul is not None:
+        mul_error = _fixedpoint_findings(
+            mul.wl, mul.fl, mul.is_signed, mul.symmetric, mul.prng_bits, carrier
+        )[0]
+        if mul_error is not None:
+            return _FixedPointGemm(
+                False, f"the multiply format is rounded in the carrier: {mul_error}"
+            )
+    acc_fields = (acc.wl, acc.fl, acc.is_signed, acc.symmetric)
+    in_carrier = (
+        mul is not None
+        and not wrap
+        and _fixedpoint_findings(*acc_fields, acc.prng_bits, carrier)[0] is None
+        and _fixedpoint_span(mul, acc) <= c.precision
+    )
+    if in_carrier:
+        return _FixedPointGemm(True, None)
+
+    if acc.mag_bits > _INTEGER_ACC_BITS:
+        return _FixedPointGemm(
+            False,
+            f"{acc_label} has {acc.mag_bits} magnitude bits, and a fixed-point GEMM accumulates "
+            f"at most {_INTEGER_ACC_BITS}, which float64 holds exactly: use a narrower "
+            "accumulate format",
+        )
+    acc_error = _fixedpoint_findings(*acc_fields, 0, torch.float64)[0]
+    if acc_error is not None:
+        return _FixedPointGemm(False, f"the result is held in float64: {acc_error}")
+    if acc.prng_bits > c.man_bits:
+        return _FixedPointGemm(
+            False,
+            f"{acc_label} draws {acc.prng_bits} random bits, and a {c.name} draw holds "
+            f"{c.man_bits} below its sign and exponent: use at most {c.man_bits}",
+        )
+    if wrap and acc.symmetric:
+        return _FixedPointGemm(
+            False,
+            f"{acc_label} is symmetric, so it has no modulus to wrap around: drop "
+            "symmetric=True, or saturate",
+        )
+    if mul is not None:
+        span = _fixedpoint_span(mul, acc)
+        mul_label = _fixedpoint_label(mul.wl, mul.fl, mul.is_signed, mul.symmetric)
+        what = f"a sum of {mul_label} and {acc_label}"
+    else:
+        # the carrier's product, aligned to the format's grid with a guard
+        # bit and the random bits below it, beside the running sum
+        span = acc.mag_bits + acc.prng_bits + 4
+        what = f"a fused step into {acc_label}, with its guard and random bits,"
+    if span > _INTEGER_SPAN_BITS:
+        return _FixedPointGemm(
+            False,
+            f"{what} needs {span} bits, and the integer accumulator holds "
+            f"{_INTEGER_SPAN_BITS}: narrow the formats, or bring their steps closer",
+        )
+    return _FixedPointGemm(False, None)
+
+
+def _fixedpoint_gemm_wide(acc: FixedPoint, dtype: torch.dtype) -> bool:
+    """Whether a fixed-point GEMM's result is computed into float64 for
+    operands of ``dtype``: when the accumulate format has more significant
+    bits than ``dtype`` holds. The result is then rounded once, by the
+    output rounding, before it is stored in ``dtype``."""
+    st = _STORAGE.get(dtype)
+    return st is not None and acc.mag_bits > st.man_bits + 1
