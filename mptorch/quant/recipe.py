@@ -66,6 +66,7 @@ from .gemm import (
     _matmul_bgrad,
     _matmul_fwd,
     _plain_conv,
+    _spec_matmul,
     _with_output,
     block_matmul_formats,
     cast_quant,
@@ -184,24 +185,35 @@ def _as_output_quant(slot: object, fwd_mac: Any) -> Any:
     return tuple(_as_quant(q, f"output_quant[{i}]") for i, q in enumerate(slot))
 
 
-def _linear_pass(mac: Any, hook: Callable, block_hook: Callable) -> Callable | None:
+def _linear_pass(mac: Any, hook: Callable, block_hook: Callable, where: str) -> Callable | None:
     """One Linear pass's hook: none without a mac (PyTorch's own product),
     ``block_hook`` over a ``BlockMac``'s GEMM and its two operands' quantizers,
-    and ``hook`` over any other mac's resolved GEMM."""
+    and ``hook`` over any other mac's resolved GEMM, which refuses a wide
+    fixed-point result as a ``where`` pass (``gemm._spec_matmul``)."""
     if mac is None:
         return None
     if isinstance(mac, BlockMac):
         return block_hook(spec_for_block_mac(mac), cast_quant(mac.a), cast_quant(mac.b))
-    return hook(partial(_run_gemm, spec_for_mac(mac)))
+    return hook(_spec_matmul(spec_for_mac(mac), _run_gemm, where))
 
 
-def _matmul_pass(mac: Any, hook: Callable, block_hook: Callable) -> Callable | None:
+def _matmul_pass(mac: Any, hook: Callable, block_hook: Callable, where: str) -> Callable | None:
     """One matmul pass's hook, as :func:`_linear_pass` builds a Linear one."""
     if mac is None:
         return None
     if isinstance(mac, BlockMac):
         return block_hook(mac)
-    return hook(partial(_gemm_nd, spec_for_mac(mac)))
+    return hook(_spec_matmul(spec_for_mac(mac), _gemm_nd, where))
+
+
+def _wide_forward(mac: Any, hook: Callable, runner: Callable) -> Callable | None:
+    """The forward hook that leaves a wide fixed-point result in float64, for
+    the container's ``_wide_fwd``, or ``None`` when ``mac``'s result is never
+    wide."""
+    if not isinstance(mac, SplitMac | FusedMac):
+        return None
+    spec = spec_for_mac(mac)
+    return hook(partial(runner, spec)) if spec.wide else None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -387,17 +399,18 @@ class GemmFormats:
         :func:`~mptorch.quant.set_palette_maps_` sets it), and its forward
         computes each output neuron in its entry, rounded by its entry's
         ``output_quant``."""
-        igrad = _linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad)
-        wgrad = _linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad)
+        igrad = _linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad, "gradient")
+        wgrad = _linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad, "gradient")
         if self.palette:
             palette = _Palette("linear", self.fwd_mac, self.output_quant)
             hooks = {"bwd_igrad_math": igrad, "bwd_wgrad_math": wgrad}
             return self._affine_slots(_PaletteAffineFormats(palette, **hooks))
         formats = QAffineFormats(
-            fwd_math=_linear_pass(self.fwd_mac, _linear_fwd, _block_linear_fwd),
+            fwd_math=_linear_pass(self.fwd_mac, _linear_fwd, _block_linear_fwd, "forward"),
             bwd_igrad_math=igrad,
             bwd_wgrad_math=wgrad,
         )
+        formats._wide_fwd = _wide_forward(self.fwd_mac, _linear_fwd, _run_gemm)
         if isinstance(self.fwd_mac, BlockMac):
             # the weight's quantizer, which QLinear.freeze_packed_ packs a frozen weight with
             formats._block_weight = cast_quant(self.fwd_mac.b)
@@ -451,17 +464,26 @@ class GemmFormats:
         if self.palette:
             formats = _PaletteMatmulFormats(
                 _Palette("matmul", self.fwd_mac, self.output_quant),
-                bwd_agrad_math=_matmul_pass(macs[1], _matmul_agrad, _block_matmul_agrad),
-                bwd_bgrad_math=_matmul_pass(macs[2], _matmul_bgrad, _block_matmul_bgrad),
+                bwd_agrad_math=_matmul_pass(
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient"
+                ),
+                bwd_bgrad_math=_matmul_pass(
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient"
+                ),
             )
         elif all(isinstance(m, BlockMac) for m in macs):
             formats = block_matmul_formats(macs[0], agrad_mac=macs[1], bgrad_mac=macs[2])
         else:
             formats = QMatmulFormats(
-                fwd_math=_matmul_pass(macs[0], _matmul_fwd, _block_matmul_fwd),
-                bwd_agrad_math=_matmul_pass(macs[1], _matmul_agrad, _block_matmul_agrad),
-                bwd_bgrad_math=_matmul_pass(macs[2], _matmul_bgrad, _block_matmul_bgrad),
+                fwd_math=_matmul_pass(macs[0], _matmul_fwd, _block_matmul_fwd, "forward"),
+                bwd_agrad_math=_matmul_pass(
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient"
+                ),
+                bwd_bgrad_math=_matmul_pass(
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient"
+                ),
             )
+            formats._wide_fwd = _wide_forward(macs[0], _matmul_fwd, _gemm_nd)
         for slot, value in (
             ("a_quant", self.input_quant),
             ("b_quant", self.weight_quant),

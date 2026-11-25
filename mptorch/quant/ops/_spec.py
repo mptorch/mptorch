@@ -143,6 +143,51 @@ class _GemmSpec(NamedTuple):
     carrier: torch.dtype | None = None
     # binary32's findings, then binary64's, as `_format_findings` returns them.
     findings: tuple[_Findings, _Findings] = ((), ())
+    # The operand dtypes whose result the op computes into float64 instead:
+    # the fixed-point GEMM's, when its accumulate format has more significant
+    # bits than the dtype holds (`number.fixedpoint._fixedpoint_gemm_wide`).
+    # A call keeps such a result in float64, a named carrier included, and a
+    # layer rounds it once with its output rounding (`gemm._spec_matmul`).
+    # `wide_label` names the accumulate format, for the refusal.
+    wide: frozenset[torch.dtype] = frozenset()
+    wide_label: str = ""
+
+
+_WIDE_PRECISION = {torch.float32: 24, torch.float16: 11, torch.bfloat16: 8}
+
+
+def _wide_refusal(
+    spec: _GemmSpec, dtype: torch.dtype, where: str, device: torch.device
+) -> ValueError:
+    """The error of a pass whose result would be wide: ``where`` is
+    ``"forward"`` (a forward pass with no output rounding) or ``"gradient"``.
+    On MPS, which has no float64, the only fixes are a narrower accumulate
+    format and the CPU, as the op's own refusal says."""
+    name = str(dtype).removeprefix("torch.")
+    p = _WIDE_PRECISION[dtype]
+    if device.type == "mps":
+        return ValueError(
+            f"{spec.wide_label}, more than {name}'s {p}, so its product is computed in float64, "
+            f"which MPS does not have: use an accumulate format of at most {p} magnitude bits, "
+            "or compute on the CPU"
+        )
+    if where == "forward":
+        why = (
+            f"this forward pass has no output rounding to store it in {name} with: give the "
+            "layer an output_quant (GemmFormats(output_quant=...), or fixedpoint_gemm_formats("
+            f"output_quant=...)), use float64 operands or an accumulate format of at most {p} "
+            "magnitude bits, or call fixedpoint_matmul, which returns the float64 result"
+        )
+    else:
+        why = (
+            f"a gradient pass stores it in the gradient's dtype, {name}, with no rounding of its "
+            "own: use float64 gradients (a float64 layer), or an accumulate format of at most "
+            f"{p} magnitude bits for this pass"
+        )
+    return ValueError(
+        f"{spec.wide_label}, more than {name}'s {p}, so its product is computed in float64, "
+        f"and {why}"
+    )
 
 
 def _packed(x: torch.Tensor, trans: bool) -> tuple[torch.Tensor, bool]:
@@ -222,7 +267,9 @@ def _run_gemm(
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
     out = spec.op(a, b, trans_a, trans_b, *spec.args)
-    return out if narrow is None else _narrowed(out, narrow)
+    if narrow is None or narrow in spec.wide:
+        return out
+    return _narrowed(out, narrow)
 
 
 def _run_gemm_mixed(

@@ -602,8 +602,14 @@ def test_binary64_precision_and_stochastic_bits_are_where_they_were_measured():
     _silent(lambda: Quant(FixedPoint(8, 4, prng_bits=46), RoundMode.SR)(x))
     with pytest.raises(ValueError, match="54 bits of precision.*binary64, which has 53"):
         FixedPoint(55, 0)
+    # The random bits are the elementwise cast's, checked at the call: a
+    # fixed-point GEMM's integer accumulator reads them apart from the format,
+    # so the format itself takes up to the 52 a binary64 draw holds.
+    fp = FixedPoint(8, 4, prng_bits=47)
     with pytest.raises(ValueError, match="stochastic-rounding bits"):
-        FixedPoint(8, 4, prng_bits=47)
+        Quant(fp, RoundMode.SR)(x)
+    with pytest.raises(ValueError, match="at most 52 random bits"):
+        FixedPoint(8, 4, prng_bits=53)
 
 
 def test_warning_can_be_filtered():

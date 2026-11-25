@@ -1,0 +1,13 @@
+float32 torch.matmul         : 11.988281
+FixedPoint(8, 2) products,   : 12.250000   by hand equal: True
+  FixedPoint(12, 3) sums
+fixedpoint_matmul            : 12.250000   equal: True
+
+int8 sums, saturated         : -33
+int8 sums, wrapped around    : 40
+int8 fused steps, wrapped    : 40
+
+wide result dtype            : torch.float64
+ValueError: FixedPoint(wl=32, fl=8) has 31 magnitude bits, more than float32's 24, so its product is computed in float64, and this forward pass has no output rounding to store it in float32 with: give the layer an output_quant (GemmFormats(output_quant=...), or fixedpoint_gemm_formats(output_quant=...)), use float64 operands or an accumulate format of at most 24 magnitude bits, or call fixedpoint_matmul, which returns the float64 result
+
+layer output dtype           : torch.float32

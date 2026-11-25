@@ -20,6 +20,9 @@ from ._carrier import _CARRIERS, _Carrier, _pointing_wider
 from ._storage import _STORAGE, _in_storage, _Storage
 from .base import FormatRangeWarning, Number, _report_per_call
 
+#: The most random bits a stochastic rounding reads: the mantissa of a binary64 draw.
+_DRAW_BITS = 52
+
 
 @dataclass(frozen=True)
 class FixedPoint(Number):
@@ -60,12 +63,15 @@ class FixedPoint(Number):
 
     Raises:
         ValueError: for a ``wl`` that is too short, a symmetric unsigned
-            format, a negative ``prng_bits``, or a format that binary64
-            cannot simulate: more than 53 magnitude bits (``prng_bits``
-            included), a largest value below binary64's smallest normal, or
-            an end of the range beyond binary64's largest finite value. Each
-            call checks the format against its own carrier (see
-            :class:`FormatRangeWarning`).
+            format, a ``prng_bits`` below 0 or above 52 (the most a binary64
+            draw holds), or a format that binary64 cannot simulate: more than
+            53 magnitude bits, a largest value below binary64's smallest
+            normal, or an end of the range beyond binary64's largest finite
+            value. Each call checks the format against its own carrier (see
+            :class:`FormatRangeWarning`): an elementwise quantizer rounds in
+            the carrier's significand, so it also needs ``mag_bits +
+            prng_bits`` within the carrier's precision, which a fixed-point
+            GEMM's integer accumulator does not.
 
     Example::
 
@@ -95,15 +101,23 @@ class FixedPoint(Number):
             raise ValueError("FixedPoint needs is_signed=True to be symmetric")
         if self.prng_bits < 0:
             raise ValueError(f"FixedPoint prng_bits must be non-negative, got {self.prng_bits}")
+        if self.prng_bits > _DRAW_BITS:
+            raise ValueError(
+                f"FixedPoint draws at most {_DRAW_BITS} random bits, the mantissa of a binary64 "
+                f"draw, got prng_bits={self.prng_bits}"
+            )
 
-        # Raise only for what no carrier can do; each call checks the format
-        # against its own carrier (`check_fixedpoint_carrier`)
+        # Raise only for what no use of the format can do. Its random bits are
+        # left out: an elementwise call rounds in the carrier's significand and
+        # checks the format with them against its own carrier
+        # (`check_fixedpoint_carrier`), and a fixed-point GEMM's integer
+        # accumulator reads them from a draw of their own (`_fixedpoint_gemm`).
         check_fixedpoint(
             self.wl,
             self.fl,
             self.is_signed,
             self.symmetric,
-            self.prng_bits,
+            0,
             carrier=torch.float64,
             warn=False,
         )
@@ -210,7 +224,9 @@ def check_fixedpoint_storage(
     same ``storage`` and ``elementwise`` keywords as
     :func:`check_binaryK_storage`. ``elementwise=False`` is the rule for a
     computed result, which can be any of the format's values: a pointwise
-    op's (there is no fixed-point GEMM).
+    op's, or a fixed-point GEMM's accumulate or fused format (a wide one's
+    result is float64 and is not checked: the forward pass's output rounding
+    stores it).
 
     Raises:
         ValueError: if the fixed-point format's largest value is below the
@@ -372,8 +388,8 @@ def _fixedpoint_storage_findings(
     elementwise rule the inputs are already values of the storage dtype, so
     only the ends of the fixed-point range can produce a result the storage
     dtype does not hold. Under the rule for a computed result (a pointwise
-    op's; there is no fixed-point GEMM), every value of the format must be a
-    value of the storage dtype (`_fixedpoint_value_set_findings`). An invalid
+    op's, or a fixed-point GEMM's), every value of the format must be a value
+    of the storage dtype (`_fixedpoint_value_set_findings`). An invalid
     layout returns ``(None, None)``, as for binaryK.
     """
     label = _fixedpoint_label(wl, fl, is_signed, symmetric)

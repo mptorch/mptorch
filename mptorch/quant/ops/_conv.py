@@ -79,6 +79,13 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed_odd").default,
                 (),
             )
+    # The fixed-point ops, NAIVE only, whose conv ops take the GEMM ops'
+    # arguments after the geometry.
+    for mac in ("", "_fma"):
+        table[getattr(ops, f"custom_matmul_fixedpoint{mac}").default] = (
+            getattr(ops, f"custom_conv_fixedpoint{mac}").default,
+            (),
+        )
     # The cross-family ops, named multiply family first. Their outer format, and
     # so the NAIVE tail, is of the accumulate format's family.
     for mul, acc in (("binaryK", "superfp"), ("superfp", "binaryK")):
@@ -141,4 +148,6 @@ class _ConvOp:
             out = self.op(a, b, *geometry, *self.args)
         else:
             out = self.op(a, b, prec_idx, *geometry, *self.args)
-        return out if narrow is None else _narrowed(out, narrow)
+        if narrow is None or narrow in spec.wide:
+            return out
+        return _narrowed(out, narrow)

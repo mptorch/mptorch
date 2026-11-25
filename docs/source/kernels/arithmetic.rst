@@ -496,6 +496,112 @@ Beyond what the formats keep, the carrier adds little. On a GPU binary64
 also costs time (see :doc:`calling`, "Performance notes"), in addition to the
 float64 copies of the operands and the result.
 
+Fixed-point macs
+----------------
+
+A ``SplitMac`` or ``FusedMac`` whose formats are :class:`~mptorch.FixedPoint`
+(:doc:`/concepts`, "FixedPoint: one step across the range") computes a dot
+product in fixed point. Its equations are the float macs', with one
+difference: the carrier rounds no sum. With :math:`\mathrm{RN}_c` the
+carrier's rounding to nearest,
+
+.. math::
+
+   \text{split:}\quad
+   s_k = Q_{\text{acc}}\Big(s_{k-1} + Q_{\text{mul}}\big(\mathrm{RN}_c(a_{ik}\, b_{kj})\big)\Big),
+   \qquad
+   \text{fused:}\quad
+   s_k = Q_{\text{fma}}\big(\mathrm{RN}_c(a_{ik}\, b_{kj}) + s_{k-1}\big),
+
+where every sum inside a :math:`Q` is exact. The product is the carrier's,
+as in every mac: for an exact one, quantize the operands first, as the run
+below does, so that their product fits the carrier's significand, or use
+``carrier=torch.float64``. The sum is what a fixed-point adder computes: the
+exact sum of two values, rounded once to the format's grid.
+
+**How the kernels compute it.** The definition is an integer accumulator: a
+running sum in 64-bit integers, each step rounded to the accumulate format's
+grid once. Where the carrier holds every step exactly, the kernels sum in the
+carrier instead, which is faster and gives the same bits. A call chooses the
+carrier when
+
+- the mac is split and its sum saturates;
+- the carrier's cast rounds both formats with no finding, not even a
+  warning (:doc:`/concepts`, "What the carrier can hold");
+- an exact sum of a product and a running sum fits the carrier's
+  significand: :math:`\max(n - \text{fl}) + 1 + \max(\text{fl})`, over the
+  two formats' magnitude bits :math:`n` and fractional lengths, is at most
+  24 bits in binary32 and 53 in binary64.
+
+Every step saturates onto its format, so the choice depends on the formats
+alone, never on :math:`K`. Nothing selects it but the formats.
+
+**Overflow.** By default a sum past the accumulate format's range saturates
+onto its end, as the elementwise quantizer does.
+``overflow=Overflow.WRAP`` (on the mac, the flat functions and the layer
+factories) wraps it around instead, as an integer adder does: modulo
+:math:`2^{\text{wl}}` times the step, in a signed format and an unsigned one
+alike. A symmetric format has no modulus to wrap around, so it refuses
+``WRAP``. Modular arithmetic forgives an overflow along the way: when the
+products are on the accumulate format's grid, so that no step rounds, a
+wrapped sum is the exact sum whenever that fits the format, whatever the
+order of the terms. A saturated one is not (the run's second block).
+Wrapping runs on the integer accumulator.
+
+**Wide accumulators.** The accumulate format may have up to 53 magnitude
+bits, more than the operands' dtype holds: 24 for float32, 11 for float16
+and 8 for bfloat16. Such a result is computed into float64:
+
+- :func:`~mptorch.quant.fixedpoint_matmul` returns it in float64.
+- A layer's forward pass adds the bias to it in float64, rounds it once with
+  the layer's output rounding, and stores it in the layer's dtype
+  (``output_quant`` on a ``GemmFormats`` or on
+  :func:`~mptorch.quant.fixedpoint_gemm_formats`). Without an output
+  rounding the forward pass raises, rather than round the result to the
+  dtype a second time.
+- A gradient pass raises too, since a gradient is stored in its dtype with
+  no rounding of its own: give a pass that needs a wide accumulator float64
+  operands.
+
+On float64 operands nothing is wide. An accumulate format may also draw more
+random bits under stochastic rounding than the elementwise quantizer allows
+beside it, up to the carrier's draw (23 bits in binary32, 52 in binary64):
+the integer accumulator draws them separately from the format's significand.
+
+**What it does not take.** The fixed-point GEMM runs the ``NAIVE`` order
+only, one format per slot (no palette), both formats in fixed point, and
+``carrier_rounding=RoundMode.RNE``. Its multiply format must be rounded by
+the carrier's cast without a finding, since both paths round the product
+with that cast. The integer accumulator's exact sums are at most 62 bits.
+A mac or a call that asks for more raises, with the rule that refused it.
+
+It runs on the CPU and on CUDA, in both carriers, and on MPS in binary32,
+where it returns the CPU's words except that a product below
+:math:`2^{-126}` flushes to zero before it is rounded (:doc:`/concepts`, "On
+an Apple GPU"). MPS has no float64, so it refuses a wide result in every
+pass. It serves every entry point that takes a mac:
+:func:`~mptorch.quant.qmatmul` and the layers,
+:func:`~mptorch.quant.conv_formats` (:doc:`convolutions`), recipes
+(:doc:`/instrument`), the flat functions
+:func:`~mptorch.quant.fixedpoint_matmul` and
+:func:`~mptorch.quant.fixedpoint_matmul_fma`, and the layer factories
+:func:`~mptorch.quant.fixedpoint_gemm_formats` and
+:func:`~mptorch.quant.fixedpoint_gemm_formats_fma`. The run repeats a split
+mac by hand, then sums int8 values both ways, then computes a 32-bit
+accumulation on float32 operands:
+
+.. literalinclude:: ../../snippets/gemm_fixedpoint.py
+   :language: python
+   :caption: docs/snippets/gemm_fixedpoint.py
+
+.. literalinclude:: ../../snippets/gemm_fixedpoint.out
+   :language: text
+   :caption: output
+
+The second block's exact sum, 40, fits int8, and the wrapped sums reach it.
+The saturated sum stops at 127 after the second term, and the last two terms
+take it to -33.
+
 Palettes: a format per output element
 -------------------------------------
 

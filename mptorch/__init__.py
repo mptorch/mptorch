@@ -48,6 +48,7 @@ from .number import (
     FloatFormat,
     FormatRangeWarning,
     Number,
+    Overflow,
     RoundMode,
     SaturationMode,
     ScaleRounding,
@@ -67,6 +68,7 @@ except PackageNotFoundError:
 __all__ = [
     "SaturationMode",
     "Domain",
+    "Overflow",
     "SubnormalsMode",
     "RoundMode",
     "AccumulateAlgorithm",

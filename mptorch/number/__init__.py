@@ -11,7 +11,8 @@ C++ enums in ``csrc/common/modes.h``. The kernels receive an enum's ``.value``
 through ``torch.ops``, so the two definitions must be kept in sync.
 :class:`Domain` exists only in Python: a format object accepts it as
 ``domain=`` and records it in its :class:`SaturationMode`, which is all the
-kernels see.
+kernels see. :class:`Overflow`, a fixed-point mac's choice between saturating
+and wrapping around, is Python's too.
 
 The ``check_*`` functions test a format against two floating-point types: the
 *carrier*, the binary float (binary32 or binary64) that the cast rounds in,
@@ -23,7 +24,7 @@ only part of its range.
 
 # One module per format family, plus the modules they share:
 #
-#   modes        the enums: rounding, saturation, subnormals, accumulation, and Domain
+#   modes        the enums: rounding, saturation, subnormals, accumulation, Domain and Overflow
 #   base         the base classes Number and FloatFormat, FormatRangeWarning, and the
 #                helpers that raise or warn about a format from inside a call
 #   binaryk      BinaryK and its carrier and storage checks
@@ -51,7 +52,7 @@ from .fixedpoint import FixedPoint
 from .fixedpoint import check_fixedpoint as check_fixedpoint
 from .fixedpoint import check_fixedpoint_carrier as check_fixedpoint_carrier
 from .fixedpoint import check_fixedpoint_storage as check_fixedpoint_storage
-from .modes import AccumulateAlgorithm, Domain, RoundMode, SaturationMode, SubnormalsMode
+from .modes import AccumulateAlgorithm, Domain, Overflow, RoundMode, SaturationMode, SubnormalsMode
 from .presets import (
     E2M1,
     E2M3,
@@ -75,6 +76,7 @@ from .superfp import check_superfp_storage as check_superfp_storage
 __all__ = [
     "SaturationMode",
     "Domain",
+    "Overflow",
     "SubnormalsMode",
     "RoundMode",
     "AccumulateAlgorithm",

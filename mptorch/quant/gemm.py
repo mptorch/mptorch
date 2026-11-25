@@ -18,10 +18,11 @@ gradient hooks restore them on the result.
 
 The module holds three kinds of factory:
 
-* the six binaryK and superfp factories (:func:`binaryK_gemm_formats`, its
-  ``_fma`` and superfp versions, and the two cross-family ones), for a
-  ``QLinear``. They differ only in which op their hooks call, so they share
-  :func:`_gemm_formats` and differ only in the arguments they resolve;
+* the eight factories of the simulated formats (:func:`binaryK_gemm_formats`,
+  its ``_fma`` and superfp versions, the two cross-family ones and the two
+  fixed-point ones), for a ``QLinear``. They differ only in which op their
+  hooks call, so they share :func:`_gemm_formats` and differ only in the
+  arguments they resolve;
 * :func:`matmul_formats` and :func:`block_matmul_formats`, which build a
   ``QMatmulFormats`` for a ``QMatmul``;
 * :func:`block_gemm_formats`, which makes a ``QLinear`` multiply block-format
@@ -58,6 +59,7 @@ from mptorch.number import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    Overflow,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
@@ -69,6 +71,7 @@ from .mac import (
     Mac,
     Quant,
     _as_block_quant,
+    _as_quant,
     spec_for_block_mac,
     spec_for_mac,
 )
@@ -76,7 +79,7 @@ from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import BlockPacked
 from .ops._odd import _checked_carrier_rounding_call
 from .ops._operands import _gemm_mixed_nd, _gemm_nd
-from .ops._spec import _run_gemm
+from .ops._spec import _GemmSpec, _round_result, _run_gemm, _wide_refusal
 from .ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
@@ -94,6 +97,7 @@ from .ops.cross import (
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
 )
+from .ops.fixedpoint import _fixedpoint_fma_spec, _fixedpoint_spec
 from .ops.superfp import (
     _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
@@ -110,6 +114,8 @@ __all__ = [
     "superfp_gemm_formats_fma",
     "binaryK_superfp_gemm_formats",
     "superfp_binaryK_gemm_formats",
+    "fixedpoint_gemm_formats",
+    "fixedpoint_gemm_formats_fma",
     "matmul_formats",
     "block_matmul_formats",
     "block_gemm_formats",
@@ -145,6 +151,31 @@ def _flatten_leading(x: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
     """
     shape = x.shape
     return x.reshape(-1, shape[-1]), shape
+
+
+def _spec_matmul(spec: _GemmSpec, runner: Callable, where: str) -> _Matmul2D:
+    """``runner`` (``_run_gemm`` or ``_gemm_nd``) bound to ``spec``, as a pass's
+    hook calls it.
+
+    A spec whose result can be wide (the fixed-point GEMM's, with an
+    accumulate format wider than the operands' dtype) computes that result in
+    float64. A forward pass with an output rounding rounds it once and stores
+    it in the operands' dtype (:func:`_with_output`, through the container's
+    ``_wide_fwd``); any other pass refuses it here, naming ``where``, rather
+    than let a float64 result reach the layer's output or autograd, which
+    would round it to the gradient's dtype without saying so. Every other
+    spec gets the plain partial.
+    """
+    call = partial(runner, spec)
+    if not spec.wide:
+        return call
+
+    def refusing(a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool) -> torch.Tensor:
+        if a.dtype in spec.wide:
+            raise _wide_refusal(spec, a.dtype, where, a.device)
+        return call(a, b, trans_a, trans_b)
+
+    return refusing
 
 
 def _gemm_formats(
@@ -253,19 +284,35 @@ def _with_output[FormatsT: (QAffineFormats, QMatmulFormats)](
     (``F.linear``, :func:`_plain_conv` or ``torch.matmul``, the call the
     layer's autograd Function would make), and then ``out`` rounds its result.
     The rounding happens inside the Function's forward, which the backward
-    pass does not differentiate, so its gradient passes straight through. The
-    result is a new tensor the hook allocated (true of every hook in this
-    module), so a ``Quant`` rounds it in place. The exceptions are a
+    pass does not differentiate, so its gradient passes straight through. A
+    container with a wide fixed-point forward (``_wide_fwd``, set by the
+    builders over a spec whose result can be float64) runs that hook instead,
+    and rounds a float64 result once into the input's dtype
+    (``ops._spec._round_result``). The result is a new tensor the hook
+    allocated (true of every hook in this module), so a ``Quant`` rounds it
+    in place. The exceptions are a
     ``Quant`` with ``carrier=torch.float64`` and a result that is not
     contiguous (a channels_last convolution's), which the in-place quantizers
     refuse; those round into a new tensor. ``formats`` is modified in place
     and returned.
     """
-    run = formats.fwd_math or plain
+    wide = formats._wide_fwd
+    run = (formats.fwd_math or plain) if wide is None else wide
     rounded = _output_rounding(out)
+    if wide is None:
 
-    def fwd(*args, **kwargs):
-        return rounded(run(*args, **kwargs))
+        def fwd(*args, **kwargs):
+            return rounded(run(*args, **kwargs))
+
+    else:
+        # A fixed-point GEMM whose result can be wide (`_spec_matmul`): such a
+        # result is float64, the bias added in float64 too, and the output
+        # rounding rounds it once, then it is stored in the input's dtype.
+
+        def fwd(*args, **kwargs):
+            result = run(*args, **kwargs)
+            dtype = args[0].dtype
+            return rounded(result) if result.dtype is dtype else _round_result(out, result, dtype)
 
     formats.fwd_math = fwd
     return formats
@@ -1319,6 +1366,164 @@ def superfp_binaryK_gemm_formats(
     return _gemm_formats(partial(_run_gemm, spec))
 
 
+def _fixedpoint_formats(spec: _GemmSpec, output_quant: object) -> QAffineFormats:
+    """A Linear layer's three hooks over a fixed-point spec, with the forward's
+    output rounding when one is given (which a wide result needs)."""
+    grad = _spec_matmul(spec, _run_gemm, "gradient")
+    formats = _gemm_formats(_spec_matmul(spec, _run_gemm, "forward"), grad, grad)
+    if spec.wide:
+        formats._wide_fwd = _linear_fwd(partial(_run_gemm, spec))
+    if output_quant is not None:
+        _with_output(formats, _as_quant(output_quant, "output_quant"), F.linear)
+    return formats
+
+
+def fixedpoint_gemm_formats(
+    mul_wl: int,
+    mul_fl: int,
+    *,
+    mul_is_signed: bool = True,
+    mul_symmetric: bool = False,
+    mul_prng_bits: int = 0,
+    acc_wl: int,
+    acc_fl: int,
+    acc_is_signed: bool = True,
+    acc_symmetric: bool = False,
+    acc_prng_bits: int = 0,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    overflow: Overflow = Overflow.SATURATE,
+    carrier: torch.dtype | None = None,
+    output_quant: object = None,
+) -> QAffineFormats:
+    """Layer formats whose three passes run :func:`mptorch.quant.fixedpoint_matmul`.
+
+    Every pass rounds each product to the multiply format and each exact sum
+    to the accumulate format. When the accumulate format has more magnitude
+    bits than the layer's dtype holds (24 for float32), the product is
+    computed in float64, and the forward pass rounds it once with
+    ``output_quant``, after the bias, before storing it in the layer's dtype.
+    Without ``output_quant`` such a forward raises, and so does a gradient
+    pass, which is stored in the gradient's dtype: use float64 layers for a
+    wide accumulator there.
+
+    Args:
+        mul_wl (int): the multiply format's word length.
+        mul_fl (int): the multiply format's fractional length.
+        mul_is_signed (bool): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: ``True``
+        mul_symmetric (bool): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: ``False``
+        mul_prng_bits (int): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: 0
+        acc_wl (int): the accumulate format's word length.
+        acc_fl (int): the accumulate format's fractional length.
+        acc_is_signed (bool): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: ``True``
+        acc_symmetric (bool): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: ``False``
+        acc_prng_bits (int): see :func:`mptorch.quant.fixedpoint_matmul`.
+            Default: 0
+        rounding_mode (RoundMode): the mode of both roundings, in every pass.
+            Default: ``RoundMode.RNE``
+        overflow (Overflow): what the sum does past the accumulate format's
+            range. Default: ``Overflow.SATURATE``
+        carrier (torch.dtype, optional): see
+            :func:`mptorch.quant.fixedpoint_matmul`. Default: ``None``
+        output_quant (Quant or Number or callable, optional): the forward
+            result's rounding, after the bias: a bare format means
+            ``Quant(fmt)``. Default: ``None``
+
+    Returns:
+        QAffineFormats: with ``fwd_math``, ``bwd_igrad_math`` and
+        ``bwd_wgrad_math`` set and every ``*_quant`` slot left ``None``.
+
+    Raises:
+        ValueError: in the cases :func:`mptorch.quant.fixedpoint_matmul`
+            lists, when the formats are resolved; and, at the call, for a wide
+            result without ``output_quant`` or in a gradient pass.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import FixedPoint
+        >>> from mptorch.quant import QLinear, Quant, fixedpoint_gemm_formats
+        >>> formats = fixedpoint_gemm_formats(16, 8, acc_wl=32, acc_fl=8,
+        ...                                   output_quant=FixedPoint(16, 6))
+        >>> formats.input_quant = formats.weight_quant = Quant(FixedPoint(8, 4))
+        >>> layer = QLinear(16, 4, bias=False, formats=formats)
+        >>> layer(torch.randn(2, 16)).dtype
+        torch.float32
+    """
+    spec = _fixedpoint_spec(
+        mul_wl=mul_wl,
+        mul_fl=mul_fl,
+        mul_is_signed=mul_is_signed,
+        mul_symmetric=mul_symmetric,
+        mul_prng_bits=mul_prng_bits,
+        acc_wl=acc_wl,
+        acc_fl=acc_fl,
+        acc_is_signed=acc_is_signed,
+        acc_symmetric=acc_symmetric,
+        acc_prng_bits=acc_prng_bits,
+        rounding_mode=rounding_mode,
+        overflow=overflow,
+        carrier=carrier,
+    )
+    return _fixedpoint_formats(spec, output_quant)
+
+
+def fixedpoint_gemm_formats_fma(
+    fma_wl: int,
+    fma_fl: int,
+    *,
+    fma_is_signed: bool = True,
+    fma_symmetric: bool = False,
+    fma_prng_bits: int = 0,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    overflow: Overflow = Overflow.SATURATE,
+    carrier: torch.dtype | None = None,
+    output_quant: object = None,
+) -> QAffineFormats:
+    """The fused counterpart of :func:`fixedpoint_gemm_formats`: every pass runs
+    :func:`mptorch.quant.fixedpoint_matmul_fma`, one rounding per step.
+
+    Args:
+        fma_wl (int): the format's word length.
+        fma_fl (int): the format's fractional length.
+        fma_is_signed (bool): see :func:`mptorch.quant.fixedpoint_matmul_fma`.
+            Default: ``True``
+        fma_symmetric (bool): see :func:`mptorch.quant.fixedpoint_matmul_fma`.
+            Default: ``False``
+        fma_prng_bits (int): see :func:`mptorch.quant.fixedpoint_matmul_fma`.
+            Default: 0
+        rounding_mode (RoundMode): the step's rounding mode, in every pass.
+            Default: ``RoundMode.RNE``
+        overflow (Overflow): what the sum does past the format's range.
+            Default: ``Overflow.SATURATE``
+        carrier (torch.dtype, optional): see
+            :func:`mptorch.quant.fixedpoint_matmul_fma`. Default: ``None``
+        output_quant (Quant or Number or callable, optional): as for
+            :func:`fixedpoint_gemm_formats`. Default: ``None``
+
+    Returns:
+        QAffineFormats: as for :func:`fixedpoint_gemm_formats`.
+
+    Raises:
+        ValueError: as for :func:`fixedpoint_gemm_formats`.
+    """
+    spec = _fixedpoint_fma_spec(
+        fma_wl=fma_wl,
+        fma_fl=fma_fl,
+        fma_is_signed=fma_is_signed,
+        fma_symmetric=fma_symmetric,
+        fma_prng_bits=fma_prng_bits,
+        rounding_mode=rounding_mode,
+        overflow=overflow,
+        carrier=carrier,
+    )
+    return _fixedpoint_formats(spec, output_quant)
+
+
 def _matmul_formats(
     fwd_matmul: _MatmulNd, agrad_matmul: _MatmulNd, bgrad_matmul: _MatmulNd
 ) -> QMatmulFormats:
@@ -1464,8 +1669,11 @@ def matmul_formats(
             _mixed_matmul(spec, agrad_prec_idx, "gradient of a", "agrad_prec_idx"),
             _mixed_matmul(spec, bgrad_prec_idx, "gradient of b", "bgrad_prec_idx"),
         )
-    matmul = partial(_gemm_nd, spec)
-    return _matmul_formats(matmul, matmul, matmul)
+    grad = _spec_matmul(spec, _gemm_nd, "gradient")
+    formats = _matmul_formats(_spec_matmul(spec, _gemm_nd, "forward"), grad, grad)
+    if spec.wide:
+        formats._wide_fwd = _matmul_fwd(partial(_gemm_nd, spec))
+    return formats
 
 
 # --- block formats --------------------------------------------------------------

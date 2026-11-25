@@ -137,8 +137,10 @@ The arithmetic between the loads is the matrix product's, unchanged.
 Therefore every format, rounding mode and accumulate algorithm applies. So
 does the odd carrier step (``carrier_rounding=RoundMode.RO``; :doc:`arithmetic`,
 "What the carrier rounds"), which under ``KAHAN``, ``BLOCK`` and ``TREE``
-needs a build with ``MPTORCH_ODD_ACCUMULATED=1``. Each pass is **bit for bit
-the GEMM over the explicit matrices**. ``tests/test_qconv_gemm.py`` builds
+needs a build with ``MPTORCH_ODD_ACCUMULATED=1``. So do the fixed-point
+macs (:doc:`arithmetic`, "Fixed-point macs"), and a convolution's forward
+pass rounds a wide result as a Linear layer's does. Each pass is **bit for
+bit the GEMM over the explicit matrices**. ``tests/test_qconv_gemm.py`` builds
 those matrices and checks this with ``torch.equal``, stochastic rounding
 included. The difference is in memory: a pass allocates its result and
 nothing else.

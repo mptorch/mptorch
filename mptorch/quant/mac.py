@@ -59,6 +59,7 @@ from mptorch.number import (
     BlockFormat,
     FixedPoint,
     Number,
+    Overflow,
     RoundMode,
     SuperFP,
 )
@@ -97,7 +98,7 @@ from .ops.cross import (
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
 )
-from .ops.fixedpoint import _fixedpoint_quant_spec
+from .ops.fixedpoint import _fixedpoint_fma_spec, _fixedpoint_quant_spec, _fixedpoint_spec
 from .ops.superfp import (
     _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
@@ -117,19 +118,23 @@ from .ops.superfp import (
 __all__ = ["Quant", "Palette", "SplitMac", "FusedMac", "BlockQuant", "BlockMac"]
 
 
-# The simulated formats the GEMM kernels of this module take. `Number` also
-# covers `FixedPoint`, which no GEMM takes, and `BlockFormat`, which has a GEMM
-# of its own (`BlockMac`). `_checked_accumulation` checks an outer format
-# against this union, and a Palette's entries are of these types.
+# The simulated float formats the GEMM kernels of this module take.
+# `_checked_accumulation` checks an outer format against this union. `Number`
+# also covers `FixedPoint`, whose GEMM takes one format per slot and the NAIVE
+# order only (`_checked_fixedpoint`), and `BlockFormat`, which has a GEMM of
+# its own (`BlockMac`).
 GemmFormat = BinaryK | SuperFP
 
 # The fields that the `_mixed` schemas take once for a whole palette instead of
 # per entry. The kernels tabulate only each entry's *widths* and keep one copy
 # of these fields (`BinaryKCommon` and `SuperfpCommon` in common/gemm_args.h),
-# so every entry of a palette must agree on them.
+# so every entry of a palette must agree on them. A fixed-point slot is a
+# Palette too, of one format (a mac refuses more), so that every reader of a
+# slot reads it alike.
 _SHARED_FIELDS: dict[type, tuple[str, ...]] = {
     BinaryK: ("is_signed", "prng_bits", "saturation", "subnormals"),
     SuperFP: ("is_signed", "prng_bits", "saturation"),
+    FixedPoint: ("is_signed", "symmetric", "prng_bits"),
 }
 
 MAX_PALETTE = 8  # must equal MAX_GEMM_FORMATS in common/gemm_policy.h
@@ -148,7 +153,8 @@ class Palette:
     fields the op takes once for the whole palette: the sign, the
     stochastic-rounding bits, the saturation mode and the subnormals mode. An
     entry that disagrees is rejected, with an error naming it, rather than
-    silently given entry 0's value.
+    silently given entry 0's value. A ``FixedPoint`` slot is a palette of one
+    format: the fixed-point GEMM has no palette ops, so a mac refuses more.
 
     Args:
         formats (Number or Sequence[Number] or Palette): one format, a
@@ -158,8 +164,8 @@ class Palette:
     Raises:
         ValueError: for an empty sequence, more than eight formats, or entries
             that disagree on a shared field.
-        TypeError: for a format family no GEMM kernel takes, or a mix of
-            families.
+        TypeError: for a format family no mac slot takes (a ``BlockFormat``
+            is ``BlockMac``'s), or a mix of families.
 
     Example::
 
@@ -194,7 +200,11 @@ class Palette:
             )
         first = self.formats[0]
         if type(first) not in _SHARED_FIELDS:
-            raise TypeError(f"no GEMM kernel takes {type(first).__name__} formats")
+            hint = ": a block format's GEMM is BlockMac's" if isinstance(first, BlockFormat) else ""
+            raise TypeError(
+                "a mac slot takes BinaryK, SuperFP or FixedPoint formats, got "
+                f"{type(first).__name__}{hint}"
+            )
         for i, fmt in enumerate(self.formats[1:], start=1):
             if type(fmt) is not type(first):
                 raise TypeError(
@@ -696,6 +706,67 @@ def _checked_carrier_rounding(
         )
 
 
+def _checked_fixedpoint(mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...]) -> bool:
+    """Validate a mac against the fixed-point GEMM's scope, and say whether it is one.
+
+    A mac is fixed point when any slot holds a :class:`~mptorch.FixedPoint`.
+    Its GEMM (:func:`mptorch.quant.fixedpoint_matmul`) takes one fixed-point
+    format per slot, an accumulate format (a sum left in the carrier has no
+    range to saturate or wrap at), the NAIVE order, and the carrier's
+    nearest product: no palette, no other family beside it, no KAHAN,
+    BLOCK or TREE, no ``carrier_rounding=RoundMode.RO``. A mac of the other
+    families takes only ``Overflow.SATURATE``, which is what their formats'
+    saturation modes do.
+    """
+    if not isinstance(mac.overflow, Overflow):
+        raise TypeError(f"overflow must be an Overflow, got {mac.overflow!r}")
+    present = [slot for slot in slots if slot is not None]
+    if not any(isinstance(slot[0], FixedPoint) for slot in present):
+        if mac.overflow is not Overflow.SATURATE:
+            raise ValueError(
+                "overflow=Overflow.WRAP needs a fixed-point accumulate format: a float "
+                "format's overflow is its saturation mode"
+            )
+        return False
+    families = sorted({type(slot[0]).__name__ for slot in present})
+    if families != ["FixedPoint"]:
+        raise TypeError(
+            f"a fixed-point mac takes fixed-point formats only, got {' and '.join(families)}: no "
+            "kernel pairs fixed point with another family; round the products with a Quant "
+            "instead"
+        )
+    if isinstance(mac, SplitMac) and mac.acc is None:
+        raise ValueError(
+            "a fixed-point SplitMac needs an accumulate format: the sum saturates or wraps "
+            "around at its range, and a sum left in the carrier has none"
+        )
+    if any(_varies(slot) for slot in present):
+        raise ValueError(
+            "a fixed-point mac takes one format per slot: no kernel runs a palette of "
+            "fixed-point formats"
+        )
+    if mac.accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
+        raise ValueError(
+            f"a fixed-point mac sums with AccumulateAlgorithm.NAIVE only, got "
+            f"{mac.accumulate_algorithm.name}: every sum is exact already, so the other "
+            "orders would only change where it saturates"
+        )
+    if mac.carrier_rounding is not RoundMode.RNE:
+        raise ValueError(
+            "a fixed-point mac takes carrier_rounding=RoundMode.RNE only: its sums are "
+            "exact, and its product is the carrier's nearest; for an exact product, quantize "
+            "the operands or use carrier=torch.float64"
+        )
+    acc = present[-1][0]
+    assert isinstance(acc, FixedPoint)
+    if mac.overflow is Overflow.WRAP and acc.is_signed and acc.symmetric:
+        raise ValueError(
+            f"{acc} is symmetric, so it has no modulus to wrap around: drop symmetric=True, or "
+            "saturate"
+        )
+    return True
+
+
 @dataclass(frozen=True)
 class SplitMac:
     """Round the product and the running sum separately: two roundings per step.
@@ -720,6 +791,11 @@ class SplitMac:
     saturation mode, the subnormals mode and the number of stochastic-rounding
     bits, on the other hand, *are* per format, and are set on the format
     objects.
+
+    Both formats may be :class:`~mptorch.FixedPoint`, one per slot, with an
+    accumulate format, under ``NAIVE``: every sum is then exact, the product
+    the carrier's (:func:`mptorch.quant.fixedpoint_matmul`), and ``overflow``
+    says whether the sum saturates or wraps around.
 
     Args:
         mul (Number or Sequence[Number] or Palette): the multiply format, or a
@@ -777,7 +853,12 @@ class SplitMac:
             rounds next is also rounded to odd, in a build with
             ``MPTORCH_ODD_ACCUMULATED=1`` (without it they raise). With
             ``acc=None`` only the product is rounded to odd, since no format
-            rounds the sum afterwards. Default: ``RoundMode.RNE``
+            rounds the sum afterwards. A fixed-point mac takes ``RNE`` only.
+            Default: ``RoundMode.RNE``
+        overflow (Overflow): what a fixed-point accumulate format's sum does
+            past its range: ``SATURATE`` or ``WRAP`` (around modulo
+            ``2**wl``). Every other mac takes ``SATURATE`` only. Default:
+            ``Overflow.SATURATE``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
@@ -786,11 +867,14 @@ class SplitMac:
             an algorithm other than ``NAIVE``, if ``carrier`` is not a
             carrier, if ``block_size`` or ``outer`` does not fit the
             algorithm, or if ``carrier_rounding`` is neither ``RNE`` nor
-            ``RO``.
+            ``RO``; and for a fixed-point mac with no accumulate format, a
+            palette, an algorithm other than ``NAIVE``, or ``RO``, and for
+            ``Overflow.WRAP`` without a fixed-point accumulate format.
         TypeError: if a slot holds a format no GEMM takes or mixes families
             within a palette, if ``outer`` is not a single format or is of
-            another family than the accumulate format, or if ``carrier`` is
-            not a ``torch.dtype``.
+            another family than the accumulate format, if a fixed-point
+            format is beside another family, or if ``carrier`` or
+            ``overflow`` is not of its type.
 
     Example::
 
@@ -822,12 +906,18 @@ class SplitMac:
     block_size: int | None = None
     outer: Number | None = None
     carrier_rounding: RoundMode = RoundMode.RNE
+    overflow: Overflow = Overflow.SATURATE
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
         mul, acc = _as_palette(self.mul), _as_palette(self.acc)
         if mul is None:
             raise ValueError("a SplitMac needs a multiply format")
+        if _checked_fixedpoint(self, (mul, acc)):
+            object.__setattr__(self, "mul", mul)
+            object.__setattr__(self, "acc", acc)
+            _checked_accumulation(self, (mul, acc), has_product=True)
+            return
         if acc is not None:
             if type(acc[0]) is not type(mul[0]) and (_varies(mul) or _varies(acc)):
                 raise ValueError(
@@ -876,6 +966,10 @@ class FusedMac:
             carrier rounding of the fused step. ``RoundMode.RO`` needs a
             format to round the step afterwards, so ``fma=None`` raises.
             Default: ``RoundMode.RNE``
+        overflow (Overflow): as for :class:`SplitMac`, for a fixed-point
+            ``fma``, whose step ``s = round(a * b + s)`` is then exact before
+            its one rounding (:func:`mptorch.quant.fixedpoint_matmul_fma`).
+            Default: ``Overflow.SATURATE``
 
     Raises:
         ValueError: if ``carrier`` is not a carrier, a palette is invalid,
@@ -902,10 +996,12 @@ class FusedMac:
     block_size: int | None = None
     outer: Number | None = None
     carrier_rounding: RoundMode = RoundMode.RNE
+    overflow: Overflow = Overflow.SATURATE
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
         fma = _as_palette(self.fma)
+        _checked_fixedpoint(self, (fma,))
         _checked_accumulation(self, (fma,), has_product=False)
         _checked_carrier_rounding(self, (fma,))
         object.__setattr__(self, "fma", fma)
@@ -1010,6 +1106,10 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
     every default again on every call, at 2.3 to 6.4 microseconds a call. A
     cache miss costs exactly what a call of the flat wrapper costs.
     """
+    # A fixed-point mac has its own builders, NAIVE only (`_checked_fixedpoint`).
+    fixed = _fixedpoint_mac_spec(mac)
+    if fixed is not None:
+        return fixed
     fields: dict[str, Any] = {
         "accumulate_algorithm": mac.accumulate_algorithm,
         "rounding_mode": mac.rounding,
@@ -1127,3 +1227,33 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
     else:
         build = _binaryK_accumulated_spec if binaryK else _superfp_accumulated_spec
     return build(**fields)
+
+
+def _fixedpoint_fields(fmt: FixedPoint, prefix: str) -> dict[str, Any]:
+    """A fixed-point slot as the fixed-point builders' arguments."""
+    return {
+        f"{prefix}_wl": fmt.wl,
+        f"{prefix}_fl": fmt.fl,
+        f"{prefix}_is_signed": fmt.is_signed,
+        f"{prefix}_symmetric": fmt.symmetric,
+        f"{prefix}_prng_bits": fmt.prng_bits,
+    }
+
+
+def _fixedpoint_mac_spec(mac: Mac) -> _GemmSpec | None:
+    """A fixed-point mac's ``_GemmSpec``, from the flat wrappers' builders, or
+    ``None`` for a mac of the other families."""
+    slot = mac.fma if isinstance(mac, FusedMac) else mac.mul
+    if slot is None:
+        return None
+    first = _resolved(slot)[0]
+    if not isinstance(first, FixedPoint):
+        return None
+    common = {"rounding_mode": mac.rounding, "overflow": mac.overflow, "carrier": mac.carrier}
+    if isinstance(mac, FusedMac):
+        return _fixedpoint_fma_spec(**_fixedpoint_fields(first, "fma"), **common)
+    acc = _resolved(mac.acc)[0]
+    assert isinstance(acc, FixedPoint)  # `_checked_fixedpoint` refused a mix
+    return _fixedpoint_spec(
+        **_fixedpoint_fields(first, "mul"), **_fixedpoint_fields(acc, "acc"), **common
+    )

@@ -1,11 +1,13 @@
-"""The enums for rounding, saturation, subnormals and accumulation, and the format domain.
+"""The enums for rounding, saturation, subnormals and accumulation, the format domain,
+and a fixed-point sum's overflow.
 
 :class:`RoundMode`, :class:`SaturationMode`, :class:`SubnormalsMode` and
 :class:`AccumulateAlgorithm` have the same names and integer values as the C++
 enums in ``csrc/common/modes.h``, because the kernels receive ``.value``: a
 change to one must be made to the other. :class:`Domain` exists only in
 Python: when a format object is built, it records the domain in its saturation
-mode (``base._resolve_domain``).
+mode (``base._resolve_domain``). :class:`Overflow` exists only in Python too: a
+fixed-point mac passes it to its op as a flag.
 """
 
 from enum import Enum
@@ -94,6 +96,41 @@ class Domain(Enum):
     #: Without infinities, so every code is a finite value or the NaN. These
     #: are P3109's ``f`` formats, such as ``Binary8p4sf``.
     FINITE = 1
+
+
+class Overflow(Enum):
+    """What a fixed-point mac's running sum does past its format's range.
+
+    A fixed-point word has no code for infinity, so a sum past the range
+    either stops at the end on its side, as every fixed-point rounding in
+    mptorch does, or wraps around modulo ``2**wl``, as two's complement and
+    unsigned integer hardware does. Only the accumulate format of a
+    fixed-point :class:`~mptorch.quant.SplitMac` or
+    :class:`~mptorch.quant.FusedMac` takes ``WRAP``; the product's rounding
+    always saturates, and so does an infinite product.
+
+    With ``WRAP``, a sum keeps the exact sum's residue: the result is right
+    whenever the final sum fits the format, however the partial sums
+    overflowed on the way. A symmetric format has no modulus and refuses it.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import FixedPoint, Overflow
+        >>> from mptorch.quant import SplitMac, qmm
+        >>> a = torch.tensor([[100.0, 100.0, -100.0, -60.0]])
+        >>> b = torch.ones(4, 1)
+        >>> int8, int16 = FixedPoint(8, 0), FixedPoint(16, 0)
+        >>> qmm(a, b, SplitMac(int16, int8)).item()   # 127 after the second step
+        -33.0
+        >>> qmm(a, b, SplitMac(int16, int8, overflow=Overflow.WRAP)).item()
+        40.0
+    """
+
+    #: Stop at the end of the range on the sum's side.
+    SATURATE = 0
+    #: Wrap around modulo ``2**wl``, keeping the exact sum's residue.
+    WRAP = 1
 
 
 class SubnormalsMode(Enum):

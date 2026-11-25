@@ -37,7 +37,7 @@ from mptorch.number import Number
 from .mac import FusedMac, Mac, SplitMac, spec_for_mac
 from .modules.format import QAffineFormats
 from .ops._conv import _FWD, _IGRAD, _WGRAD, _ConvOp
-from .ops._spec import _GemmSpec
+from .ops._spec import _GemmSpec, _wide_refusal
 
 __all__ = ["conv_formats"]
 
@@ -113,7 +113,7 @@ def _batched(x: torch.Tensor, nd: int) -> tuple[torch.Tensor, bool]:
     return x, False
 
 
-def _fwd_hook(run: _ConvOp):
+def _fwd_hook(run: Callable[..., torch.Tensor]):
     def fwd(
         q_input: torch.Tensor,
         q_weight: torch.Tensor,
@@ -161,7 +161,7 @@ def _conv_forward(
     return out.squeeze(0).detach() if unbatched else out
 
 
-def _igrad_hook(run: _ConvOp):
+def _igrad_hook(run: Callable[..., torch.Tensor]):
     def bwd_igrad(
         q_grad: torch.Tensor,
         q_weight: torch.Tensor,
@@ -184,7 +184,7 @@ def _igrad_hook(run: _ConvOp):
     return bwd_igrad
 
 
-def _wgrad_hook(run: _ConvOp):
+def _wgrad_hook(run: Callable[..., torch.Tensor]):
     def bwd_wgrad(
         q_grad: torch.Tensor,
         q_input: torch.Tensor,
@@ -218,11 +218,30 @@ def _conv_formats(
     their maps, which only :func:`conv_formats` takes. A spec given for more
     than one pass is bound once."""
     runs = {spec: _ConvOp(spec, None) for spec in (fwd, igrad, wgrad) if spec is not None}
-    return QAffineFormats(
-        fwd_math=None if fwd is None else _fwd_hook(runs[fwd]),
-        bwd_igrad_math=None if igrad is None else _igrad_hook(runs[igrad]),
-        bwd_wgrad_math=None if wgrad is None else _wgrad_hook(runs[wgrad]),
+    formats = QAffineFormats(
+        fwd_math=None if fwd is None else _fwd_hook(_refusing(runs[fwd], "forward")),
+        bwd_igrad_math=None if igrad is None else _igrad_hook(_refusing(runs[igrad], "gradient")),
+        bwd_wgrad_math=None if wgrad is None else _wgrad_hook(_refusing(runs[wgrad], "gradient")),
     )
+    if fwd is not None and fwd.wide:
+        formats._wide_fwd = _fwd_hook(runs[fwd])
+    return formats
+
+
+def _refusing(run: _ConvOp, where: str) -> Callable[..., torch.Tensor]:
+    """A pass's conv op, refusing a wide fixed-point result as
+    :func:`mptorch.quant.gemm._spec_matmul` refuses a GEMM's; the op itself
+    for every other spec."""
+    spec = run.spec
+    if not spec.wide:
+        return run
+
+    def call(conv_pass: int, a: torch.Tensor, b: torch.Tensor, *rest) -> torch.Tensor:
+        if a.dtype in spec.wide:
+            raise _wide_refusal(spec, a.dtype, where, a.device)
+        return run(conv_pass, a, b, *rest)
+
+    return call
 
 
 def conv_formats(

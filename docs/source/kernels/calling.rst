@@ -16,14 +16,16 @@ fourth, ``Palette``, is a set of formats that a slot of a mac can hold. All
 four are frozen dataclasses, so build them once and keep them. The library
 memoizes what it derives from them.
 
-:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None, carrier_rounding=RNE)``
+:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None, carrier_rounding=RNE, overflow=SATURATE)``
    Rounds each product to ``mul`` and each partial sum to ``acc``. Each is a
    format or a *palette*, a sequence of formats from which each output
    element selects one (:doc:`arithmetic`). ``acc`` can also be ``None``,
    which leaves the sum unrounded. The two may be of different families (a
    BinaryK multiply with a SuperFP accumulate, or the reverse) when each
-   holds one format.
-:class:`~mptorch.quant.FusedMac` ``(fma, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None, carrier_rounding=RNE)``
+   holds one format. Two :class:`~mptorch.FixedPoint` formats make a
+   fixed-point mac, whose sums are exact (:doc:`arithmetic`, "Fixed-point
+   macs").
+:class:`~mptorch.quant.FusedMac` ``(fma, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None, carrier_rounding=RNE, overflow=SATURATE)``
    Rounds each fused multiply-add to ``fma``: a format, a palette, or
    ``None``. ``fma`` has no default.
 :class:`~mptorch.quant.Palette` ``(formats)``
@@ -58,6 +60,11 @@ The keywords the macs share:
   arithmetic) or ``RoundMode.RO``, which rounds the carrier's steps to odd
   (:doc:`arithmetic`, "What the carrier rounds"). ``BlockMac`` does not take
   it.
+- ``overflow`` is :class:`~mptorch.Overflow`'s ``SATURATE`` (the default) or
+  ``WRAP``, which wraps a fixed-point sum around its range instead of
+  saturating. It needs a ``FixedPoint`` accumulate (or fused) format. A
+  fixed-point mac takes only ``NAIVE``, one format per slot and
+  ``carrier_rounding=RoundMode.RNE``.
 
 qmatmul, qmm and qbmm
 ---------------------
@@ -227,9 +234,10 @@ Convolutions
 ------------
 
 The convolutions have operators of their own, ``custom_conv_*``. There are
-ten, one for each kind of mac: BinaryK or SuperFP, split or fused, one
-format per slot or a palette, and the two cross-family split macs. Each of
-the ten also has a twin that rounds the carrier's steps to odd
+twelve: one for each kind of mac of the float formats (BinaryK or SuperFP,
+split or fused, one format per slot or a palette, and the two cross-family
+split macs), and the fixed-point split and fused macs. Each of the ten float
+ones also has a twin that rounds the carrier's steps to odd
 (``custom_conv_*_odd``). They take the convolution's geometry in place of
 the transpose flags. There are no Python functions for them. A
 ``QConv1d``/``2d``/``3d`` reaches them through
@@ -241,13 +249,14 @@ compute.
 The schema tier
 ---------------
 
-Below the value vocabulary there are ten flat functions. Each spells out
+Below the value vocabulary there are twelve flat functions. Each spells out
 every argument of one GEMM operator's schema, and none has autograd:
 
 - ``binaryK_matmul`` and ``superfp_matmul``, and their ``_fma`` variants;
 - the ``_mixed`` (palette) variants of those four;
 - the two cross-family split macs, ``binaryK_superfp_matmul`` (BinaryK
-  products, SuperFP sums) and ``superfp_binaryK_matmul``.
+  products, SuperFP sums) and ``superfp_binaryK_matmul``;
+- the fixed-point macs, ``fixedpoint_matmul`` and ``fixedpoint_matmul_fma``.
 
 They are for scripts that need to state exactly what the kernel receives.
 The vocabulary resolves to them: the test suite asserts that a ``SplitMac``
@@ -261,7 +270,7 @@ and the equivalent flat call produce the same resolved kernel arguments.
    :language: text
    :caption: output
 
-The ten functions share their conventions:
+The ten float functions share their conventions:
 
 - ``mul_*`` and ``acc_*`` give the two formats of a split
   multiply-accumulate. The ``acc_*`` widths and sign default to the
@@ -299,6 +308,14 @@ the accumulate format. A call may therefore run one of four operators:
 The twins are separate operators, so a ``NAIVE`` call passes none of the
 arguments that only the other algorithms use. The ``_mixed`` functions run
 their default operator, or its ``*_odd`` twin.
+
+The two fixed-point functions spell their formats as
+:class:`~mptorch.FixedPoint` does: ``mul_wl``, ``mul_fl`` and the required
+``acc_wl``, ``acc_fl`` (or ``fma_wl``, ``fma_fl``), each with ``*_is_signed``,
+``*_symmetric`` and ``*_prng_bits``. They take ``rounding_mode``,
+``overflow`` and ``carrier``, and no algorithm or carrier rounding. A
+result whose accumulate format is wider than the operands' dtype is
+returned in float64 (:doc:`arithmetic`, "Fixed-point macs").
 
 Callers that keep one format across many calls should use the factories or
 ``qmatmul`` instead. These functions work out the format's defaults again on

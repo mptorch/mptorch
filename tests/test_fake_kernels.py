@@ -11,8 +11,6 @@ the op's place. What is tested here:
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
   whose kernels the build has: all 74 under ``MPTORCH_ODD_ACCUMULATED=1``.
-  The fixed-point GEMM and conv ops are called directly until ``mptorch.quant`` names
-  them.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -34,6 +32,7 @@ import copy
 import functools
 import sys
 import warnings
+from typing import Any
 
 import pytest
 import torch
@@ -50,12 +49,14 @@ from mptorch import (
     BinaryK,
     FixedPoint,
     FormatRangeWarning,
+    Overflow,
     RoundMode,
     SuperFP,
 )
 from mptorch.number.base import _warn_per_call
 from mptorch.quant import (
     FusedMac,
+    GemmFormats,
     Palette,
     QConv2d,
     QLinear,
@@ -76,6 +77,8 @@ from mptorch.quant import (
     block_quantize_,
     block_unpack,
     conv_formats,
+    fixedpoint_matmul,
+    fixedpoint_matmul_fma,
     fixedpoint_quantize,
     fixedpoint_quantize_,
     qmatmul,
@@ -147,6 +150,10 @@ MACS = {
     "superfp_binaryK_accumulated_odd": SplitMac(
         SFP, BK_ACC, rounding=SR, accumulate_algorithm=A.BLOCK, block_size=8, carrier_rounding=R.RO
     ),
+    "fixedpoint": SplitMac(
+        FixedPoint(16, 8, prng_bits=6), FixedPoint(16, 4, prng_bits=6), rounding=SR
+    ),
+    "fixedpoint_fma": FusedMac(FixedPoint(16, 4, prng_bits=5), rounding=SR),
 }
 CONV_MACS = {
     k: MACS[k]
@@ -174,6 +181,8 @@ CONV_MACS = {
         "binaryK_accumulated_odd",
         "superfp_fma_accumulated_odd",
         "superfp_binaryK_accumulated_odd",
+        "fixedpoint",
+        "fixedpoint_fma",
     )
 }
 
@@ -242,6 +251,12 @@ def _workload():
     qmatmul(_rnd(gen, 2, 8, 32), b, MACS["binaryK"])
     qmatmul(a, _rnd(gen, 6, 32).t(), MACS["binaryK_fma"])
     qmatmul(a, b, MACS["binaryK_mixed"], prec_idx=(torch.arange(8) % 2).reshape(8, 1))
+    # a fixed-point conv whose result is wide, which its output rounding
+    # stores in float32; it comes first, so that its call is recorded
+    wide = GemmFormats(
+        fwd_mac=SplitMac(FixedPoint(16, 8), FixedPoint(40, 8)), output_quant=FixedPoint(16, 6)
+    )
+    QConv2d(3, 4, 3, formats=wide.conv())(_rnd(gen, 2, 3, 6, 6))
     for name, mac in CONV_MACS.items():
         _conv_step(mac, name, gen)
     x = _rnd(gen, 16, 16)
@@ -272,33 +287,16 @@ def _workload():
     block_project(x3, MXFP8_E4M3, block_pack(x3, MXFP8_E4M3).scales)
     xt = _rnd(gen, 32, 4)
     block_project(xt, NVFP4, block_pack(xt, NVFP4, axis=0).scales, axis=0, rounding=SR)
-    # The fixed-point GEMMs, called directly until mptorch.quant names them:
-    # the carrier path under SR, a wide (float64) result, wrap-around over a
-    # batch and a transposed operand; the fused mac under SR, and wrapping
-    # into a wide result from bfloat16 operands.
-    ops = torch.ops.mptorch
-    s8, s16 = (16, 8, True, False), (16, 4, True, False)
-    ops.custom_matmul_fixedpoint(a, b, False, False, *s8, *s16, SR.value, 6, 6, False)
-    ops.custom_matmul_fixedpoint(
-        a, b, False, False, *s8, 40, 8, True, False, R.RNE.value, 0, 0, False
-    )
-    ops.custom_matmul_fixedpoint(
-        _rnd(gen, 2, 8, 32), _rnd(gen, 6, 32), False, True, *s16, 8, 2, True, False, R.RZ.value,
-        0, 0, True,
+    # the fixed-point GEMMs past the MACS loop's: a wide (float64) result,
+    # wrap-around over a batch and a transposed operand, and the fused mac
+    # wrapping into a wide result from bfloat16 operands
+    s8: dict[str, Any] = dict(mul_wl=16, mul_fl=8)
+    fixedpoint_matmul(a, b, **s8, acc_wl=40, acc_fl=8)
+    fixedpoint_matmul(
+        _rnd(gen, 2, 8, 32), _rnd(gen, 6, 32), trans_b=True, **s8, acc_wl=8, acc_fl=2,
+        rounding_mode=R.RZ, overflow=Overflow.WRAP,
     )  # fmt: skip
-    ops.custom_matmul_fixedpoint_fma(a, b, False, False, *s16, SR.value, 5, False)
-    ops.custom_matmul_fixedpoint_fma(
-        a.bfloat16(), b.bfloat16(), False, False, 10, 4, True, False, R.RNE.value, 0, True
-    )
-    # The fixed-point conv ops' three passes: the split mac under SR, an input
-    # gradient into a wide result, and a weight gradient of the fused mac.
-    xc, wc, dyc = _rnd(gen, 2, 3, 6, 6), _rnd(gen, 4, 3, 3, 3), _rnd(gen, 2, 4, 6, 6)
-    geo = ([1, 1], [1, 1], [1, 1], 1)
-    ops.custom_conv_fixedpoint(wc, xc, 0, [6, 6], *geo, *s8, *s16, SR.value, 6, 6, False)
-    ops.custom_conv_fixedpoint(
-        wc, dyc, 1, [6, 6], *geo, *s8, 40, 8, True, False, R.RNE.value, 0, 0, False
-    )
-    ops.custom_conv_fixedpoint_fma(dyc, xc, 2, [3, 3], *geo, *s16, SR.value, 5, True)
+    fixedpoint_matmul_fma(a.bfloat16(), b.bfloat16(), fma_wl=10, fma_fl=4, overflow=Overflow.WRAP)
     if HAS_ODD:
         torch.ops.mptorch._carrier_odd(x, x, x, 0)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3

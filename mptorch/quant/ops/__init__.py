@@ -2,7 +2,8 @@
 
 Each function here calls one ``torch.ops.mptorch`` op and carries no gradient:
 the elementwise quantizers (``binaryK_quantize`` and its counterparts), one
-wrapper per GEMM op (``binaryK_matmul`` and its variants), and the block
+wrapper per GEMM op (``binaryK_matmul`` and its variants, the cross-family
+GEMMs, and ``fixedpoint_matmul`` and ``fixedpoint_matmul_fma``), and the block
 format ops (``block_pack``, ``block_unpack``, ``block_quantize``,
 ``block_project`` and ``block_matmul``). The tiers above build on these: the format objects of
 :mod:`mptorch.quant.mac`, the differentiable matrix products of
@@ -15,7 +16,7 @@ also importable from :mod:`mptorch.quant`.
 #
 #   binaryk      binaryK_quantize(_), binaryK_matmul{,_fma}{,_mixed}, and their spec builders
 #   superfp      the superfp counterparts
-#   fixedpoint   fixedpoint_quantize(_); there is no fixed-point GEMM
+#   fixedpoint   fixedpoint_quantize(_), fixedpoint_matmul{,_fma}, and their spec builders
 #   cross        the cross-family GEMMs: binaryK_superfp_matmul, superfp_binaryK_matmul
 #   block        the block format ops: block_pack, block_unpack, block_quantize(_), block_project,
 #                block_matmul
@@ -48,7 +49,12 @@ from .block import (
     block_unpack,
 )
 from .cross import binaryK_superfp_matmul, superfp_binaryK_matmul
-from .fixedpoint import fixedpoint_quantize, fixedpoint_quantize_
+from .fixedpoint import (
+    fixedpoint_matmul,
+    fixedpoint_matmul_fma,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
+)
 from .superfp import (
     superfp_matmul,
     superfp_matmul_fma,
@@ -75,6 +81,8 @@ __all__ = [
     "superfp_matmul_fma_mixed",
     "binaryK_superfp_matmul",
     "superfp_binaryK_matmul",
+    "fixedpoint_matmul",
+    "fixedpoint_matmul_fma",
     "BlockPacked",
     "block_matmul",
     "block_pack",

@@ -124,6 +124,10 @@ class QAffineFormats(nn.Module):
     #: hooks, and which :meth:`mptorch.quant.QPackedLinear.unfreeze_packed_`
     #: rotates a decoded weight back with. A class attribute, as above.
     _rotation: "Hadamard | None" = None
+    # A forward hook that leaves a wide fixed-point result in float64, which
+    # `gemm._with_output` runs and rounds when the container has an output
+    # rounding (`gemm._spec_matmul`); `None` on every other container.
+    _wide_fwd: "Callable | None" = None
 
     def __init__(
         self,
@@ -221,6 +225,10 @@ class QMatmulFormats(nn.Module):
 
     #: The rotation of a ``GemmFormats`` with one, as for :class:`QAffineFormats`.
     _rotation: "Hadamard | None" = None
+    # A forward hook that leaves a wide fixed-point result in float64, which
+    # `gemm._with_output` runs and rounds when the container has an output
+    # rounding (`gemm._spec_matmul`); `None` on every other container.
+    _wide_fwd: "Callable | None" = None
 
     def __init__(
         self,

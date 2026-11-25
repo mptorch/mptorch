@@ -35,7 +35,9 @@ The enums :class:`~mptorch.RoundMode`, :class:`~mptorch.SaturationMode`,
 have the same names and integer values as the C++ enums in
 ``mptorch/csrc/common/modes.h``, because the kernels receive their
 ``.value``. :class:`~mptorch.Domain` exists only in Python: a format records
-its domain in its saturation mode, which is all the kernels see.
+its domain in its saturation mode, which is all the kernels see. So does
+:class:`~mptorch.Overflow`, which the fixed-point operators receive as a
+flag.
 
 .. module:: mptorch
 
@@ -75,6 +77,9 @@ Modes
    :undoc-members:
 
 .. autoclass:: AccumulateAlgorithm
+   :undoc-members:
+
+.. autoclass:: Overflow
    :undoc-members:
 
 Base classes and warnings
@@ -265,6 +270,10 @@ operation explicitly, and none of them is differentiable. See
 
 .. autofunction:: superfp_binaryK_matmul
 
+.. autofunction:: fixedpoint_matmul
+
+.. autofunction:: fixedpoint_matmul_fma
+
 Layers
 ------
 
@@ -299,6 +308,10 @@ Layer arithmetic factories
 .. autofunction:: binaryK_superfp_gemm_formats
 
 .. autofunction:: superfp_binaryK_gemm_formats
+
+.. autofunction:: fixedpoint_gemm_formats
+
+.. autofunction:: fixedpoint_gemm_formats_fma
 
 .. autofunction:: conv_formats
 

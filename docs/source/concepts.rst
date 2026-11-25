@@ -610,11 +610,12 @@ unsigned one), the range is
   for every ``prng_bits``. With ``prng_bits=0``, ``SR`` is ``RZ``.
 - The magnitude bits must fit the carrier's precision, and with ``prng_bits``
   they share it: at most 24 bits in all in binary32 and 53 in binary64
-  (Carriers_).
-- There is no fixed-point arithmetic inside a matrix product yet:
-  ``SplitMac``, ``FusedMac`` and ``Palette`` raise ``TypeError`` for a
-  ``FixedPoint``. As the element of a block format, though, a ``FixedPoint``
-  is multiplied by the block GEMM (`Block floating point`_).
+  (Carriers_). A matrix product's accumulate format may be wider.
+- A matrix product can compute in fixed point: a ``SplitMac`` or
+  ``FusedMac`` of ``FixedPoint`` formats rounds each product and each exact
+  sum to its format, saturating or wrapping around (:doc:`kernels/arithmetic`,
+  "Fixed-point macs"). As the element of a block format, a ``FixedPoint`` is
+  also multiplied by the block GEMM (`Block floating point`_).
 
 .. literalinclude:: ../snippets/formats_fixedpoint.py
    :language: python
@@ -654,7 +655,15 @@ dtype, so only the ends of the format's range can miss the dtype's grid:
   that saturates onto it is then rounded again.
 - A largest value below the dtype's smallest positive value raises.
 
-There is no fixed-point matrix product, so there is no rule for one.
+A matrix product's result can be any of its accumulate (or fused) format's
+values. A format with more significant bits than the dtype holds is *wide*:
+the GEMM computes its result into float64, and a layer rounds that once with
+its output rounding, which is then held to the dtype
+(:doc:`kernels/arithmetic`, "Fixed-point macs"). Any other format is held to
+the rule for a computed result. A format that reaches past the dtype's
+largest value, or whose step is finer than its smallest subnormal, warns.
+One whose largest value is below the dtype's smallest positive value
+raises.
 
 A ``FixedPoint`` can also be the element of a block format, which gives
 block floating point (`Block floating point`_).
@@ -2046,6 +2055,10 @@ GEMM computes *between* its roundings, not the roundings themselves:
     compute every carrier operation exactly on the GPU too, including the
     sums that no format rounds, so an odd op returns the CPU's words in every
     mode (:doc:`kernels/arithmetic`, "What the carrier rounds").
+  - The sums of a fixed-point mac, which are exact on the GPU too, even
+    where a format's step is below :math:`2^{-126}`. Only its products
+    flush. A wide fixed-point result is refused, since it would be a float64
+    tensor (:doc:`kernels/arithmetic`, "Fixed-point macs").
 * **NaN payloads.** A NaN that reaches a product or a sum comes out of the
   GPU's float unit as its canonical NaN, where the CPU keeps the operand's
   payload. The casts pass a NaN through unchanged on every device, so a

@@ -118,8 +118,15 @@ arithmetic you describe:
   products and sums are in different families. The first rounds the
   products to a BinaryK format and the sums to a SuperFP one, and the second
   does the reverse.
+- :func:`~mptorch.quant.fixedpoint_gemm_formats` and
+  :func:`~mptorch.quant.fixedpoint_gemm_formats_fma`: a split and a fused mac
+  in :class:`~mptorch.FixedPoint` formats, whose sums are exact
+  (:doc:`kernels/arithmetic`, "Fixed-point macs"). They take
+  ``rounding_mode``, ``overflow`` (saturate or wrap around) and ``carrier``,
+  and ``output_quant``, the forward result's rounding after the bias, which an
+  accumulate format wider than the layer's dtype needs.
 
-Each factory also takes:
+The other six factories also take:
 
 - ``rounding_mode``, one rounding mode for every format of the product;
 - ``accumulate_algorithm``, the order in which the terms are summed, with

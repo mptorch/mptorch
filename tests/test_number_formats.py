@@ -25,9 +25,11 @@ import pytest
 import torch
 
 from mptorch import (
+    MXFP8_E4M3,
     AccumulateAlgorithm,
     BinaryK,
     FixedPoint,
+    Overflow,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
@@ -75,6 +77,7 @@ from mptorch.quant.ops.cross import (
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
 )
+from mptorch.quant.ops.fixedpoint import _fixedpoint_fma_spec, _fixedpoint_spec
 from mptorch.quant.ops.superfp import (
     _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
@@ -177,6 +180,24 @@ def test_fused_macs_resolve_to_flat_specs(rm):
     )
     assert spec_for_mac(FusedMac(SuperFP(3, 4, 8, 7), rounding=rm)) == _superfp_fma_spec(
         fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=8, fma_bias=7, rounding_mode=rm
+    )
+
+
+@pytest.mark.parametrize("overflow", list(Overflow))
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.SR])
+def test_fixed_point_macs_resolve_to_flat_specs(rm, overflow):
+    """A ``SplitMac`` or ``FusedMac`` of ``FixedPoint`` formats equals its
+    ``_fixedpoint*_spec``, every field of either format carried over."""
+    mul = FixedPoint(12, 6, is_signed=False, prng_bits=4)
+    acc = FixedPoint(24, 8, symmetric=True, prng_bits=3)
+    if overflow is Overflow.SATURATE:  # a symmetric accumulator has no modulus to wrap in
+        assert spec_for_mac(SplitMac(mul, acc, rounding=rm)) == _fixedpoint_spec(
+            mul_wl=12, mul_fl=6, mul_is_signed=False, mul_prng_bits=4, acc_wl=24, acc_fl=8,
+            acc_symmetric=True, acc_prng_bits=3, rounding_mode=rm,
+        )  # fmt: skip
+    fma = FixedPoint(20, 4, prng_bits=2)
+    assert spec_for_mac(FusedMac(fma, rounding=rm, overflow=overflow)) == _fixedpoint_fma_spec(
+        fma_wl=20, fma_fl=4, fma_prng_bits=2, rounding_mode=rm, overflow=overflow
     )
 
 
@@ -604,6 +625,8 @@ _NUMBER_ALL = (
     "NVFP4",
     "bfp",
 )
+# The names ``__all__`` gained after the split.
+_NUMBER_SINCE = ("Overflow",)
 _NUMBER_BESIDE_ALL = (
     "ScaleRounding",
     "check_binaryK",
@@ -622,7 +645,8 @@ _NUMBER_BESIDE_ALL = (
 
 def test_the_package_keeps_every_name_number_py_had():
     """``mptorch.number`` became a package of one module per format family. Its
-    ``__all__`` is the module's, every name a caller imported from it resolves,
+    ``__all__`` is the module's and the names added since, every name a caller
+    imported from it resolves,
     each class is its submodule's own, and a pickle written before the split,
     which names ``mptorch.number.BinaryK``, still loads."""
     import pickle
@@ -630,8 +654,9 @@ def test_the_package_keeps_every_name_number_py_had():
     import mptorch.number as number
     from mptorch.number import binaryk, modes
 
-    assert tuple(number.__all__) == _NUMBER_ALL
-    for name in _NUMBER_ALL + _NUMBER_BESIDE_ALL:
+    assert tuple(n for n in number.__all__ if n not in _NUMBER_SINCE) == _NUMBER_ALL
+    assert set(_NUMBER_SINCE) <= set(number.__all__)
+    for name in _NUMBER_ALL + _NUMBER_SINCE + _NUMBER_BESIDE_ALL:
         assert hasattr(number, name), name
     assert number.BinaryK is binaryk.BinaryK and number.RoundMode is modes.RoundMode
 
@@ -665,6 +690,8 @@ _OPS_ALL = (
     "binaryK_superfp_matmul",
     "superfp_binaryK_matmul",
 )
+# The fixed-point GEMMs, which the package gained after the split.
+_FIXEDPOINT_GEMMS = ("fixedpoint_matmul", "fixedpoint_matmul_fma")
 _BLOCK_PUBLIC = (
     "BlockPacked",
     "block_matmul",
@@ -689,8 +716,8 @@ def test_the_ops_package_keeps_every_public_name():
     import mptorch.quant.ops as ops
     from mptorch.quant.ops import binaryk, block
 
-    assert tuple(ops.__all__) == _OPS_ALL + _BLOCK_PUBLIC
-    for name in _OPS_ALL + _BLOCK_PUBLIC:
+    assert tuple(ops.__all__) == _OPS_ALL + _FIXEDPOINT_GEMMS + _BLOCK_PUBLIC
+    for name in _OPS_ALL + _FIXEDPOINT_GEMMS + _BLOCK_PUBLIC:
         assert getattr(ops, name) is getattr(quant, name), name
     assert ops.binaryK_matmul is binaryk.binaryK_matmul
     assert quant.BlockPacked is block.BlockPacked
@@ -808,10 +835,14 @@ def test_palette_rejects_mixed_families():
         Palette([BinaryK(8, 4), SuperFP(3, 4, 8, 7)])
 
 
-def test_palette_rejects_a_family_with_no_gemm():
-    """A fixed-point format has an elementwise quantizer and no GEMM kernel yet."""
-    with pytest.raises(TypeError, match="no GEMM kernel takes FixedPoint"):
-        Palette([FixedPoint(8, 4)])
+def test_palette_rejects_a_family_no_mac_slot_takes():
+    """A block format's GEMM is ``BlockMac``'s. A fixed-point slot is a palette
+    of one format, which the mac then holds to one."""
+    with pytest.raises(TypeError, match="got BlockFormat: a block format's GEMM is BlockMac's"):
+        Palette([MXFP8_E4M3])
+    with pytest.raises(TypeError, match="got str"):
+        Palette(["E4M3"])  # ty: ignore[invalid-argument-type]
+    assert len(Palette([FixedPoint(8, 4)])) == 1
 
 
 def test_palette_rejects_empty_and_oversized():
