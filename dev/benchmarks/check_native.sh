@@ -11,9 +11,9 @@
 #
 # The host half runs `-fsyntax-only` with setup.py's host flags (the fast-cast
 # pairing, -ffp-contract=off and -DMPTORCH_FAST_CAST=1) on every file that has
-# a host build: the five cast sweeps as C++, the CPU tile sweeps, the UBSan
-# cast check, the CPU GEMM A/B harness (against torch's headers) and
-# old_sr_casts.h. ~20 s.
+# a host build: the six cast sweeps as C++, the CPU tile sweeps, the
+# fixed-point GEMM's integer sweep, the UBSan cast check, the CPU GEMM A/B
+# harness (against torch's headers) and old_sr_casts.h. ~20 s.
 #
 # The CUDA half, skipped when nvcc is not on PATH, compiles each .cu at -O0
 # into a temporary directory, with the language standard and include paths
@@ -62,12 +62,14 @@ check() { # name, command...
 }
 
 echo "host ($CXX)"
-for f in cast_all_modes_sweep cast_double_sweep gemm_cast_float_arith gemm_cast_superfp_arith gemm_cast_sr_arith; do
+for f in cast_all_modes_sweep cast_double_sweep gemm_cast_float_arith gemm_cast_superfp_arith gemm_cast_sr_arith \
+    gemm_cast_fixedpoint_arith; do
     check "sweeps/$f.cu" $CXX $HOST -fsyntax-only -x c++ "$B/sweeps/$f.cu" || FAILED=1
 done
 check sweeps/old_sr_casts.h $CXX $HOST -fsyntax-only -x c++ "$B/sweeps/old_sr_casts.h" || FAILED=1
 check sweeps/cpu_rne_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_rne_tile_sweep.cpp" || FAILED=1
 check sweeps/cpu_odd_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_odd_tile_sweep.cpp" || FAILED=1
+check sweeps/fixedpoint_int_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/fixedpoint_int_sweep.cpp" || FAILED=1
 check sweeps/cast_ubsan.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cast_ubsan.cpp" || FAILED=1
 if [ -n "$TI" ]; then
     check timing/cpu_gemm_ab.cpp $CXX $HOST $TI -fsyntax-only "$B/timing/cpu_gemm_ab.cpp" || FAILED=1
@@ -85,6 +87,7 @@ if command -v nvcc >/dev/null 2>&1; then
         for f in cast_all_modes_sweep cast_double_sweep gemm_cast_float_arith gemm_cast_superfp_arith gemm_cast_sr_arith; do
             echo "sweeps/$f.cu c++17"
         done
+        echo "sweeps/gemm_cast_fixedpoint_arith.cu c++20"
         echo "timing/gemm_sr_ab.cu c++20"
         echo "timing/gemm_f64_unroll.cu c++20"
     } | xargs -P "${JOBS:-3}" -L 1 bash -c '
