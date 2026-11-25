@@ -31,7 +31,7 @@ import itertools
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
 import torch
@@ -392,6 +392,22 @@ class _Counter:
 # --- the formulas, shared by the calls and the converted layers ---------------------------
 
 
+def _rotations(c: _Counter, name, call, formats, k, counts) -> None:
+    """A rotated product's rotations (``GemmFormats.rotation``), one element
+    record each: its two operands' in the forward pass, and each gradient's
+    rotation back that the backward pass computes. ``counts`` gives each
+    one's number of elements, ``None`` for one not computed. The record
+    carries the rotation at the block size a ``k``-channel axis takes."""
+    source = formats if isinstance(formats, GemmFormats) else getattr(formats, "_source", None)
+    rotation = getattr(source, "rotation", None)
+    if rotation is None or rotation.block(k) == 1:
+        return
+    rotation = replace(rotation, size=rotation.block(k))
+    for n in counts:
+        if n is not None:
+            c.element(name, "rotation", call, n, rotation)
+
+
 def _linear(c: _Counter, name, call, rows, n_out, k_in, formats, x_grad, w_grad) -> None:
     """``rows`` rows times a weight ``[n_out, k_in]``, and its gradients."""
     c.forward(name, "linear", None, call, (1, rows, n_out, k_in), 2, formats)
@@ -400,6 +416,10 @@ def _linear(c: _Counter, name, call, rows, n_out, k_in, formats, x_grad, w_grad)
             c.product(name, "linear", None, call, "igrad", (1, rows, k_in, n_out), formats)
         if w_grad:
             c.product(name, "linear", None, call, "wgrad", (1, n_out, k_in, rows), formats)
+    grads = (rows * k_in if x_grad else None, n_out * k_in if w_grad else None)
+    _rotations(
+        c, name, call, formats, k_in, (rows * k_in, n_out * k_in, *(grads if c.backward else ()))
+    )
 
 
 def _matmul(c: _Counter, name, site, call, a, b, out, formats) -> None:
@@ -416,6 +436,9 @@ def _matmul(c: _Counter, name, site, call, a, b, out, formats) -> None:
             c.product(name, "matmul", site, call, "igrad", (batch, M, K, N), formats)
         if _needs(b):
             c.product(name, "matmul", site, call, "wgrad", (batch, K, N, M), formats)
+    # a gradient is rotated back in the broadcast shape, before it is summed
+    grads = (batch * M * K if _needs(a) else None, batch * K * N if _needs(b) else None)
+    _rotations(c, name, call, formats, K, (a.numel(), b.numel(), *(grads if c.backward else ())))
 
 
 def _igrad_classes(size, kernel, stride, lead, dilation) -> Iterator[tuple[int, int]]:

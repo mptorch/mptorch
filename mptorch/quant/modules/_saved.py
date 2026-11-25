@@ -19,8 +19,9 @@ counterparts).
 
 A quantizer is run a second time only if it is known to depend on nothing
 but its input and the random generators: mptorch's ``Quant`` (when not in
-place), ``ScaledQuant``, ``BlockQuant`` called as a fake quantizer, and a
-``Quantizer`` over any of them. The caller can set the flag to ``True`` to recompute with
+place), ``ScaledQuant``, ``BlockQuant`` called as a fake quantizer, a
+``Quantizer`` over any of them, and a ``GemmFormats`` rotation over any of
+them or over nothing. The caller can set the flag to ``True`` to recompute with
 any other callable, which is their promise that it too depends on nothing
 else. Without that, any other callable keeps its result saved: a QAT
 observer called twice would count a batch twice, or round differently in
@@ -51,8 +52,11 @@ from typing import Any, cast
 
 import torch
 
+from mptorch.number import RoundMode
+
 from ..mac import BlockQuant, Quant
 from ..ops import BlockPacked
+from ..rotation import _RotatedQuant
 from ..scaled import ScaledQuant
 from .quantizer import Quantizer
 
@@ -63,9 +67,25 @@ _State = tuple[torch.Tensor | None, tuple[tuple[torch.device, torch.Tensor], ...
 _Replay = tuple[Callable, _State | None]
 
 
-def _known(q: object) -> Quant | ScaledQuant | BlockQuant | None:
+class _Rotation:
+    """What ``_known`` returns for a slot that only rotates: stateless, and
+    drawing no random bits."""
+
+    rounding = RoundMode.RNE
+
+
+_ROTATION_ONLY = _Rotation()
+
+
+def _known(q: object) -> Quant | ScaledQuant | BlockQuant | _Rotation | None:
     """Return the mptorch quantizer that slot ``q`` runs, if it is one known
-    to be stateless, and ``None`` otherwise."""
+    to be stateless, and ``None`` otherwise. A rotation (``_RotatedQuant``)
+    is stateless, so a rotated slot is known when its quantizer is, and a
+    slot that only rotates is ``_ROTATION_ONLY``."""
+    if isinstance(q, _RotatedQuant):
+        if q.quant is None:
+            return _ROTATION_ONLY
+        q = q.quant
     if isinstance(q, Quantizer):
         q = q.forward_quant
     if isinstance(q, Quant):

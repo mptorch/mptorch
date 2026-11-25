@@ -223,6 +223,105 @@ tensor scale, so the option changes nothing for it.
    :language: text
    :caption: output
 
+Rotating before block quantization
+----------------------------------
+
+A block's scale is set by its largest element. In a block that holds one
+outlier, every other element is rounded on a grid fitted to the outlier, and
+most of them lose their precision. A rotation spreads the outlier over its
+block before the scale is chosen, which is the idea behind QuaRot and
+SpinQuant. ``GemmFormats(rotation=Hadamard(size))`` rotates both operands of
+a layer's forward product along :math:`K` before they are quantized:
+
+.. math::
+
+   y = Q(xR)\,Q(WR)^\top, \qquad R = D\,\operatorname{diag}(H_r, \dots, H_r),
+
+with :math:`H_r` the orthonormal Walsh-Hadamard matrix of order :math:`r`
+and :math:`D` a diagonal of :math:`\pm 1` (``signed=True``, the default).
+Since :math:`RR^\top = I`, the product is :math:`xW^\top` in exact
+arithmetic, so a pretrained layer keeps its function. For a matmul
+:math:`ab`, the operands are :math:`aR` and :math:`R^\top b`.
+
+- **The gradients.** The layers pass a gradient straight through their
+  operand quantizers, so the gradient passes compute in the rotated basis,
+  and each result is rotated back along :math:`K`:
+  :math:`\partial x = (\partial y\, Q(WR))\,R^\top` and
+  :math:`\partial W = (\partial y^\top Q(xR))\,R^\top`. These are the exact
+  gradients of the rotated product, with its quantizers taken as the
+  identity. The gradient passes pack their operands along :math:`N` and
+  along the batch, which the rotation does not mix.
+- **The block size.** :math:`r` is ``size``, or, for a :math:`K` that
+  ``size`` does not divide, the largest power of two dividing both. A
+  784-feature layer under ``Hadamard(128)`` rotates in blocks of 16, and an
+  odd :math:`K` is not rotated.
+- **The arithmetic.** The transform is a butterfly of additions in the
+  carrier, :math:`\log_2 r` stages of :math:`(a + b, a - b)`, then one
+  multiply by :math:`1/\sqrt r`. It is not a matmul by :math:`H_r`, which
+  CUDA runs in TF32 under ``torch.set_float32_matmul_precision("high")``.
+  The signs are an integer hash of the seed and the channel's index,
+  computed on the operand's device, so no random generator is drawn from.
+  Every device therefore gives the same rotated words.
+  :func:`~mptorch.quant.hadamard_rotate` is the transform on its own.
+- **Elsewhere in the library.**
+
+  - ``presets.mx(rotation=Hadamard(128))`` rotates every linear product.
+  - A frozen layer (:meth:`~mptorch.quant.QLinear.freeze_packed_`) stores
+    the rotated weight's codes, and its checkpoint records the rotation.
+  - :func:`~mptorch.quant.profile` lists each rotation as an element
+    record.
+  - A convolution takes no rotation, since its :math:`K` is gathered from
+    its input channels and kernel taps.
+
+On GPT-2 small (Hugging Face's pretrained model), every projection but the
+tied ``lm_head`` was run through ``simulate`` in each format. The table
+gives the perplexity over the first 32,768 tokens of WikiText-2's test split,
+against 26.76 in float32 (``dev/experiments/hadamard_rotation.py
+perplexity --library``, RTX 4060 laptop GPU, 2026-11-25). The 1× columns
+rotate in blocks of the format's block size (32 for MX, 16 for NVFP4), and
+the 4× columns in blocks four times that size. The signed rotation is shown
+for the seeds 0, 1 and 2 at 1×, and for seed 0 at 4×.
+
+==========  ========  ======  ======================  ======  ======
+format      none      H, 1×   DH, 1×                  H, 4×   DH, 4×
+==========  ========  ======  ======================  ======  ======
+MXFP8 E4M3  27.83     27.29   26.94, 27.24, 26.94     26.99   27.01
+MXFP4 E2M1  123.23    49.84   41.07, 41.67, 41.82     41.44   39.19
+NVFP4       33.15     37.68   36.05, 35.89, 34.95     33.66   35.24
+==========  ========  ======  ======================  ======  ======
+
+**MXFP4 and MXFP8.** The rotation removes most of the loss: 87% of
+MXFP4's increase over float32 (DH, 4×) and 55% to 83% of MXFP8's (DH, 1×,
+by seed). The seed of the signs moves MXFP8's perplexity by up to 0.3.
+
+**NVFP4.** The rotation makes it worse at every size. A rotation makes each
+block's values close to Gaussian, and so brings a format's error to its error
+on Gaussian data:
+
+- On GPT-2's activations, MXFP4's power-of-two scale fits its blocks worse
+  than it fits Gaussian ones. A rotation lowers its error to the Gaussian
+  level.
+- NVFP4's E4M3 scale over 16 elements fits a block's largest element
+  closely, and on GPT-2's activations its error is already below the
+  Gaussian level. A rotation raises it to that level.
+
+**The cost.** A rotated MXFP8 Linear step, forward and backward, at GPT-2's
+shapes takes 1.09 to 1.22 times the unrotated step's time on CUDA, and 1.20
+to 1.22 times on the CPU (8 threads). That is the four rotations' elementwise
+passes.
+
+The run below compares the three formats on operands with three outlier
+channels, then holds a rotated layer without quantization to
+``nn.Linear``.
+
+.. literalinclude:: ../../snippets/kernels_block_rotation.py
+   :language: python
+   :caption: docs/snippets/kernels_block_rotation.py
+
+.. literalinclude:: ../../snippets/kernels_block_rotation.out
+   :language: text
+   :caption: output
+
 How the kernel decodes
 ----------------------
 

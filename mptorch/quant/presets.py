@@ -35,6 +35,7 @@ from .norm import NormFormats, SoftmaxFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .recipe import _KINDS, GemmFormats, Recipe
 from .reduce import ReductionFormats
+from .rotation import Hadamard
 from .scaled import ScaledQuant
 
 __all__ = ["uniform", "fp8", "mx"]
@@ -157,6 +158,7 @@ def mx(
     acc: BinaryK | None = None,
     *,
     rounding: RoundMode = RoundMode.RNE,
+    rotation: Hadamard | None = None,
 ) -> Recipe:
     """MX training: every Linear product a block GEMM over OCP MX formats.
 
@@ -167,6 +169,13 @@ def mx(
     :func:`~mptorch.quant.block_gemm_formats` describes. The recipe sets
     ``linear`` only, since a convolution has no block-format arithmetic.
 
+    ``rotation`` rotates the input and the weight along their input features
+    before they are packed, and the gradients back
+    (:class:`~mptorch.quant.GemmFormats`). On GPT-2 small, over WikiText-2's
+    first 32,768 tokens, ``Hadamard(128)`` took the perplexity from 27.83 to
+    27.01 under MXFP8 E4M3 and from 123.2 to 39.2 under MXFP4 E2M1, against
+    26.76 in float32 (``kernels/block.rst``). It does not help NVFP4.
+
     Args:
         fwd (BlockFormat): the format of the input and the weight.
             Default: ``MXFP8_E4M3``
@@ -176,16 +185,19 @@ def mx(
             which leaves the running sums in the carrier.
         rounding (RoundMode): the rounding mode of the sum.
             Default: ``RoundMode.RNE``
+        rotation (Hadamard, optional): the rotation of the forward product's
+            operands. Default: ``None``
 
     Example::
 
-        >>> from mptorch.quant import presets
-        >>> recipe = presets.mx()
+        >>> from mptorch.quant import Hadamard, presets
+        >>> recipe = presets.mx(rotation=Hadamard(128))
     """
     return Recipe(
         linear=GemmFormats(
             fwd_mac=BlockMac(fwd, fwd, acc, rounding=rounding),
             igrad_mac=BlockMac(bwd, fwd, acc, rounding=rounding),
             wgrad_mac=BlockMac(bwd, fwd, acc, rounding=rounding),
+            rotation=rotation,
         )
     )

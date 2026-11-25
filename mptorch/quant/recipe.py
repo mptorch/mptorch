@@ -82,12 +82,15 @@ from .mac import (
     spec_for_mac,
 )
 from .modules.format import QAffineFormats, QMatmulFormats
+from .modules.linear import CustomArithLinear
+from .modules.matmul import CustomArithMatmul
 from .norm import NormFormats, SoftmaxFormats
 from .ops._operands import _gemm_nd
 from .ops._spec import _run_gemm
 from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .reduce import ReductionFormats
+from .rotation import Hadamard, _RotatedGrad, _RotatedQuant
 from .scaled import ScaledQuant
 
 if TYPE_CHECKING:
@@ -124,6 +127,17 @@ _QUANT_SLOTS = (
     "bgrad_quant",
 )
 _MAC_SLOTS = ("fwd_mac", "igrad_mac", "wgrad_mac")
+
+# Each container's gradient hooks and the Function's default for an empty one,
+# in the order of its operand slots, which GemmFormats._rotated wraps.
+_AFFINE_GRADS = (
+    ("bwd_igrad_math", CustomArithLinear._default_bwd_igrad),
+    ("bwd_wgrad_math", CustomArithLinear._default_bwd_wgrad),
+)
+_MATMUL_GRADS = (
+    ("bwd_agrad_math", CustomArithMatmul._default_agrad),
+    ("bwd_bgrad_math", CustomArithMatmul._default_bgrad),
+)
 
 
 def _as_mac(slot: object, name: str) -> Any:
@@ -232,6 +246,14 @@ class GemmFormats:
     bias slots are not used. The recompute flags are passed on as they are
     (``recompute_a`` and ``recompute_b`` for a matmul).
 
+    ``rotation`` (a :class:`~mptorch.quant.Hadamard`) rotates both operands
+    of the forward product along K before their quantizers run, and rotates
+    each gradient back, so the layer computes the same function in exact
+    arithmetic and its gradients are those of that function. It helps the
+    MX block formats and not NVFP4 (``kernels/block.rst``, "Rotating before
+    block quantization"). The gradient passes multiply the rotated operands.
+    A convolution takes no rotation.
+
     Args:
         input_quant, weight_quant, bias_quant (optional): the forward
             operands' quantizers. Default: ``None``
@@ -245,6 +267,8 @@ class GemmFormats:
             and the bias gradient. Default: ``None``
         recompute_input, recompute_weight (bool, optional): as for
             :class:`~mptorch.quant.QAffineFormats`. Default: ``None``
+        rotation (Hadamard, optional): the rotation of the forward
+            product's operands along K. Default: ``None``
 
     Raises:
         TypeError: for a slot of the wrong type, or a module in a quantizer
@@ -274,6 +298,7 @@ class GemmFormats:
     bgrad_quant: Any = None
     recompute_input: bool | None = None
     recompute_weight: bool | None = None
+    rotation: Hadamard | None = None
 
     def __post_init__(self) -> None:
         for name in _MAC_SLOTS:
@@ -288,6 +313,8 @@ class GemmFormats:
         for name in ("recompute_input", "recompute_weight"):
             if getattr(self, name) is not None and not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} is True, False or None, got {getattr(self, name)!r}")
+        if self.rotation is not None and not isinstance(self.rotation, Hadamard):
+            raise TypeError(f"rotation is a Hadamard or None, got {self.rotation!r}")
 
     @classmethod
     def uniform(
@@ -332,6 +359,25 @@ class GemmFormats:
         formats.recompute_input = self.recompute_input
         formats.recompute_weight = self.recompute_weight
         formats._source = self
+        return self._rotated(formats, ("input_quant", "weight_quant"), _AFFINE_GRADS)
+
+    def _rotated[FormatsT: (QAffineFormats, QMatmulFormats)](
+        self, formats: FormatsT, slots: tuple[str, str], grads: tuple[tuple[str, Callable], ...]
+    ) -> FormatsT:
+        """``formats`` with its two operand slots rotating along K first, and
+        each gradient hook (or the Function's default, for an empty one)
+        rotating its result back; ``formats`` as it is without a rotation.
+        The second operand is a matmul's ``b`` (dimension -2) when ``grads``
+        names ``bwd_bgrad_math``, and a Linear's weight (dimension -1)
+        otherwise."""
+        if self.rotation is None:
+            return formats
+        rotation, b_dim = self.rotation, -2 if grads[1][0] == "bwd_bgrad_math" else -1
+        for slot, dim in zip(slots, (-1, b_dim), strict=True):
+            setattr(formats, slot, _RotatedQuant(rotation, getattr(formats, slot), dim))
+        for (hook, default), dim in zip(grads, (-1, b_dim), strict=True):
+            setattr(formats, hook, _RotatedGrad(rotation, getattr(formats, hook) or default, dim))
+        formats._rotation = rotation
         return formats
 
     def affine(self) -> QAffineFormats:
@@ -370,6 +416,12 @@ class GemmFormats:
             raise TypeError(
                 "a convolution has no block-format arithmetic: give BlockMac formats to the "
                 "linear and matmul kinds only"
+            )
+        if self.rotation is not None:
+            raise TypeError(
+                "a convolution takes no rotation: its reduction axis is its input channels times "
+                "its kernel taps, which its kernels gather; give rotation to the linear and "
+                "matmul kinds only"
             )
         fwd, igrad, wgrad = (
             None if m is None else spec_for_mac(m)
@@ -423,7 +475,7 @@ class GemmFormats:
         if self.output_quant is not None and not self.palette:
             _with_output(formats, self.output_quant, torch.matmul)
         formats._source = self
-        return formats
+        return self._rotated(formats, ("a_quant", "b_quant"), _MATMUL_GRADS)
 
     def label(self) -> str:
         """A one-line summary of the formats, for reports: the mac (each
@@ -444,6 +496,8 @@ class GemmFormats:
             slots["quant"] = slots.pop("operands")
             del slots["grads"]
         parts += [f"{n} {_quant_label(q)}" for n, q in slots.items() if q is not None]
+        if self.rotation is not None:
+            parts.append(f"rotation {self.rotation.label()}")
         return ", ".join(parts)
 
 

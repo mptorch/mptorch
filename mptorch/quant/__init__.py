@@ -112,6 +112,7 @@ from .pointwise import (
 from .profile import ElementRecord, Profile, ProfileRecord, UncountedRecord, profile
 from .recipe import GemmFormats, Recipe, Rule
 from .reduce import ReductionFormats, qmean, qsum
+from .rotation import Hadamard, hadamard_rotate
 from .scaled import ScaledQuant
 from .simulate import SimulatedModule, SimulateReport, SimulateRow, simulate
 
@@ -247,4 +248,7 @@ __all__ = [
     "UncountedRecord",
     "set_palette_maps_",
     "palette_maps",
+    # rotating a product's operands before they are quantized
+    "Hadamard",
+    "hadamard_rotate",
 ]

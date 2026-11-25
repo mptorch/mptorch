@@ -450,6 +450,15 @@ See :doc:`instrument`.
 
 .. autofunction:: palette_maps
 
+A :class:`~mptorch.quant.GemmFormats`' ``rotation`` rotates its product's
+operands along K before they are quantized (:doc:`kernels/block`,
+"Rotating before block quantization"):
+
+.. autoclass:: Hadamard
+   :members: block, label
+
+.. autofunction:: hadamard_rotate
+
 The ready-made recipes are in ``mptorch.quant.presets``:
 
 .. autofunction:: mptorch.quant.presets.uniform

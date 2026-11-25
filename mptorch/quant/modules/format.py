@@ -17,6 +17,7 @@ from torch import nn
 if TYPE_CHECKING:
     from ..mac import BlockQuant
     from ..recipe import GemmFormats
+    from ..rotation import Hadamard
 
 
 class QAffineFormats(nn.Module):
@@ -118,6 +119,12 @@ class QAffineFormats(nn.Module):
     #: for a container built otherwise. A class attribute, as above.
     _source: "GemmFormats | None" = None
 
+    #: The :class:`mptorch.quant.Hadamard` rotation of a ``GemmFormats`` with
+    #: a ``rotation``, which wraps this container's operand slots and gradient
+    #: hooks, and which :meth:`mptorch.quant.QPackedLinear.unfreeze_packed_`
+    #: rotates a decoded weight back with. A class attribute, as above.
+    _rotation: "Hadamard | None" = None
+
     def __init__(
         self,
         weight_quant: Callable | None = None,
@@ -211,6 +218,9 @@ class QMatmulFormats(nn.Module):
     #: The :class:`mptorch.quant.GemmFormats` that built this container, as
     #: for :class:`QAffineFormats`.
     _source: "GemmFormats | None" = None
+
+    #: The rotation of a ``GemmFormats`` with one, as for :class:`QAffineFormats`.
+    _rotation: "Hadamard | None" = None
 
     def __init__(
         self,

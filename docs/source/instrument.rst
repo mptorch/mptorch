@@ -48,7 +48,8 @@ The last rule that matches wins, and ``None`` keeps a module PyTorch's.
   them leaves those operations alone, and reports nothing about them.
 - ``mptorch.quant.presets`` holds three recipes: ``uniform(fmt)``,
   ``fp8()`` (E4M3 operands and E5M2 gradients, each scaled per tensor) and
-  ``mx()`` (OCP MX block formats).
+  ``mx()`` (OCP MX block formats; ``mx(rotation=Hadamard(128))`` rotates
+  each product's operands first, :doc:`kernels/block`).
 
 ``recipe.plan(model)`` shows what a conversion would do. Each kind reaches
 these calls:

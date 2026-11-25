@@ -27,6 +27,7 @@ from ..mac import BlockQuant
 from ..ops import BlockPacked, block_unpack
 from ..ops._checks import _CARRIER, _call_carrier
 from ..ops.block import _block_format_ints
+from ..rotation import Hadamard, _RotatedQuant, hadamard_rotate
 from ._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
@@ -382,8 +383,11 @@ def _from_float(module: nn.Module, qcls: type, base: type, formats: Any) -> Any:
 #: The version of a frozen layer's checkpoint layout, stored in its extra
 #: state. Once a checkpoint file has been written in a layout, that layout
 #: must stay readable, which is why the extra state has carried a version
-#: number from the first layout on.
+#: number from the first layout on. Layout 2 is layout 1 plus the weight's
+#: rotation (``GemmFormats.rotation``), and a layer without one still writes
+#: layout 1, so its checkpoints stay what they were.
 _PACKED_LAYOUT = 1
+_PACKED_LAYOUT_ROTATED = 2
 
 #: The dtypes a packing can record, keyed by the names its extra state uses.
 _DTYPES = {
@@ -405,9 +409,11 @@ def _frozen_codes(layer: QLinear, pack: bool) -> BlockPacked:
         )
     weight_quant = formats.weight_quant
     # Is the slot a BlockQuant's own .pack method, which caches its packing so
-    # that the weight is packed only once?
-    owner = getattr(weight_quant, "__self__", None)
-    packer = owner if getattr(weight_quant, "__func__", None) is BlockQuant.pack else None
+    # that the weight is packed only once? A rotated slot runs it after the
+    # rotation, and its codes are those of the rotated weight.
+    inner = weight_quant.quant if isinstance(weight_quant, _RotatedQuant) else weight_quant
+    owner = getattr(inner, "__self__", None)
+    packer = owner if getattr(inner, "__func__", None) is BlockQuant.pack else None
     weight = layer.weight
     if not pack:
         if isinstance(packer, BlockQuant):
@@ -453,6 +459,19 @@ def _zeroed_codes(weight: torch.Tensor, q: BlockQuant) -> BlockPacked:
     codes = torch.zeros(data.shape, dtype=torch.uint8, device=weight.device)
     scale_codes = torch.zeros(scales.shape, dtype=torch.uint8, device=weight.device)
     return BlockPacked(codes, scale_codes, fmt, tuple(weight.shape), 1, 1.0, weight.dtype, carrier)
+
+
+def _rotation_state(rotation: "Hadamard | None") -> dict[str, Any] | None:
+    """A rotation as the plain values a frozen layer's extra state holds."""
+    if rotation is None:
+        return None
+    carrier = None if rotation.carrier is None else str(rotation.carrier).removeprefix("torch.")
+    return {
+        "size": rotation.size,
+        "signed": rotation.signed,
+        "seed": rotation.seed,
+        "carrier": carrier,
+    }
 
 
 class QPackedLinear(QLinear):
@@ -519,7 +538,7 @@ class QPackedLinear(QLinear):
 
     def get_extra_state(self) -> dict[str, Any]:
         fmt, shape, tensor_scale, dtype, carrier = self._packing
-        return {
+        state = {
             "layout": _PACKED_LAYOUT,
             "format": list(_block_format_ints(fmt)),
             "elem_max": fmt.elem_max,
@@ -530,22 +549,27 @@ class QPackedLinear(QLinear):
             "dtype": str(dtype).removeprefix("torch."),
             "carrier": str(carrier).removeprefix("torch."),
         }
+        rotation = _rotation_state(self.formats._rotation)
+        if rotation is not None:
+            state["layout"] = _PACKED_LAYOUT_ROTATED
+            state["rotation"] = rotation
+        return state
 
     def set_extra_state(self, state: Any) -> None:
         fmt, shape, _, _, _ = self._packing
         layout = state.get("layout") if isinstance(state, dict) else None
-        if layout != _PACKED_LAYOUT:
+        if layout not in (_PACKED_LAYOUT, _PACKED_LAYOUT_ROTATED):
             raise ValueError(
                 f"this checkpoint's frozen weight has layout version {layout!r}, and this "
-                f"mptorch reads version {_PACKED_LAYOUT}"
+                f"mptorch reads versions {_PACKED_LAYOUT} and {_PACKED_LAYOUT_ROTATED}"
             )
         own = self.get_extra_state()
-        for key in ("format", "elem_max", "scale_max", "shape", "axis"):
-            if state.get(key) != own[key]:
+        for key in ("format", "elem_max", "scale_max", "shape", "axis", "rotation"):
+            if state.get(key) != own.get(key):
                 raise ValueError(
                     f"this checkpoint's frozen weight has {key} {state.get(key)!r}, and this "
-                    f"layer's ({_block_label(fmt)}, shape {shape}) has {own[key]!r}: build the "
-                    "layer with the formats the checkpoint was frozen with"
+                    f"layer's ({_block_label(fmt)}, shape {shape}) has {own.get(key)!r}: build "
+                    "the layer with the formats the checkpoint was frozen with"
                 )
         dtype, carrier = _DTYPES.get(state.get("dtype")), _DTYPES.get(state.get("carrier"))
         if dtype is None or carrier not in _CARRIER:
@@ -561,8 +585,14 @@ class QPackedLinear(QLinear):
         Its float weight is the decoded codes (:func:`mptorch.quant.block_unpack`),
         in the dtype they were packed from: the quantized weight, not the one
         the layer was frozen from. Use it to fine-tune from a frozen
-        checkpoint, or to export to tools that read a plain ``nn.Linear``."""
+        checkpoint, or to export to tools that read a plain ``nn.Linear``.
+        A layer whose formats rotate its weight (``GemmFormats.rotation``)
+        holds the codes of the rotated weight, and its float weight is
+        rotated back."""
         weight = block_unpack(self.packed_weight).contiguous()
+        rotation = self.formats._rotation
+        if rotation is not None:
+            weight = hadamard_rotate(weight, rotation, inverse=True)
         del self.weight_codes
         del self.weight_scales
         del self._packing

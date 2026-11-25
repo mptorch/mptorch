@@ -1,0 +1,6 @@
+relative error of x @ w.T
+format      none    DH32   DH128
+MXFP8     0.0480  0.0417  0.0406
+MXFP4     0.2041  0.1601  0.1590
+NVFP4     0.1216  0.1477  0.1442
+input gradient against nn.Linear's, relative: 4.3e-07
