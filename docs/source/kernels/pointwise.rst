@@ -269,6 +269,22 @@ An activation refuses a table of another activation (a SiLU table given to
 norm's ``inverse`` (:doc:`reductions`). A table of a function of your own,
 which has no ``name``, goes anywhere.
 
+**What a table costs.** A table is evaluated with PyTorch's own ops: the
+index, the fraction, two gathers, the interpolation and the tails, then the
+slot's cast. Eager, that is about a dozen passes over the tensor. Compile it
+for speed: ``torch.compile`` fuses the evaluation into one kernel, whose cost
+is PyTorch's fused activation's, and only the rounding stays a pass of its
+own. On ``[4096, 4096]`` float32, against ``F.silu``'s 0.65 ms on CUDA (an
+RTX 4060 laptop GPU) and 0.78 ms on the CPU (16 threads, ``[2048, 2048]``),
+in ms per call:
+
+====================================  ==========  =============  =========  ============
+``qsilu`` with ``silu_table()``       CUDA eager  CUDA compiled  CPU eager  CPU compiled
+====================================  ==========  =============  =========  ============
+the table                             15.8        0.71           59.1       1.09
+the table, ``out`` rounded            14.5        1.28           63.5       2.18
+====================================  ==========  =============  =========  ============
+
 .. literalinclude:: ../../snippets/pointwise_tables.py
    :language: python
    :caption: docs/snippets/pointwise_tables.py
