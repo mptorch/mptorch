@@ -13,7 +13,8 @@ This page states what that product computes:
 - when it equals the dot product that OCP MX defines;
 - where a per-tensor scale enters the sum.
 
-:doc:`calling` has the functions that run it, and :doc:`/layers` the layer
+Then come a rotation of the operands before they are quantized, and IEEE
+P3109's operations on packed blocks. :doc:`calling` has the functions that run it, and :doc:`/layers` the layer
 recipes built on it.
 
 Quantization in the loop
@@ -319,6 +320,91 @@ channels, then holds a rotated layer without quantization to
    :caption: docs/snippets/kernels_block_rotation.py
 
 .. literalinclude:: ../../snippets/kernels_block_rotation.out
+   :language: text
+   :caption: output
+
+IEEE P3109's block operations
+-----------------------------
+
+Section VIII of the P3109 paper (`arXiv:2606.04028
+<https://arxiv.org/abs/2606.04028>`__) defines operations on a block given
+as a scale code and its elements' codes. On a
+:class:`~mptorch.quant.BlockPacked`, MPTorch has each of them, and defines
+the two that the paper only names. Every one decodes its operands into the
+carrier, computes there, and stores the result once.
+
+**BlockProject** is :func:`~mptorch.quant.block_project`: a tensor stored
+under scale codes the caller gives, laid out as
+:attr:`~mptorch.quant.BlockPacked.scales` is, instead of the codes the
+format's rule chooses. With :math:`S` the value a block's code decodes to
+(times the tensor scale, for a cast scale), the first case that applies
+gives each element :math:`X_i` the value
+
+.. math::
+
+   Z_i = \begin{cases}
+     \text{NaN} & \text{if } S \text{ or } X_i \text{ is NaN,} \\
+     0 & \text{if } S = 0 \text{, an infinite } X_i \text{ included,} \\
+     X_i / S & \text{otherwise,}
+   \end{cases}
+
+and :math:`Z_i` is rounded once, as :func:`~mptorch.quant.block_pack` rounds
+an element: in the call's rounding mode, saturating at the element format's
+largest value. P3109's fourth case, an infinite :math:`S`, cannot arise,
+since none of the scale formats here has an infinity. Projecting onto the
+scales :func:`~mptorch.quant.block_pack` chose gives its codes word for word,
+stochastic rounding included under the same generator state. The one
+exception is a block that :func:`~mptorch.quant.block_pack` marked with the
+scale format's NaN, because it held a NaN its element format has no code for.
+There every element becomes code 0, where :func:`~mptorch.quant.block_pack`
+keeps the other codes, and both decode to NaN.
+
+A NaN element under a scale that is not NaN needs a NaN code, which E2M1,
+E2M3 and E3M2 do not have (MXFP4, MXFP6, NVFP4). For those,
+:func:`~mptorch.quant.block_project` raises. Finding out waits for the kernel
+on a GPU, so a call in such a format synchronizes with the device.
+
+**BlockMap** is :func:`~mptorch.quant.block_map`: a function of the decoded
+values of one or more packed tensors, its result stored under the scale codes
+given, or with ``scales=None`` under the ones the format's rule chooses
+(:func:`~mptorch.quant.block_pack`), which is the variant P3109 lets choose its
+scales. **BlockExp** is :func:`~mptorch.quant.block_exp`, the exponential, and
+**ScaledAdd** is :func:`~mptorch.quant.block_scaled_add`, a sum. P3109 defines
+ScaledAdd on single-element blocks; here the operands are any packed tensors
+of one shape. A result is rounded twice: by the function's arithmetic in the
+carrier, then to the format.
+
+**ConvertToBlockMaxAbsFinite** is
+:func:`~mptorch.quant.convert_to_block_max_abs_finite`: each block's scale is
+its largest finite magnitude rounded to nearest in the scale format, so that
+the block's largest element is stored as about :math:`\pm 1`. OCP's rule puts
+it near the element format's largest value instead. A power-of-two scale is
+the power of two nearest the magnitude, a tie going to the even exponent. A
+cast scale is the magnitude over the tensor scale, which defaults to
+:math:`\max|x| / \text{scale\_max}`, rounded by the scale format's cast.
+
+**BlockReduceAdd and BlockDotProduct** are mptorch's definitions:
+:func:`~mptorch.quant.block_reduce_add` sums each block's decoded values in
+order, by :func:`~mptorch.quant.qsum`, and
+:func:`~mptorch.quant.block_dot` multiplies each pair of blocks as a
+:math:`[1, \beta] \cdot [\beta, 1]` product, by :func:`~mptorch.quant.qbmm`.
+Each takes a mac, so every accumulate algorithm and rounding mode of
+:doc:`arithmetic` applies, and returns one value per block in the carrier's
+dtype. A block here is :math:`\beta` consecutive elements along the packed
+axis, one row of a 2D tile.
+
+:func:`~mptorch.quant.block_project` is an operation of its own on every
+backend. It costs about what :func:`~mptorch.quant.block_pack` does, since it
+skips the pass that finds each block's largest magnitude: 0.81 to 0.94 times
+as long on a Ryzen CPU at one and sixteen threads, and 0.99 to 1.35 times on
+an RTX 4060 laptop GPU, over :math:`4096^2` float32 elements in MXFP8, MXFP4
+and NVFP4. The other operations are compositions of existing operations.
+
+.. literalinclude:: ../../snippets/kernels_block_p3109.py
+   :language: python
+   :caption: docs/snippets/kernels_block_p3109.py
+
+.. literalinclude:: ../../snippets/kernels_block_p3109.out
    :language: text
    :caption: output
 

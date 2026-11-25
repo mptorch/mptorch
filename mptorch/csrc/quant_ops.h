@@ -921,3 +921,11 @@ at::Tensor fixedpoint_quantize_scaled_cuda(at::Tensor a, at::Tensor scale, int64
 at::Tensor binaryK_quantize_scaled_mps(at::Tensor a, at::Tensor scale, int64_t block_size, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
 at::Tensor superfp_quantize_scaled_mps(at::Tensor a, at::Tensor scale, int64_t block_size, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
 at::Tensor fixedpoint_quantize_scaled_mps(at::Tensor a, at::Tensor scale, int64_t block_size, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
+
+// P3109's BlockProject: element codes under the caller's scale codes
+// (common/block_project.h). CPU in cpu/block_project.cpp, CUDA in
+// cuda/block_project.cu, MPS in mps/block_entry.cpp over
+// mps/block_project.metal.
+at::Tensor block_project_cpu(at::Tensor x, at::Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor block_project_cuda(at::Tensor x, at::Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor block_project_mps(at::Tensor x, at::Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);

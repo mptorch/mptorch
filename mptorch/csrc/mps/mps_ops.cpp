@@ -103,4 +103,5 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("binaryK_quant_scaled", TORCH_FN(binaryK_quantize_scaled_mps));
   m.impl("superfp_quant_scaled", TORCH_FN(superfp_quantize_scaled_mps));
   m.impl("fixedpoint_quant_scaled", TORCH_FN(fixedpoint_quantize_scaled_mps));
+  m.impl("block_project", TORCH_FN(block_project_mps));
 }

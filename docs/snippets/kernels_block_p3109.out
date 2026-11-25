@@ -1,0 +1,11 @@
+block_pack's scales: [[127], [124]]
+onto them, block_pack's codes: True
+onto scales twice as large: [[0.0, -1.0, 2.0, 6.0], [0.125, 0.25, -0.375, 0.75]]
+RuntimeError: block_project: an element is NaN and its block's scale is not, and this format's elements have no NaN code to store it in: give that block the scale format's NaN code, as block_pack does, or remove the NaN
+under a NaN scale: [nan, nan, nan, nan]
+exp, new scales: [1.125, 0.75, 1.875, 4.5]
+exp onto x's   : [1.125, 0.75, 1.75, 1.75]
+scaled to 1: [[129], [127]] [[0.3125, -1.0, 2.5, 6.0], [0.1015625, 0.203125, -0.40625, 0.8125]]
+sums per block: [[62.5], [5.6875]]
+in BinaryK(8, 4): [[64.0], [5.0]]
+dot products: [[346.78125], [7.01416015625]]

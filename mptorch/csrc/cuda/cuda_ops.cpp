@@ -87,4 +87,5 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("binaryK_quant_scaled", binaryK_quantize_scaled_cuda);
     MPT_CUDA_IMPL("superfp_quant_scaled", superfp_quantize_scaled_cuda);
     MPT_CUDA_IMPL("fixedpoint_quant_scaled", fixedpoint_quantize_scaled_cuda);
+    MPT_CUDA_IMPL("block_project", block_project_cuda);
 }

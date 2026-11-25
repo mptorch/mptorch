@@ -162,10 +162,30 @@ Block quantizers
 
 .. autofunction:: block_unpack
 
+.. autofunction:: block_project
+
 .. autoclass:: BlockPacked
 
 .. autoclass:: BlockQuant
    :special-members: __call__
+
+Block operations
+~~~~~~~~~~~~~~~~
+
+IEEE P3109's block operations on packed tensors, and mptorch's two
+reductions (:doc:`kernels/block`, "IEEE P3109's block operations").
+
+.. autofunction:: block_map
+
+.. autofunction:: block_exp
+
+.. autofunction:: block_scaled_add
+
+.. autofunction:: convert_to_block_max_abs_finite
+
+.. autofunction:: block_reduce_add
+
+.. autofunction:: block_dot
 
 Kernels
 -------

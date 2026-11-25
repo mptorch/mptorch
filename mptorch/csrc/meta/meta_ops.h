@@ -515,3 +515,6 @@ Tensor superfp_binaryK_matmul_accumulated_odd_meta(Tensor a, Tensor b, bool tran
 Tensor binaryK_quantize_scaled_meta(Tensor a, Tensor scale, int64_t block_size, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
 Tensor superfp_quantize_scaled_meta(Tensor a, Tensor scale, int64_t block_size, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
 Tensor fixedpoint_quantize_scaled_meta(Tensor a, Tensor scale, int64_t block_size, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
+
+// Defined in block_project_meta.cpp: P3109's BlockProject (common/block_project.h).
+Tensor block_project_meta(Tensor x, Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);

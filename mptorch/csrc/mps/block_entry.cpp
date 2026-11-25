@@ -1,6 +1,7 @@
 // The MPS entry points of the elementwise block ops: block_pack,
-// block_unpack, block_quant and block_quant_ (common/block_decode.h defines
-// the format, mptorch/quant/ops/block.py is the Python side). The block
+// block_unpack, block_quant, block_quant_ and block_project
+// (common/block_decode.h defines the format, common/block_project.h states
+// block_project, mptorch/quant/ops/block.py is the Python side). The block
 // GEMM's entry point is in custom_matmul_block_entry.cpp.
 //
 // Each does what its CPU twin (cpu/block_kernel.cpp) does, in the same order
@@ -21,11 +22,13 @@
 
 #include "../common/stochastic_host.h"
 #include "../common/block_host.h"
+#include "../common/block_project_host.h"
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "../quant_ops.h"
 #include "launch_params.h"
 #include "metal_runtime.h"
 #include <ATen/ops/empty_like.h>
+#include <ATen/ops/zeros.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -260,4 +263,47 @@ void block_quantize_mps_(Tensor &x, c10::IntArrayRef fmt, double elem_max, doubl
               "needs a tensor whose elements do not overlap, got strides ", x.strides(),
               " for sizes ", x.sizes(), ": use block_quant, which writes a new tensor");
   quantize_into(x, x, fmt, elem_max, scale_max, tensor_scale, round_mode, "block_quant_");
+}
+
+Tensor block_project_mps(Tensor x, Tensor scales, c10::IntArrayRef fmt, double elem_max, double scale_max,
+                         double tensor_scale, int64_t round_mode)
+{
+  constexpr const char *op = "block_project";
+  bool wide = false;
+  const Fmt f = check_block_project(x, scales, fmt, elem_max, scale_max, tensor_scale, round_mode, op, wide);
+  Tensor data = at::empty_symint(block_project_sizes(x, f), x.options().dtype(at::kByte));
+  if (x.numel() == 0)
+    return data;
+  const Tensor s = scales.contiguous();
+  const BlockProjectJob j = project_job(x, s, block_dtype(x.scalar_type(), op), round_mode);
+  const BlockFormatParams p = block_params<float>(f, elem_max, scale_max, tensor_scale, j.cols, j.rows);
+  mptorch_mps::BlockProjectLaunch L{};
+  L.batch = j.batch;
+  L.rows = j.rows;
+  L.cols = j.cols;
+  L.xs0 = j.xs0;
+  L.xs1 = j.xs1;
+  L.xs2 = j.xs2;
+  L.per_row = p.n_blocks * (p.block_size / project_group(p.elem_bits));
+  L.groups = static_cast<uint64_t>(j.batch * j.rows * L.per_row);
+  TORCH_CHECK(L.groups <= std::numeric_limits<uint32_t>::max(), op,
+              ": an MPS block_project runs one thread per group of codes that fill whole bytes, at most "
+              "2^32 - 1 of them, got ", L.groups);
+  L.seed = seed_for(round_mode);
+  const std::string tail = std::string("using mpt_storage_t = ") +
+                           mptorch_mps::metal_storage_type(x.scalar_type(), op) + ";\n#define MPT_ROUND_MODE " +
+                           mptorch_mps::metal_round_mode(round_mode) + "\n" + block_cast_source(f, elem_max);
+  // The flag is read only for a format that can refuse a NaN; otherwise the
+  // kernel never writes the buffer bound in its place, nor the scales one of
+  // a format without scales.
+  Tensor flag;
+  if (project_can_refuse(p))
+    flag = at::zeros({1}, x.options().dtype(at::kInt));
+  mptorch_mps::launch(mptorch_mps::KernelSource::BlockProject, tail,
+                      {x, s.numel() != 0 ? s : data, data, flag.defined() ? flag : data,
+                       mptorch_mps::KernelArg::params(p), mptorch_mps::KernelArg::params(L)},
+                      L.groups);
+  if (flag.defined())
+    refuse_unstored_nan(flag.item<int32_t>() != 0, op);
+  return data;
 }

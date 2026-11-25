@@ -10,6 +10,14 @@ configure them, and the conversion of a whole model from a recipe
 
 from . import presets
 from .attention import AttentionFormats, FlashFormats, qattention
+from .blockwise import (
+    block_dot,
+    block_exp,
+    block_map,
+    block_reduce_add,
+    block_scaled_add,
+    convert_to_block_max_abs_finite,
+)
 from .conv import conv_formats
 from .convert import ConvertReport, ConvertRow, convert, convert_, register, unconvert_
 from .gemm import (
@@ -76,6 +84,7 @@ from .ops import (
     binaryK_superfp_matmul,
     block_matmul,
     block_pack,
+    block_project,
     block_quantize,
     block_quantize_,
     block_unpack,
@@ -150,9 +159,17 @@ __all__ = [
     "block_unpack",
     "block_quantize",
     "block_quantize_",
+    "block_project",
     "block_matmul",
     "BlockQuant",
     "BlockMac",
+    # P3109's block operations on packed tensors, and mptorch's two reductions
+    "block_map",
+    "block_exp",
+    "block_scaled_add",
+    "convert_to_block_max_abs_finite",
+    "block_reduce_add",
+    "block_dot",
     # differentiable matmul functions
     "qmm",
     "qbmm",

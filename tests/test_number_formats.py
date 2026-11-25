@@ -671,6 +671,7 @@ _BLOCK_PUBLIC = (
     "block_pack",
     "block_quantize",
     "block_quantize_",
+    "block_project",
     "block_unpack",
 )
 

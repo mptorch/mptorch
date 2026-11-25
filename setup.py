@@ -293,15 +293,18 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     Xcode's), and that compiler has no include path: a library is one string.
     Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
     ``block.metal``, ``odd.metal``, ``carrier_odd.metal``,
-    ``scaled_quant.metal``, which includes ``quantize.metal``)
-    is therefore flattened here, its quoted ``#include``\\ s replaced by the
-    files they name, recursively and once each, with ``#line`` directives so a
-    compile error names the header and line it is in. ``odd.metal``, which the
+    ``scaled_quant.metal``, which includes ``quantize.metal``, and
+    ``block_project.metal``) is therefore flattened here, its quoted
+    ``#include``\\ s replaced by the files they name, recursively and once
+    each, with ``#line`` directives so a compile error names the header and
+    line it is in. ``odd.metal``, which the
     odd carrier step's kernels compile between the prelude and their
     instantiation (``metal_runtime.mm``), is flattened against the headers the
     prelude already holds, so that none is inlined twice: the walk is textual,
-    and ``#pragma once`` is dropped from it. The shared headers
-    under ``csrc/common`` are what the prelude includes, so the kernels are
+    and ``#pragma once`` is dropped from it. ``block_project.metal`` is too,
+    since the header it includes includes ``block_decode.h``, which the
+    prelude holds. The shared headers under ``csrc/common`` are what the
+    prelude includes, so the kernels are
     compiled from the same casts the CPU and CUDA backends are, and a change
     to one of them reaches the GPU at the next build.
 
@@ -334,9 +337,19 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
 
     strings = []
     prelude_seen: set[Path] = set()
-    for root in ("prelude", "gemm", "quantize", "block", "odd", "carrier_odd", "scaled_quant"):
+    roots = (
+        "prelude",
+        "gemm",
+        "quantize",
+        "block",
+        "odd",
+        "carrier_odd",
+        "scaled_quant",
+        "block_project",
+    )
+    for root in roots:
         lines: list[str] = []
-        seen = set(prelude_seen) if root == "odd" else set()
+        seen = set(prelude_seen) if root in ("odd", "block_project") else set()
         flatten(mps_dir / f"{root}.metal", seen, lines)
         if root == "prelude":
             prelude_seen = seen

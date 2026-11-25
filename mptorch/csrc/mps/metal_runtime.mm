@@ -35,6 +35,8 @@ namespace mptorch_mps
         return metal_sources::carrier_odd;
       case KernelSource::QuantizeScaled:
         return metal_sources::scaled_quant;
+      case KernelSource::BlockProject:
+        return metal_sources::block_project;
       default:
         return metal_sources::block;
       }
@@ -71,6 +73,8 @@ namespace mptorch_mps
         return "mpt_block_pack_tile";
       case KernelSource::QuantizeScaled:
         return "mpt_quantize_scaled";
+      case KernelSource::BlockProject:
+        return "mpt_block_project";
       default:
         return "mpt_block_unpack";
       }

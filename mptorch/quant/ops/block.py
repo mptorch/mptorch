@@ -3,7 +3,7 @@
 A block format (:class:`mptorch.BlockFormat`, such as OCP MX or NVFP4) stores
 a tensor as narrow element codes in blocks of ``block_size`` consecutive
 elements along one axis, the *packed* axis, and each block shares one scale.
-This module holds the plain functions that call the five block ops, one
+This module holds the plain functions that call the six block ops, one
 function per op and every op argument spelled out:
 
 * :func:`block_pack` rounds a tensor to the format and stores the result as
@@ -12,6 +12,9 @@ function per op and every op argument spelled out:
 * :func:`block_quantize` does both at once and returns the decoded values
   without building the packed tensor, and :func:`block_quantize_` writes
   them over its input;
+* :func:`block_project` stores a tensor under scales the caller gives, as
+  IEEE P3109's BlockProject does, instead of the ones the format's rule
+  would choose;
 * :func:`block_matmul` multiplies two :class:`BlockPacked` operands. The GEMM
   decodes the codes as it loads them and computes in the dot-product
   arithmetic it is given.
@@ -76,6 +79,7 @@ __all__ = [
     "block_unpack",
     "block_quantize",
     "block_quantize_",
+    "block_project",
     "block_matmul",
 ]
 
@@ -677,6 +681,108 @@ def block_quantize_(
         True
     """
     return _quantize(x, fmt, axis, rounding, tensor_scale, carrier, in_place=True)
+
+
+def block_project(
+    x: torch.Tensor,
+    fmt: BlockFormat,
+    scales: torch.Tensor,
+    axis: int = -1,
+    *,
+    rounding: RoundMode = RoundMode.RNE,
+    tensor_scale: float | None = None,
+    carrier: torch.dtype | None = None,
+) -> BlockPacked:
+    """Store ``x`` in a block format under the scale codes ``scales``: IEEE P3109's BlockProject.
+
+    :func:`block_pack` chooses each block's scale by the format's rule;
+    this function takes them as given, one code per block (or tile) in the
+    layout of :attr:`BlockPacked.scales`. With ``S`` the value a block's
+    code decodes to (times the tensor scale, for a cast scale), each element
+    ``X`` of the block becomes ``Z``, the first case that applies:
+
+    - NaN, if ``S`` or ``X`` is NaN;
+    - 0, if ``S`` is 0 (an infinite ``X`` included);
+    - ``X / S`` otherwise,
+
+    and ``Z`` is rounded once, as :func:`block_pack` rounds an element: in
+    the rounding mode ``rounding``, saturating to the element format's
+    largest value. A power-of-two scale has no zero, and no scale format
+    here has an infinity, which P3109's fourth case is for. Projecting onto
+    the scales :func:`block_pack` chose returns its codes word for word,
+    stochastic rounding included under the same generator state, except in a
+    block that :func:`block_pack` marked with the scale format's NaN because
+    it held a NaN its element format has no code for. There this function
+    writes code 0 for every element, where :func:`block_pack` keeps their
+    codes, and both decode to NaN.
+
+    A NaN element whose block's scale is not NaN needs the element format's
+    NaN code, which some formats lack (E2M1, E2M3 and E3M2, so MXFP4,
+    MXFP6 and NVFP4). For those, the kernel reports such an element, and
+    this function raises. Finding out waits for the kernel on a GPU, so a
+    call in such a format synchronizes with the device. A format without a
+    scale stores a NaN as its largest value, as :func:`block_pack` does.
+
+    The result keeps a reference to ``scales`` as its own, and records the
+    tensor scale.
+
+    Args:
+        x (Tensor): float32, float64, float16 or bfloat16, of any rank.
+        fmt (BlockFormat): the format.
+        scales (Tensor): the scale codes, ``uint8`` on ``x``'s device,
+            shaped as ``block_pack(x, fmt, axis).scales`` is. A format
+            without a scale takes a tensor with zero columns there.
+        axis (int): the axis to pack along. Default: ``-1``
+        rounding (RoundMode): the rounding mode for the elements. Default:
+            ``RoundMode.RNE``
+        tensor_scale (float, optional): the per-tensor scale of a format whose
+            block scale has a mantissa (NVFP4), which the scale codes are
+            decoded with. ``None`` computes :func:`block_pack`'s default from
+            ``x``. Default: ``None``
+        carrier (torch.dtype, optional): as for :func:`block_pack`.
+            Default: ``None``
+
+    Returns:
+        BlockPacked: the codes, with ``scales`` as their scales.
+
+    Raises:
+        ValueError: as :func:`block_pack` does.
+        RuntimeError: for scale codes of the wrong dtype, device or shape,
+            for a NaN element the format cannot store, as described above, and
+            for a tensor that requires grad, under grad mode.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import MXFP8_E4M3
+        >>> from mptorch.quant import block_pack, block_project
+        >>> x = torch.tensor([[1.0, -2.0, 3.0, 0.5] * 8])
+        >>> p = block_project(x, MXFP8_E4M3, torch.tensor([[128]], dtype=torch.uint8))
+        >>> p.unpack()[0, :4]  # code 128 is 2^(128 - 127): each element is stored as x / 2
+        tensor([ 1.0000, -2.0000,  3.0000,  0.5000])
+        >>> block_pack(x, MXFP8_E4M3).scales  # the format's rule would choose 2^-7
+        tensor([[120]], dtype=torch.uint8)
+    """
+    wide = _prologue(x, fmt, carrier, "block_project")
+    if x.dim() == 0:
+        raise ValueError("block_project needs a tensor with at least one dimension")
+    if not isinstance(scales, torch.Tensor):
+        raise TypeError(
+            f"block_project takes its scale codes as a uint8 tensor, got {type(scales).__name__}"
+        )
+    axis = axis % x.dim()
+    src = x.double() if wide and x.dtype is not torch.float64 else x
+    ts = _tensor_scale(src, fmt, tensor_scale, wide)
+    data = torch.ops.mptorch.block_project.default(
+        _storage_view(src, axis, "block_project"),
+        scales,
+        _block_format_ints(fmt),
+        fmt.elem_max,
+        fmt.scale_max,
+        ts,
+        rounding.value,
+    )
+    return BlockPacked(data, scales, fmt, tuple(x.shape), axis, ts, x.dtype, _CARRIER[wide])
 
 
 class _BlockQuantSpec(NamedTuple):

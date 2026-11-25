@@ -10,7 +10,7 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 69 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  whose kernels the build has: all 70 under ``MPTORCH_ODD_ACCUMULATED=1``.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -43,6 +43,7 @@ from torch.utils._python_dispatch import TorchDispatchMode
 
 from mptorch import (
     MXFP8_E4M3,
+    NVFP4,
     AccumulateAlgorithm,
     BinaryK,
     FixedPoint,
@@ -68,6 +69,7 @@ from mptorch.quant import (
     block_gemm_formats,
     block_matmul,
     block_pack,
+    block_project,
     block_quantize,
     block_quantize_,
     block_unpack,
@@ -262,6 +264,12 @@ def _workload():
     pb = block_pack(_rnd(gen, 64, 3), MXFP8_E4M3, axis=-2, rounding=SR)
     block_matmul(pa, pb, rounding=SR)
     block_matmul(pa, pb, accumulate_algorithm=A.KAHAN)
+    # BlockProject: onto the rule's own scales, a batch, and a strided view
+    block_project(xb, MXFP8_E4M3, pa.scales, rounding=SR)
+    x3 = _rnd(gen, 2, 4, 64)
+    block_project(x3, MXFP8_E4M3, block_pack(x3, MXFP8_E4M3).scales)
+    xt = _rnd(gen, 32, 4)
+    block_project(xt, NVFP4, block_pack(xt, NVFP4, axis=0).scales, axis=0, rounding=SR)
     if HAS_ODD:
         torch.ops.mptorch._carrier_odd(x, x, x, 0)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3
@@ -319,7 +327,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 69
+    assert len(names) == 70
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -707,6 +715,18 @@ def _block_cases():
         ),
         "quant round mode": _with("block_quant", round_mode=99),
         "quant_ overlap": _with("block_quant_", x=x(1, 64).expand(4, 64)),
+        "project round mode": _with("block_project", round_mode=99),
+        "project rank": _with("block_project", x=x(64)),
+        "project dtype": _with("block_project", x=x(4, 64).int()),
+        "project fmt": _with("block_project", fmt=list(fmt)[:-1]),
+        "project scales dtype": _with("block_project", scales=torch.zeros(4, 2, dtype=torch.int16)),
+        "project scales rank": _with(
+            "block_project", scales=torch.zeros(1, 4, 2, dtype=torch.uint8)
+        ),
+        "project scales shape": _with("block_project", scales=torch.zeros(4, 1, dtype=torch.uint8)),
+        "project batch": _with(
+            "block_project", call=1, scales=torch.zeros(3, 4, 2, dtype=torch.uint8)
+        ),
         "gemm a cols": _with("custom_matmul_block", a_cols=32),
         "gemm round mode": _with("custom_matmul_block", round_mode=99),
         "gemm algorithm": _with("custom_matmul_block", accumulate_algorithm=99),
@@ -831,7 +851,9 @@ _CONV_IDS = [
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
     "unpack data dtype", "unpack cols", "unpack dtype", "unpack batch", "quant round mode",
-    "quant_ overlap", "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
+    "quant_ overlap", "project round mode", "project rank", "project dtype", "project fmt",
+    "project scales dtype", "project scales rank", "project scales shape", "project batch",
+    "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
     "gemm naive block size", "gemm kahan block size", "gemm acc prng", "gemm acc exp width",
     "gemm acc bias", "gemm acc bias past int", "gemm acc prng past int", "gemm acc saturation mode",
 ]  # fmt: skip

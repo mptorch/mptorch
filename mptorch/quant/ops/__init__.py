@@ -3,8 +3,8 @@
 Each function here calls one ``torch.ops.mptorch`` op and carries no gradient:
 the elementwise quantizers (``binaryK_quantize`` and its counterparts), one
 wrapper per GEMM op (``binaryK_matmul`` and its variants), and the block
-format ops (``block_pack``, ``block_unpack``, ``block_quantize`` and
-``block_matmul``). The tiers above build on these: the format objects of
+format ops (``block_pack``, ``block_unpack``, ``block_quantize``,
+``block_project`` and ``block_matmul``). The tiers above build on these: the format objects of
 :mod:`mptorch.quant.mac`, the differentiable matrix products of
 :mod:`mptorch.quant.matmul`, and the layer factories of
 :mod:`mptorch.quant.gemm` and :mod:`mptorch.quant.conv`. Every public name is
@@ -17,7 +17,8 @@ also importable from :mod:`mptorch.quant`.
 #   superfp      the superfp counterparts
 #   fixedpoint   fixedpoint_quantize(_); there is no fixed-point GEMM
 #   cross        the cross-family GEMMs: binaryK_superfp_matmul, superfp_binaryK_matmul
-#   block        the block format ops: block_pack, block_unpack, block_quantize(_), block_matmul
+#   block        the block format ops: block_pack, block_unpack, block_quantize(_), block_project,
+#                block_matmul
 #   _checks      each call's checks of its formats against the carrier and the storage dtype
 #   _spec        format defaults, the resolved GEMM call (_GemmSpec), and running it
 #   _accumulate  KAHAN, BLOCK and TREE: the arguments of the *_accumulated ops
@@ -41,6 +42,7 @@ from .block import (
     BlockPacked,
     block_matmul,
     block_pack,
+    block_project,
     block_quantize,
     block_quantize_,
     block_unpack,
@@ -78,5 +80,6 @@ __all__ = [
     "block_pack",
     "block_quantize",
     "block_quantize_",
+    "block_project",
     "block_unpack",
 ]

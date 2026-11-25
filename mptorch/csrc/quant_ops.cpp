@@ -523,4 +523,9 @@ TORCH_LIBRARY(mptorch, m)
   m.def("fixedpoint_quant_scaled(Tensor a, Tensor scale, int block_size, int wl, int fl, "
         "int prng_bits, bool is_signed, bool symmetric, "
         "int round_mode) -> Tensor", seeded);
+  // P3109's BlockProject (common/block_project.h): x's element codes under
+  // the scale codes given, shaped as block_pack writes its scales, in
+  // block_pack's format arguments; the result is block_pack's data.
+  m.def("block_project(Tensor x, Tensor scales, int[] fmt, float elem_max, float scale_max, "
+        "float tensor_scale, int round_mode) -> Tensor", seeded);
 }

@@ -75,6 +75,19 @@ namespace mptorch_mps
   };
   static_assert(sizeof(ScaledQuantLaunch) == 40, "ScaledQuantLaunch must have one layout on the host and the GPU");
 
+  // A block_project call (block_project.metal): x's extents and element
+  // strides, `per_row` byte groups per row (project_group's elements each),
+  // `groups` threads in all, and the SR seed.
+  struct BlockProjectLaunch
+  {
+    int64_t batch, rows, cols;
+    int64_t xs0, xs1, xs2;
+    int64_t per_row;
+    uint64_t groups;
+    uint64_t seed;
+  };
+  static_assert(sizeof(BlockProjectLaunch) == 72, "BlockProjectLaunch must have one layout on the host and the GPU");
+
   // The most threads a tile's threadgroup has (mpt_block_pack_tile). The
   // host gives each thread 64 of a tile's elements, with at least one
   // simdgroup and at most this many threads, which a 128 x 128 tile
