@@ -85,4 +85,6 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("block_project", TORCH_FN(block_project_cpu));
   m.impl("custom_matmul_fixedpoint", TORCH_FN(fixedpoint_matmul_cpu));
   m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_cpu));
+  m.impl("custom_conv_fixedpoint", TORCH_FN(fixedpoint_conv_cpu));
+  m.impl("custom_conv_fixedpoint_fma", TORCH_FN(fixedpoint_conv_fma_cpu));
 }

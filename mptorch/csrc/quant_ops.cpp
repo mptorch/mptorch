@@ -543,4 +543,17 @@ TORCH_LIBRARY(mptorch, m)
   m.def("custom_matmul_fixedpoint_fma(Tensor a, Tensor b, bool trans_a, bool trans_b, "
         "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
         "int round_mode, int fma_prng_bits, bool wrap) -> Tensor", seeded);
+  // The fixed-point conv ops (common/fixedpoint_conv_host.h): one pass of a
+  // convolution on the fixed-point GEMM's arithmetic, the GEMM op's format
+  // arguments after the conv ops' geometry.
+  m.def("custom_conv_fixedpoint(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, "
+        "int mul_wl, int mul_fl, bool mul_is_signed, bool mul_symmetric, "
+        "int acc_wl, int acc_fl, bool acc_is_signed, bool acc_symmetric, "
+        "int round_mode, int mul_prng_bits, int acc_prng_bits, bool wrap, "
+        "bool integer=False) -> Tensor", seeded);
+  m.def("custom_conv_fixedpoint_fma(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, "
+        "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
+        "int round_mode, int fma_prng_bits, bool wrap) -> Tensor", seeded);
 }

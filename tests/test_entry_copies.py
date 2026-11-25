@@ -28,6 +28,7 @@ CSRC = Path(__file__).resolve().parents[1] / "mptorch" / "csrc"
 BACKENDS = ("cpu", "cuda", "mps", "meta")
 ENTRY_FILES = (
     "custom_conv_entry.cpp",
+    "custom_conv_fixedpoint_entry.cpp",
     "custom_conv_odd_entry.cpp",
     "custom_matmul_accumulated_entry.cpp",
     "custom_matmul_block_entry.cpp",
@@ -39,6 +40,10 @@ ENTRY_FILES = (
 # Entry files that only some backends have yet: file -> (backends, reason).
 # The copies are compared on those backends.
 PARTIAL_ENTRY_FILES = {
+    "custom_conv_fixedpoint_entry.cpp": (
+        ("cpu", "cuda", "meta"),
+        "the fixed-point GEMM is built a backend at a time (phase T): MPS in its step 6",
+    ),
     "custom_matmul_fixedpoint_entry.cpp": (
         ("cpu", "cuda", "meta"),
         "the fixed-point GEMM is built a backend at a time (phase T): MPS in its step 6",

@@ -549,13 +549,19 @@ namespace mptorch::gemm_cuda
         }
         else
         {
-            static_assert(!MIXED && !GATHERED, "the fixed-point GEMM has no palette or conv ops");
+            // a conv op's result is gathered, as the first branch stores it
+            static_assert(!MIXED, "the fixed-point GEMM has no palette ops");
             if (rId < M && cId < N)
             {
-                if (acc.mac.wide)
-                    static_cast<double *>(C)[(bId * M + rId) * N + cId] = acc.finalize_wide();
+                int64_t out;
+                if constexpr (!GATHERED)
+                    out = (bId * M + rId) * N + cId;
                 else
-                    store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+                    out = (bId * M + rId) * acc_proto.geom.res_N + ct.res_col;
+                if (acc.mac.wide)
+                    static_cast<double *>(C)[out] = acc.finalize_wide();
+                else
+                    store_elem<T>(C, out, dt, acc.finalize());
             }
         }
     }

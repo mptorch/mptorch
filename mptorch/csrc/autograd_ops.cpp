@@ -202,6 +202,8 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("block_project", kernel());
   m.impl("custom_matmul_fixedpoint", kernel());
   m.impl("custom_matmul_fixedpoint_fma", kernel());
+  m.impl("custom_conv_fixedpoint", kernel());
+  m.impl("custom_conv_fixedpoint_fma", kernel());
 }
 
 // The four in-place quantizers also need a kernel for the ADInplaceOrView

@@ -90,4 +90,6 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("block_project", block_project_cuda);
     MPT_CUDA_IMPL("custom_matmul_fixedpoint", fixedpoint_matmul_cuda);
     MPT_CUDA_IMPL("custom_matmul_fixedpoint_fma", fixedpoint_matmul_fma_cuda);
+    MPT_CUDA_IMPL("custom_conv_fixedpoint", fixedpoint_conv_cuda);
+    MPT_CUDA_IMPL("custom_conv_fixedpoint_fma", fixedpoint_conv_fma_cuda);
 }

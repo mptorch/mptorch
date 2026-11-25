@@ -10,8 +10,8 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 72 under ``MPTORCH_ODD_ACCUMULATED=1``.
-  The fixed-point GEMMs are called directly until ``mptorch.quant`` names
+  whose kernels the build has: all 74 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  The fixed-point GEMM and conv ops are called directly until ``mptorch.quant`` names
   them.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
@@ -290,6 +290,15 @@ def _workload():
     ops.custom_matmul_fixedpoint_fma(
         a.bfloat16(), b.bfloat16(), False, False, 10, 4, True, False, R.RNE.value, 0, True
     )
+    # The fixed-point conv ops' three passes: the split mac under SR, an input
+    # gradient into a wide result, and a weight gradient of the fused mac.
+    xc, wc, dyc = _rnd(gen, 2, 3, 6, 6), _rnd(gen, 4, 3, 3, 3), _rnd(gen, 2, 4, 6, 6)
+    geo = ([1, 1], [1, 1], [1, 1], 1)
+    ops.custom_conv_fixedpoint(wc, xc, 0, [6, 6], *geo, *s8, *s16, SR.value, 6, 6, False)
+    ops.custom_conv_fixedpoint(
+        wc, dyc, 1, [6, 6], *geo, *s8, 40, 8, True, False, R.RNE.value, 0, 0, False
+    )
+    ops.custom_conv_fixedpoint_fma(dyc, xc, 2, [3, 3], *geo, *s16, SR.value, 5, True)
     if HAS_ODD:
         torch.ops.mptorch._carrier_odd(x, x, x, 0)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3
@@ -347,7 +356,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 72
+    assert len(names) == 74
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -730,6 +739,12 @@ def _conv_cases():
         "mul bias": _with("custom_conv_binaryK", mul_bias=-(2**31 - 1)),
         "mul bias past int": _with("custom_conv_binaryK", mul_bias=2**40),
         "mul saturation mode": _with("custom_conv_binaryK", mul_saturation_mode=4),
+        # the fixed-point conv ops (call 0 of each is stochastic)
+        "fixedpoint conv pass": _with("custom_conv_fixedpoint", conv_pass=3),
+        "fixedpoint conv acc magnitude": _with("custom_conv_fixedpoint", acc_wl=60),
+        "fixedpoint conv fused span": _with(
+            "custom_conv_fixedpoint_fma", fma_wl=54, fma_fl=4, fma_prng_bits=20
+        ),
     }
 
 
@@ -891,7 +906,8 @@ _CONV_IDS = [
     "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
     "odd cross groups", "mul prng", "mul exp width", "mul bias", "mul bias past int",
-    "mul saturation mode",
+    "mul saturation mode", "fixedpoint conv pass", "fixedpoint conv acc magnitude",
+    "fixedpoint conv fused span",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",

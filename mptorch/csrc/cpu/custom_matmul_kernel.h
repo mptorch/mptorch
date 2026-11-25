@@ -606,22 +606,37 @@ namespace mptorch::gemm_cpu
         }
         else
         {
-          static_assert(!MIXED && !mptorch::gemm::is_gathered_v<Accumulator>,
-                        "the fixed-point GEMM has no palette or conv ops");
+          // a conv op's result is gathered, as the first branch stores it; a
+          // wide one through store_gather_tile's double specialization
+          static_assert(!MIXED, "the fixed-point GEMM has no palette ops");
           if (mac_single.wide)
           {
-            double *__restrict__ dst = static_cast<double *>(C) + c_off;
-            for (int64_t i = 0; i < ti; ++i)
-              for (int64_t j = 0; j < tj; ++j)
-                dst[(i0 + i) * N + (j0 + j)] =
-                    Accumulator::result_wide(tile, i * tj + j, mac_single);
+            if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+            {
+              double *__restrict__ dst = static_cast<double *>(C) + c_off;
+              for (int64_t i = 0; i < ti; ++i)
+                for (int64_t j = 0; j < tj; ++j)
+                  dst[(i0 + i) * N + (j0 + j)] =
+                      Accumulator::result_wide(tile, i * tj + j, mac_single);
+            }
+            else
+            {
+              alignas(64) double w_pack[TI * TJ];
+              for (int64_t i = 0; i < ti; ++i)
+                for (int64_t j = 0; j < tj; ++j)
+                  w_pack[i * tj + j] = Accumulator::result_wide(tile, i * tj + j, mac_single);
+              store_gather_tile(C, dt, w_pack, acc_proto.geom, bId, M, i0, j0, ti, tj);
+            }
           }
           else
           {
             for (int64_t i = 0; i < ti; ++i)
               for (int64_t j = 0; j < tj; ++j)
                 c_pack[i * tj + j] = Accumulator::result(tile, i * tj + j, mac_single);
-            store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+            if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+              store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+            else
+              store_gather_tile(C, dt, c_pack, acc_proto.geom, bId, M, i0, j0, ti, tj);
           }
         }
       }

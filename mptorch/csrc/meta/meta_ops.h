@@ -522,3 +522,7 @@ Tensor block_project_meta(Tensor x, Tensor scales, c10::IntArrayRef fmt, double 
 // Defined in custom_matmul_fixedpoint_entry.cpp: the fixed-point GEMM (common/fixedpoint_gemm.h).
 Tensor fixedpoint_matmul_meta(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 Tensor fixedpoint_matmul_fma_meta(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
+
+// Defined in custom_conv_fixedpoint_entry.cpp: the fixed-point conv ops (common/fixedpoint_conv_host.h).
+Tensor fixedpoint_conv_meta(Tensor a, Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
+Tensor fixedpoint_conv_fma_meta(Tensor a, Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);

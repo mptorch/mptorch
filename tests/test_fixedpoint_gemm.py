@@ -35,6 +35,12 @@ mac) and ``custom_matmul_fixedpoint_fma`` (a fused one), on the CPU.
   every case above, in three dtypes, over tiles, batches and transposes;
   under stochastic rounding, which draws from CUDA's own generator, the two
   paths give each other's words, and the mean is P3109's.
+- **The conv ops** (``custom_conv_fixedpoint`` and its fused twin): each of
+  the three passes is the fixed-point GEMM over the unfolded operands
+  (``test_qconv_gemm.py``'s references) word for word, in every mode,
+  stochastic rounding included, over every geometry of that file, on the
+  CPU and CUDA; a strided input gradient is the zero-inserted sum; a wide
+  result is float64 and exact; and the two paths give each other's words.
 """
 
 import math
@@ -48,9 +54,20 @@ import torch
 from mptorch import FixedPoint, RoundMode
 from mptorch.number.fixedpoint import _fixedpoint_gemm, _fixedpoint_gemm_wide, _fixedpoint_span
 from mptorch.quant import fixedpoint_quantize
+from mptorch.quant.ops._spec import _GemmSpec
 
 from . import fixedpoint_gemm_reference as ref
 from .markers import cuda_devices
+from .test_qconv_gemm import (
+    GEOMETRIES,
+    _geometry,
+    _out,
+    _seeded,
+    ref_fwd,
+    ref_igrad,
+    ref_igrad_zero_inserted,
+    ref_wgrad,
+)
 
 R = RoundMode
 DETERMINISTIC = [R.RNE, R.RNA, R.RU, R.RD, R.RZ, R.RO]
@@ -688,3 +705,157 @@ def test_on_cuda_the_carrier_path_draws_as_the_integer_path_does(mode, dtype, de
         torch.manual_seed(23)
         results.append(_op(a, b, acc=acc, mul=mul, mode=mode, integer=integer))
     assert torch.equal(results[0], results[1])
+
+
+# --- the conv ops ----------------------------------------------------------------------
+
+CONV_SPLIT = torch.ops.mptorch.custom_conv_fixedpoint.default
+CONV_FUSED = torch.ops.mptorch.custom_conv_fixedpoint_fma.default
+
+
+def _gemm_spec(*, acc, mul=None, mode=R.RNE, wrap=False, integer=False) -> _GemmSpec:
+    """The fixed-point GEMM call as a `_GemmSpec`, for the conv references of
+    ``test_qconv_gemm.py``, which run their GEMMs through `_run_gemm`."""
+    if mul is None:
+        return _GemmSpec(FUSED, (*_fields(acc), mode.value, acc.prng_bits, wrap))
+    args = (*_fields(mul), *_fields(acc), mode.value, mul.prng_bits, acc.prng_bits, wrap, integer)
+    return _GemmSpec(SPLIT, args)
+
+
+def _conv(
+    conv_pass, a, b, out_size, geo, groups, *, acc, mul=None, mode=R.RNE, wrap=False, integer=False
+):
+    """One of the two conv ops: the split mac when ``mul`` is given."""
+    s, p, d = (list(v) for v in geo)
+    head = (a, b, conv_pass, list(out_size), s, p, d, groups)
+    if mul is None:
+        return CONV_FUSED(*head, *_fields(acc), mode.value, acc.prng_bits, wrap)
+    return CONV_SPLIT(
+        *head, *_fields(mul), *_fields(acc), mode.value, mul.prng_bits, acc.prng_bits, wrap,
+        integer,
+    )  # fmt: skip
+
+
+def _conv_operands(geometry, device, dtype, *, B=2, seed=3, fmt=None):
+    """x, w and dy for a geometry of ``test_qconv_gemm.py``: normal values
+    times 3, or values on ``fmt``'s grid."""
+    size, kernel, stride, padding, dilation, groups, C, Cout = GEOMETRIES[geometry]
+    s, p, d = _geometry(len(size), stride, padding, dilation)
+    out = _out(size, kernel, s, p, d)
+    g = torch.Generator().manual_seed(seed)
+    shapes = ((B, C, *size), (Cout, C // groups, *kernel), (B, Cout, *out))
+    if fmt is None:
+        x, w, dy = (torch.randn(*sh, generator=g, dtype=torch.float64) * 3 for sh in shapes)
+    else:
+        x, w, dy = (_on_grid(sh, fmt, seed + i) for i, sh in enumerate(shapes))
+    return [t.to(device, dtype) for t in (x, w, dy)], (s, p, d), size, kernel, out, groups
+
+
+def _three_passes(geometry, device, formats, mode, dtype=torch.float32, *, integer=False):
+    """The forward, input-gradient and weight-gradient passes, each against
+    its reference, under the same seed."""
+    mul, acc, wrap = formats
+    (x, w, dy), geo, size, kernel, out, groups = _conv_operands(geometry, device, dtype)
+    spec = _gemm_spec(acc=acc, mul=mul, mode=mode, wrap=wrap)
+    s, p, d = geo
+    passes = (
+        (0, w, x, out, lambda: ref_fwd(spec, x, w, s, p, d, groups, out)),
+        (1, w, dy, size, lambda: ref_igrad(spec, dy, w, size, s, p, d, groups)),
+        (2, dy, x, kernel, lambda: ref_wgrad(spec, dy, x, kernel, s, p, d, groups)),
+    )
+    for conv_pass, a, b, out_size, reference in passes:
+        _seeded(device)
+        got = _conv(
+            conv_pass, a, b, out_size, geo, groups, acc=acc, mul=mul, mode=mode, wrap=wrap,
+            integer=integer,
+        )  # fmt: skip
+        _seeded(device)
+        want = reference()
+        assert got.shape == want.shape and got.dtype == want.dtype, conv_pass
+        assert _same_words(got.cpu(), want.cpu()), conv_pass
+
+
+CONV_CASES = [
+    "carrier path",
+    "unsigned",
+    "symmetric",
+    "saturating midway",
+    "wrapping",
+    "fused",
+    "fused wrapping",
+]
+
+
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
+@pytest.mark.parametrize("case", CONV_CASES)
+@pytest.mark.parametrize("mode", DETERMINISTIC + STOCHASTIC)
+def test_each_conv_pass_is_the_gemm_over_the_unfolded_operands(mode, case, device):
+    _three_passes("2d_all", device, OP_CASES[case], mode)
+
+
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
+@pytest.mark.parametrize("geometry", list(GEOMETRIES))
+@pytest.mark.parametrize("mode", [R.RNE, R.RZ, R.SR])
+def test_the_conv_geometries(geometry, mode, device):
+    for case in ("carrier path", "fused"):
+        _three_passes(geometry, device, OP_CASES[case], mode)
+
+
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
+@pytest.mark.parametrize(
+    "geometry", ["1d_strided", "2d_all", "2d_dilation_shares_stride", "3d_all"]
+)
+@pytest.mark.parametrize("case", ["carrier path", "saturating midway", "fused wrapping"])
+def test_a_strided_input_gradient_is_the_zero_inserted_sum(case, geometry, device):
+    """The residue classes skip the zeros the stride inserts, and a zero
+    product leaves a fixed-point sum as it was, in every deterministic mode."""
+    mul, acc, wrap = OP_CASES[case]
+    (x, w, dy), geo, size, kernel, out, groups = _conv_operands(geometry, device, torch.float32)
+    s, p, d = geo
+    for mode in DETERMINISTIC:
+        got = _conv(1, w, dy, size, geo, groups, acc=acc, mul=mul, mode=mode, wrap=wrap)
+        spec = _gemm_spec(acc=acc, mul=mul, mode=mode, wrap=wrap)
+        want = ref_igrad_zero_inserted(spec, dy, w, size, s, p, d, groups)
+        assert _same_words(got.cpu(), want.cpu()), mode
+
+
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_a_wide_conv_result_is_float64_and_exact(dtype, device):
+    """On-grid operands, whose products every carrier holds: the float64
+    result of a wide accumulator equals the pass in float64 operands."""
+    fmt = FixedPoint(8, 2)
+    (x, w, dy), geo, size, kernel, out, groups = _conv_operands("2d_all", device, dtype, fmt=fmt)
+    for mul in (FixedPoint(16, 4), None):
+        acc = FixedPoint(40, 4)
+        for conv_pass, a, b, out_size in ((0, w, x, out), (1, w, dy, size), (2, dy, x, kernel)):
+            got = _conv(conv_pass, a, b, out_size, geo, groups, acc=acc, mul=mul)
+            want = _conv(conv_pass, a.double(), b.double(), out_size, geo, groups, acc=acc, mul=mul)
+            assert got.dtype == torch.float64 and torch.equal(got, want), (conv_pass, mul)
+
+
+@pytest.mark.parametrize("device", ["cpu", *cuda_devices])
+@pytest.mark.parametrize("mode", DETERMINISTIC + STOCHASTIC)
+def test_a_conv_pass_on_the_carrier_path_is_the_integer_path(mode, device):
+    formats = OP_CASES["carrier path"]
+    for integer in (False, True):
+        _three_passes("2d_all", device, formats, mode, integer=integer)
+
+
+def test_a_conv_op_refuses_what_the_gemm_refuses_and_bad_geometry():
+    x, w = torch.ones(1, 2, 5, 5), torch.ones(3, 2, 3, 3)
+    geo = ([1, 1], [0, 0], [1, 1])
+    with pytest.raises(RuntimeError, match="accumulates 1 to 53"):
+        _conv(0, w, x, [3, 3], geo, 1, acc=_Raw(60, 4), mul=FixedPoint(16, 8))
+    with pytest.raises(RuntimeError, match="conv_pass must be 0"):
+        _conv(3, w, x, [3, 3], geo, 1, acc=FixedPoint(16, 4))
+    with pytest.raises(RuntimeError, match="no modulus to wrap"):
+        _conv(0, w, x, [3, 3], geo, 1, acc=FixedPoint(16, 4, symmetric=True), wrap=True)
+
+
+def test_an_empty_conv_allocates_the_result_and_draws_nothing():
+    before = torch.get_rng_state()
+    x, w = torch.zeros(0, 2, 5, 5), torch.ones(3, 2, 3, 3)
+    got = _conv(0, w, x, [3, 3], ([1, 1], [0, 0], [1, 1]), 1, acc=FixedPoint(40, 4), mode=R.SR)
+    assert got.shape == (0, 3, 3, 3) and got.dtype == torch.float64
+    assert torch.equal(torch.get_rng_state(), before)
