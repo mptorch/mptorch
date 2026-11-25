@@ -25,7 +25,7 @@ from mptorch import E4M3, E5M2, BinaryK, FixedPoint, RoundMode, SaturationMode, 
 from mptorch.number import MXFP8_E4M3
 from mptorch.quant import QLinear, Quant, ScaledQuant
 from mptorch.quant.ops._checks import _narrowed
-from tests.markers import available_devices, float64_devices
+from tests.markers import available_devices, cuda_devices, float64_devices, requires_mps
 from tests.test_recompute import _equal, _formats, _step
 
 SAT = SaturationMode.SAT_FINITE
@@ -447,7 +447,12 @@ LAYOUTS = [
     ("block", 3, (2, 2, 2)),  # rows shorter than a vector
     ("block", 64, (4, 30)),  # a block longer than the row
 ]
-UNFUSED_TWIN_DEVICES = [d for d in available_devices if d != "mps"]
+# The devices where torch's own arithmetic, which the unfused call runs, is
+# IEEE's. MPS is not one: it flushes binary32 subnormals, so
+# test_mps_fused_is_the_cpus holds its fused kernel to the CPU instead. The
+# list is spelled out because available_devices holds pytest.param values,
+# which no string compares equal to.
+UNFUSED_TWIN_DEVICES = ["cpu", *cuda_devices]
 
 
 def _fused_and_unfused(sq, x, device):
@@ -475,7 +480,7 @@ def test_the_fused_op_is_the_unfused_spelling(
     assert torch.equal(fused, unfused)
 
 
-@pytest.mark.parametrize("device", [d for d in float64_devices if d != "mps"])
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fmt,rounding,target", FUSED_CASES, ids=str)
 @pytest.mark.parametrize("granularity,block_size,shape", LAYOUTS[::2], ids=str)
 @pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.bfloat16])
@@ -498,7 +503,7 @@ def test_the_fused_op_in_binary64(
 @pytest.mark.parametrize("fmt,rounding,target", FUSED_CASES, ids=str)
 @pytest.mark.parametrize("granularity,block_size,shape", LAYOUTS, ids=str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("device", [d for d in available_devices if d == "mps"])
+@pytest.mark.parametrize("device", [pytest.param("mps", marks=requires_mps)])
 def test_mps_fused_is_the_cpus(
     device, fmt, rounding, target, granularity, block_size, shape, dtype
 ):
@@ -512,10 +517,12 @@ def test_mps_fused_is_the_cpus(
     assert _same_bits(got, want)
 
 
-@pytest.mark.parametrize("device", UNFUSED_TWIN_DEVICES)
+@pytest.mark.parametrize("device", available_devices)
 def test_the_fused_op_on_special_values_and_layouts(device):
     """Non-finite elements (a scale of 1, NaN positions kept), a strided
-    input, a view off a 16-byte boundary, and a power-of-two scale."""
+    input, a view off a 16-byte boundary, and a power-of-two scale. The fused
+    op is held to the unfused call on the same device, and on MPS to the
+    CPU's fused op, as in test_mps_fused_is_the_cpus."""
     x = _data(device, shape=(8, 33))
     x[1, 3], x[2, 5], x[5, 0] = float("inf"), float("nan"), float("-inf")
     for sq in (
@@ -524,8 +531,11 @@ def test_the_fused_op_on_special_values_and_layouts(device):
         ScaledQuant(E5M2_SAT, pow2=True, margin=1),
     ):
         for t in (x, x.mT, x.flatten()[1:]):
-            fused, unfused = _fused_and_unfused(sq, t, device)
-            assert _same_bits(fused, unfused)
+            if device == "mps":
+                got, want = _run(device, sq, t).cpu(), _run("cpu", sq, t.cpu())
+            else:
+                got, want = _fused_and_unfused(sq, t, device)
+            assert _same_bits(got, want)
 
 
 @pytest.mark.parametrize("device", available_devices)
