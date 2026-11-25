@@ -33,8 +33,18 @@ ENTRY_FILES = (
     "custom_matmul_block_entry.cpp",
     "custom_matmul_cross_entry.cpp",
     "custom_matmul_entry.cpp",
+    "custom_matmul_fixedpoint_entry.cpp",
     "custom_matmul_odd_entry.cpp",
 )
+# Entry files that only some backends have yet: file -> (backends, reason).
+# The copies are compared on those backends.
+PARTIAL_ENTRY_FILES = {
+    "custom_matmul_fixedpoint_entry.cpp": (
+        ("cpu", "meta"),
+        "the fixed-point GEMM is built a backend at a time (phase T): CUDA in its step 4, MPS in "
+        "its step 6",
+    ),
+}
 ODD_HOST_FILES = ("carrier_odd_host.h", "carrier_odd_gemm_host.h", "carrier_odd_conv_host.h")
 
 # Functions one backend's file has and the CPU's does not: (backend, file) ->
@@ -132,13 +142,19 @@ def _odd_host_bodies(texts: dict[str, str]) -> dict[str, tuple[list[str], list[s
     return bodies
 
 
+def _backends(entry: str) -> tuple[str, ...]:
+    """The backends that have ``entry``, the CPU first."""
+    return PARTIAL_ENTRY_FILES[entry][0] if entry in PARTIAL_ENTRY_FILES else BACKENDS
+
+
 def _mismatches(entry: str, texts: dict[str, str]) -> list[str]:
-    """Every way the four copies of ``entry`` differ. ``texts`` maps
+    """Every way the copies of ``entry`` differ. ``texts`` maps
     ``<backend>/<entry>`` and each odd host header's name to its source."""
-    defs = {be: _definitions(texts[f"{be}/{entry}"], rf"(\w+)_{be}") for be in BACKENDS}
+    backends = _backends(entry)
+    defs = {be: _definitions(texts[f"{be}/{entry}"], rf"(\w+)_{be}") for be in backends}
     host = _odd_host_bodies(texts)
     problems = []
-    for be in BACKENDS[1:]:
+    for be in backends[1:]:
         extra = set(defs[be]) - set(defs["cpu"])
         allowed = DELIBERATE_FUNCTIONS.get((be, entry), {})
         problems += [
@@ -156,7 +172,7 @@ def _mismatches(entry: str, texts: dict[str, str]) -> list[str]:
     for op, (params, body) in defs["cpu"].items():
         cpu = _normalised(params + body)
         forward = re.fullmatch(r"\{ return DRIVER\((\w+_odd)\) \( (.*) \) ; \}", _normalised(body))
-        for be in BACKENDS[1:]:
+        for be in backends[1:]:
             if op not in defs[be]:
                 continue
             got = _normalised(defs[be][op][0] + defs[be][op][1])
@@ -199,7 +215,7 @@ def _mismatches(entry: str, texts: dict[str, str]) -> list[str]:
 
 
 def _sources(entry: str) -> dict[str, str]:
-    texts = {f"{be}/{entry}": (CSRC / be / entry).read_text() for be in BACKENDS}
+    texts = {f"{be}/{entry}": (CSRC / be / entry).read_text() for be in _backends(entry)}
     for name in ODD_HOST_FILES:
         texts[name] = (CSRC / "common" / name).read_text()
     return texts
@@ -207,9 +223,8 @@ def _sources(entry: str) -> dict[str, str]:
 
 def test_every_backend_has_the_same_entry_files():
     for be in BACKENDS:
-        assert sorted(p.name for p in (CSRC / be).glob("custom_*_entry.cpp")) == list(
-            ENTRY_FILES
-        ), be
+        want = [f for f in ENTRY_FILES if be in _backends(f)]
+        assert sorted(p.name for p in (CSRC / be).glob("custom_*_entry.cpp")) == want, be
 
 
 @pytest.mark.parametrize("entry", ENTRY_FILES)

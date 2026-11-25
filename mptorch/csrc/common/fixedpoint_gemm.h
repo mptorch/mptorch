@@ -77,11 +77,13 @@ namespace mptorch::gemm
   // as the bitwise cast returns it.
   //
   // The gate keeps C and every nonzero result normal binary32 values: fl in
-  // [-103, 125]. On the device the operations are __fadd_rn and __fsub_rn;
-  // on the host they need -ffp-contract=off, which MPTORCH_FAST_CAST
-  // promises (bit_helper.h), as binaryK's fast path does. On Metal a
-  // subnormal input is flushed to zero, which is its RNE result anyway, since
-  // the gate keeps the step at or above 2^-125.
+  // [-103, 125]. On the device the operations are __fadd_rn and __fsub_rn.
+  // On the host they need binary32 evaluation, with no excess precision,
+  // which MPTORCH_FAST_CAST's probe asserts (FLT_EVAL_METHOD == 0,
+  // bit_helper.h), and no reassociation; with no multiplication in them,
+  // contraction into an FMA cannot reach them. On Metal a subnormal input is
+  // flushed to zero, which is its RNE result anyway, since the gate keeps the
+  // step at or above 2^-125.
   // dev/benchmarks/sweeps/gemm_cast_fixedpoint_arith.cu holds it to the
   // bitwise cast and to reference_casts.h's ref_fixedpoint over every
   // binary32 input.
@@ -555,6 +557,9 @@ namespace mptorch::gemm
 #if !defined(__METAL_VERSION__)
     using tile_type = FixedPointIntTile;
 #endif
+    // read by has_int_result_v, through the policies that derive from an
+    // accumulator too (the conv ops' Gathered)
+    static constexpr MPTORCH_CONSTANT bool int_result = true;
 
     Mac mac{};
     int64_t sum = 0;
@@ -590,9 +595,13 @@ namespace mptorch::gemm
 #endif
   };
 
-  // Whether an accumulator is FixedPointIntAccumulator, whose results the
-  // kernels read through its own functions (the wide store). Metal has no
-  // derived classes, so the trait does not derive from std::true_type.
+  // Whether an accumulator is a FixedPointIntAccumulator, or a policy that
+  // derives from one (the conv ops' Gathered), whose results the kernels read
+  // through the accumulator's own functions: the Mac's scale, and the wide
+  // store. On the host and CUDA it reads int_result, which a derived policy
+  // inherits, as is_positional_accumulator_v reads `positional`. Metal has no
+  // derived classes and no `requires`, so there it is a specialization.
+#if defined(__METAL_VERSION__)
   template <class A>
   struct has_int_result
   {
@@ -607,6 +616,10 @@ namespace mptorch::gemm
 
   template <class A>
   constexpr MPTORCH_CONSTANT bool has_int_result_v = has_int_result<A>::value;
+#else
+  template <class A>
+  constexpr bool has_int_result_v = requires { A::int_result; };
+#endif
 
   // --- the Args ---------------------------------------------------------------------
 

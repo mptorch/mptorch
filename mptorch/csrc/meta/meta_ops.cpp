@@ -255,4 +255,6 @@ TORCH_LIBRARY_IMPL(mptorch, Meta, m)
   m.impl("superfp_quant_scaled", TORCH_FN(superfp_quantize_scaled_meta));
   m.impl("fixedpoint_quant_scaled", TORCH_FN(fixedpoint_quantize_scaled_meta));
   m.impl("block_project", TORCH_FN(block_project_meta));
+  m.impl("custom_matmul_fixedpoint", TORCH_FN(fixedpoint_matmul_meta));
+  m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_meta));
 }

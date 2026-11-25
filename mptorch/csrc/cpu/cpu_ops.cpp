@@ -83,4 +83,6 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("superfp_quant_scaled", TORCH_FN(superfp_quantize_scaled_cpu));
   m.impl("fixedpoint_quant_scaled", TORCH_FN(fixedpoint_quantize_scaled_cpu));
   m.impl("block_project", TORCH_FN(block_project_cpu));
+  m.impl("custom_matmul_fixedpoint", TORCH_FN(fixedpoint_matmul_cpu));
+  m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_cpu));
 }

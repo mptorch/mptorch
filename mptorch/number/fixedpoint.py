@@ -519,13 +519,17 @@ def _fixedpoint_gemm(
     ``acc`` is the accumulate format, or the fused mac's; ``wrap`` asks for
     wrap-around on the accumulate format's overflow, where saturation is the
     default. The carrier computes the call when the mac is split, the sum
-    saturates, both formats are rounded in the carrier, and an exact sum of
-    a product and a running sum fits the carrier's significand
-    (`_fixedpoint_span`). Since every step saturates to its format, that
-    depends on the formats alone, never on the length of the sum. Every
-    other call runs the integer accumulator, which refuses:
+    saturates, the carrier's cast rounds both formats correctly (no finding,
+    not even a warning: the cast misrounds near zero below its lowest step,
+    where the definition is exact), and an exact sum of a product and a
+    running sum fits the carrier's significand (`_fixedpoint_span`). Since
+    every step saturates to its format, that depends on the formats alone,
+    never on the length of the sum. Every other call runs the integer
+    accumulator, which refuses:
 
-    - a multiply format the carrier cannot round (it is the carrier's cast);
+    - a multiply format the carrier's cast does not round correctly, an
+      error or a warning of its elementwise rule (on both paths the product
+      is rounded by that cast);
     - an accumulate format past `_INTEGER_ACC_BITS`, or one that float64
       cannot hold;
     - stochastic rounding with more random bits than the carrier's draw
@@ -537,18 +541,18 @@ def _fixedpoint_gemm(
     c = _CARRIERS[carrier]
     acc_label = _fixedpoint_label(acc.wl, acc.fl, acc.is_signed, acc.symmetric)
     if mul is not None:
-        mul_error = _fixedpoint_findings(
+        mul_error, mul_warning = _fixedpoint_findings(
             mul.wl, mul.fl, mul.is_signed, mul.symmetric, mul.prng_bits, carrier
-        )[0]
-        if mul_error is not None:
+        )
+        if mul_error is not None or mul_warning is not None:
             return _FixedPointGemm(
-                False, f"the multiply format is rounded in the carrier: {mul_error}"
+                False, f"the multiply format is rounded in the carrier: {mul_error or mul_warning}"
             )
     acc_fields = (acc.wl, acc.fl, acc.is_signed, acc.symmetric)
     in_carrier = (
         mul is not None
         and not wrap
-        and _fixedpoint_findings(*acc_fields, acc.prng_bits, carrier)[0] is None
+        and _fixedpoint_findings(*acc_fields, acc.prng_bits, carrier) == (None, None)
         and _fixedpoint_span(mul, acc) <= c.precision
     )
     if in_carrier:

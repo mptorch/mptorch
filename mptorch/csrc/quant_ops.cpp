@@ -528,4 +528,19 @@ TORCH_LIBRARY(mptorch, m)
   // block_pack's format arguments; the result is block_pack's data.
   m.def("block_project(Tensor x, Tensor scales, int[] fmt, float elem_max, float scale_max, "
         "float tensor_scale, int round_mode) -> Tensor", seeded);
+  // The fixed-point GEMM (common/fixedpoint_gemm.h): a split mac (Q_M on the
+  // carrier's product, then Q_A on the exact sum) or a fused one (Q_F on the
+  // exact sum of the carrier's product and the running sum), NAIVE, each
+  // rounding saturating or, with `wrap`, wrapping the accumulate format
+  // around. The result is float64 when the accumulate format is wider than
+  // the operands' dtype. `integer` runs the integer accumulator where the
+  // carrier path would give the same bits (a test hook).
+  m.def("custom_matmul_fixedpoint(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_wl, int mul_fl, bool mul_is_signed, bool mul_symmetric, "
+        "int acc_wl, int acc_fl, bool acc_is_signed, bool acc_symmetric, "
+        "int round_mode, int mul_prng_bits, int acc_prng_bits, bool wrap, "
+        "bool integer=False) -> Tensor", seeded);
+  m.def("custom_matmul_fixedpoint_fma(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
+        "int round_mode, int fma_prng_bits, bool wrap) -> Tensor", seeded);
 }

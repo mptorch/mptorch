@@ -132,6 +132,11 @@ def value(code: int | None, fmt: FixedPoint) -> Fraction | None:
     return None if code is None else Fraction(code) * Fraction(2) ** -fmt.fl
 
 
+def _exact(code: int, fmt: FixedPoint) -> Fraction:
+    """A code's value (``fl`` may be negative: a step above 1)."""
+    return Fraction(code) * Fraction(2) ** -fmt.fl
+
+
 def carrier_of(dtype: torch.dtype, carrier: torch.dtype | None) -> torch.dtype:
     """The carrier a call computes in."""
     return torch.float64 if dtype is torch.float64 or carrier is torch.float64 else torch.float32
@@ -170,14 +175,14 @@ def gemm(
                     pq = quantize(p, mul, mode, w0, carrier=c)
                     assert pq is not None  # a non-NaN product rounds to a code
                     w1 = draw(i, j, k, 1) if draw is not None else 0
-                    x = Fraction(s, 2**acc.fl) + Fraction(pq, 2**mul.fl)
+                    x = _exact(s, acc) + _exact(pq, mul)
                     q = quantize(x, acc, mode, w1, wrap=wrap, carrier=c)
                 elif math.isinf(p):
                     q = quantize(p, acc, mode, w0, wrap=wrap, carrier=c)
                 else:
-                    x = Fraction(p) + Fraction(s, 2**acc.fl)
+                    x = Fraction(p) + _exact(s, acc)
                     q = quantize(x, acc, mode, w0, wrap=wrap, carrier=c)
                 assert q is not None
                 s = q
-            out[i, j] = float("nan") if nan else float(Fraction(s, 2**acc.fl))
+            out[i, j] = float("nan") if nan else float(_exact(s, acc))
     return out

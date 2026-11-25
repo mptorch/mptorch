@@ -10,7 +10,9 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 70 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  whose kernels the build has: all 72 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  The fixed-point GEMMs are called directly until ``mptorch.quant`` names
+  them.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -270,6 +272,24 @@ def _workload():
     block_project(x3, MXFP8_E4M3, block_pack(x3, MXFP8_E4M3).scales)
     xt = _rnd(gen, 32, 4)
     block_project(xt, NVFP4, block_pack(xt, NVFP4, axis=0).scales, axis=0, rounding=SR)
+    # The fixed-point GEMMs, called directly until mptorch.quant names them:
+    # the carrier path under SR, a wide (float64) result, wrap-around over a
+    # batch and a transposed operand; the fused mac under SR, and wrapping
+    # into a wide result from bfloat16 operands.
+    ops = torch.ops.mptorch
+    s8, s16 = (16, 8, True, False), (16, 4, True, False)
+    ops.custom_matmul_fixedpoint(a, b, False, False, *s8, *s16, SR.value, 6, 6, False)
+    ops.custom_matmul_fixedpoint(
+        a, b, False, False, *s8, 40, 8, True, False, R.RNE.value, 0, 0, False
+    )
+    ops.custom_matmul_fixedpoint(
+        _rnd(gen, 2, 8, 32), _rnd(gen, 6, 32), False, True, *s16, 8, 2, True, False, R.RZ.value,
+        0, 0, True,
+    )  # fmt: skip
+    ops.custom_matmul_fixedpoint_fma(a, b, False, False, *s16, SR.value, 5, False)
+    ops.custom_matmul_fixedpoint_fma(
+        a.bfloat16(), b.bfloat16(), False, False, 10, 4, True, False, R.RNE.value, 0, True
+    )
     if HAS_ODD:
         torch.ops.mptorch._carrier_odd(x, x, x, 0)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3
@@ -327,7 +347,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 70
+    assert len(names) == 72
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -648,6 +668,26 @@ def _gemm_cases():
             outer_subnormals_mode=5,
         ),
         "cross subnormals mode": _with("custom_matmul_superfp_binaryK", acc_subnormals_mode=3),
+        # the fixed-point GEMMs (call 0 of each is stochastic)
+        "fixedpoint mul width": _with("custom_matmul_fixedpoint", mul_wl=40),
+        "fixedpoint mul fl": _with("custom_matmul_fixedpoint", mul_fl=2**30 + 1),
+        "fixedpoint mul prng": _with("custom_matmul_fixedpoint", mul_prng_bits=12),
+        "fixedpoint mul fl past int": _with("custom_matmul_fixedpoint", mul_fl=2**40),
+        "fixedpoint mul end": _with("custom_matmul_fixedpoint", mul_fl=-120),
+        "fixedpoint mul step": _with("custom_matmul_fixedpoint", mul_fl=126),
+        "fixedpoint acc magnitude": _with("custom_matmul_fixedpoint", acc_wl=60),
+        "fixedpoint acc width past int": _with("custom_matmul_fixedpoint", acc_wl=2**40),
+        "fixedpoint acc values": _with("custom_matmul_fixedpoint", acc_fl=1100),
+        "fixedpoint acc random bits": _with("custom_matmul_fixedpoint", acc_prng_bits=30),
+        "fixedpoint wrap symmetric": _with(
+            "custom_matmul_fixedpoint", acc_symmetric=True, wrap=True
+        ),
+        "fixedpoint span": _with("custom_matmul_fixedpoint", mul_fl=60, acc_wl=40, acc_fl=-10),
+        "fixedpoint fused span": _with(
+            "custom_matmul_fixedpoint_fma", fma_wl=54, fma_fl=4, fma_prng_bits=20
+        ),
+        "fixedpoint round mode": _with("custom_matmul_fixedpoint_fma", round_mode=99),
+        "fixedpoint dtype": _with("custom_matmul_fixedpoint", a=x(8, 32).int(), b=x(32, 6).int()),
     }
 
 
@@ -838,6 +878,11 @@ _GEMM_IDS = [
     "mul prng past int", "unused acc prng past int", "mul saturation mode",
     "acc subnormals mode", "acc saturation mode", "mul saturation mode past int",
     "fused palette saturation mode", "outer subnormals mode", "cross subnormals mode",
+    "fixedpoint mul width", "fixedpoint mul fl", "fixedpoint mul prng",
+    "fixedpoint mul fl past int", "fixedpoint mul end", "fixedpoint mul step",
+    "fixedpoint acc magnitude", "fixedpoint acc width past int", "fixedpoint acc values",
+    "fixedpoint acc random bits", "fixedpoint wrap symmetric", "fixedpoint span",
+    "fixedpoint fused span", "fixedpoint round mode", "fixedpoint dtype",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",

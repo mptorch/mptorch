@@ -588,13 +588,42 @@ namespace mptorch::gemm_cpu
           }
         }
 
-        for (int64_t i = 0; i < ti; ++i)
-          for (int64_t j = 0; j < tj; ++j)
-            c_pack[i * tj + j] = tile.finalize(i * tj + j);
-        if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
-          store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+        // The fixed-point GEMM's integer accumulator (common/fixedpoint_gemm.h)
+        // keeps int64 codes, which only its Mac can scale, and its result is
+        // float64 when the format is wider than the operands' dtype (`wide`),
+        // whatever the carrier. The condition is has_int_result_v, spelled
+        // here so that this header needs no include for it. Every other
+        // accumulator takes the first branch, which is the code from before.
+        if constexpr (!requires { Accumulator::int_result; })
+        {
+          for (int64_t i = 0; i < ti; ++i)
+            for (int64_t j = 0; j < tj; ++j)
+              c_pack[i * tj + j] = tile.finalize(i * tj + j);
+          if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+            store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+          else
+            store_gather_tile(C, dt, c_pack, acc_proto.geom, bId, M, i0, j0, ti, tj);
+        }
         else
-          store_gather_tile(C, dt, c_pack, acc_proto.geom, bId, M, i0, j0, ti, tj);
+        {
+          static_assert(!MIXED && !mptorch::gemm::is_gathered_v<Accumulator>,
+                        "the fixed-point GEMM is single-format, and has no conv ops yet");
+          if (mac_single.wide)
+          {
+            double *__restrict__ dst = static_cast<double *>(C) + c_off;
+            for (int64_t i = 0; i < ti; ++i)
+              for (int64_t j = 0; j < tj; ++j)
+                dst[(i0 + i) * N + (j0 + j)] =
+                    Accumulator::result_wide(tile, i * tj + j, mac_single);
+          }
+          else
+          {
+            for (int64_t i = 0; i < ti; ++i)
+              for (int64_t j = 0; j < tj; ++j)
+                c_pack[i * tj + j] = Accumulator::result(tile, i * tj + j, mac_single);
+            store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+          }
+        }
       }
     });
   }
