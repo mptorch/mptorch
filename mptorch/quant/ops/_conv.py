@@ -120,7 +120,10 @@ class _ConvOp:
         padding: tuple[int, ...],
         dilation: tuple[int, ...],
         groups: int,
+        prec_idx: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """The pass, with ``prec_idx`` in place of the op's own map when given
+        (a palette layer's map, which the layer holds)."""
         spec = self.spec
         narrow = None
         if spec.carrier is not None:
@@ -133,8 +136,9 @@ class _ConvOp:
             if spec.stored and dtype in _NARROW_STORAGE:
                 _check_stored(spec.stored, dtype)
         geometry = (conv_pass, out_size, stride, padding, dilation, groups)
-        if self.prec_idx is None:
+        prec_idx = self.prec_idx if prec_idx is None else prec_idx
+        if prec_idx is None:
             out = self.op(a, b, *geometry, *self.args)
         else:
-            out = self.op(a, b, self.prec_idx, *geometry, *self.args)
+            out = self.op(a, b, prec_idx, *geometry, *self.args)
         return out if narrow is None else _narrowed(out, narrow)

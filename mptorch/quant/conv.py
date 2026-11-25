@@ -27,6 +27,7 @@ runs a pass, and the call itself, are in ``mptorch.quant.ops._conv``; this
 module turns a layer's call into the op's arguments.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -124,24 +125,40 @@ def _fwd_hook(run: _ConvOp):
         groups: int,
         nd: int,
     ) -> torch.Tensor:
-        x, unbatched = _batched(q_input, nd)
-        kernel = tuple(q_weight.shape[2:])
-        s = _ntuple(stride, nd, "stride")
-        d = _ntuple(dilation, nd, "dilation")
-        lead = _leading_padding(padding, kernel, s, d)
-        out_size = _output_extent(padding, lead, tuple(x.shape[2:]), kernel, s, d)
-        out = run(_FWD, q_weight, x, out_size, s, lead, d, groups)
-        if q_bias is not None:
-            # Add the bias in place, as the Linear hooks do: `out` is a fresh
-            # tensor the op just made, so this equals `out + bias` bit for bit
-            # without allocating a second output. A bias of a wider dtype is
-            # added out of place instead, so that the result is promoted.
-            view = q_bias.view(-1, *([1] * nd))
-            out = out.add_(view) if q_bias.dtype == out.dtype else out + view
-        # a view would stop an in-place op after the layer (see gemm._unviewed)
-        return out.squeeze(0).detach() if unbatched else out
+        return _conv_forward(run, q_input, q_weight, q_bias, stride, padding, dilation, groups, nd)
 
     return fwd
+
+
+def _conv_forward(
+    run: Callable,
+    q_input: torch.Tensor,
+    q_weight: torch.Tensor,
+    q_bias: torch.Tensor | None,
+    stride,
+    padding,
+    dilation,
+    groups: int,
+    nd: int,
+) -> torch.Tensor:
+    """A convolution's forward pass over the conv op ``run`` (a ``_ConvOp``'s
+    call), the bias added: the body of every convolution forward hook."""
+    x, unbatched = _batched(q_input, nd)
+    kernel = tuple(q_weight.shape[2:])
+    s = _ntuple(stride, nd, "stride")
+    d = _ntuple(dilation, nd, "dilation")
+    lead = _leading_padding(padding, kernel, s, d)
+    out_size = _output_extent(padding, lead, tuple(x.shape[2:]), kernel, s, d)
+    out = run(_FWD, q_weight, x, out_size, s, lead, d, groups)
+    if q_bias is not None:
+        # Add the bias in place, as the Linear hooks do: `out` is a fresh
+        # tensor the op just made, so this equals `out + bias` bit for bit
+        # without allocating a second output. A bias of a wider dtype is
+        # added out of place instead, so that the result is promoted.
+        view = q_bias.view(-1, *([1] * nd))
+        out = out.add_(view) if q_bias.dtype == out.dtype else out + view
+    # a view would stop an in-place op after the layer (see gemm._unviewed)
+    return out.squeeze(0).detach() if unbatched else out
 
 
 def _igrad_hook(run: _ConvOp):

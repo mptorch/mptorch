@@ -171,6 +171,14 @@ class QMultiheadAttention(nn.MultiheadAttention):
         )
         if parts.in_proj is None and parts.out_proj is None and parts.attention is None:
             return None
+        for part, gf in (("in_proj", parts.in_proj), ("out_proj", parts.out_proj)):
+            if gf is not None and gf.palette:
+                raise ValueError(
+                    f"the recipe gives the {part} of the nn.MultiheadAttention at "
+                    f"{name or '(the model)'!r} a palette fwd_mac: its in-projection packs the "
+                    "query's, the key's and the value's into one product, whose width a map of "
+                    "output neurons does not follow. Give its projections a single format"
+                )
         return parts
 
     def forward(

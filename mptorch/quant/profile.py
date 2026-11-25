@@ -41,6 +41,7 @@ from torch._subclasses.fake_tensor import (
     DataDependentOutputException,
     DynamicOutputShapeException,
     FakeTensorMode,
+    unset_fake_temporarily,
 )
 from torch.nn.modules.utils import _ntuple
 
@@ -52,6 +53,7 @@ from .modules.activation import QSoftmax
 from .modules.attention import QMultiheadAttention
 from .modules.matmul import QMatmul
 from .modules.normalization import QGroupNorm, QLayerNorm, QRMSNorm, _QBatchNorm
+from .palettes import _PaletteMap, set_palette_maps_
 from .recipe import GemmFormats, Recipe, _mac_label
 from .reduce import ReductionFormats
 from .simulate import (
@@ -315,6 +317,30 @@ def _sum_key(formats: Any, step: str) -> Any:
     return formats.acc if step == "fwd" else formats.bwd_acc
 
 
+def _palette_parts(formats: Any) -> list[tuple[Any, int | None]] | None:
+    """A palette layer's entries and each one's count of outputs (``None``
+    for all of them, which an unset map gives entry 0), or ``None`` for a
+    layer without a palette. The counts are the map's, read outside any fake
+    tensor mode; a map on the meta device, which has no values, gives the
+    counts kept when it was set."""
+    if not isinstance(formats, _PaletteMap):
+        return None
+    macs, m = formats._palette.macs, formats.prec_idx
+    if m is None:
+        return [(macs[0], None)]
+    if m.device.type == "meta":
+        counts = formats._palette_counts
+        if counts is None:
+            raise RuntimeError(
+                "a palette layer's map is on the meta device, and has no values to count: set "
+                "it with set_palette_maps_, which keeps its counts"
+            )
+    else:
+        with unset_fake_temporarily():
+            counts = torch.bincount(m.reshape(-1).long(), minlength=len(macs)).tolist()
+    return list(zip(macs, counts, strict=True))
+
+
 def _needs(t: Any) -> bool:
     """Whether ``t``'s gradient is computed: it requires one, in grad mode."""
     return isinstance(t, torch.Tensor) and t.requires_grad and torch.is_grad_enabled()
@@ -329,11 +355,27 @@ class _Counter:
         self.elements: list[ElementRecord] = []
         self.uncounted: dict[UncountedRecord, None] = {}
 
-    def product(self, name, kind, site, call, step, shape, formats) -> None:
+    def product(self, name, kind, site, call, step, shape, formats, key=_NOTHING) -> None:
         batch, M, N, K = shape
-        gf, key = _gemm_key(formats, step)
+        gf, found = _gemm_key(formats, step)
+        key = found if key is _NOTHING else key
         record = ProfileRecord(name, kind, batch, M, N, K, batch * M * N * K, gf, key)
         self.records.append(record._replace(site=site, call=call, step=step))
+
+    def forward(self, name, kind, site, call, shape, split: int, formats) -> None:
+        """A forward product's record, or, for a palette layer, one per entry:
+        ``shape``'s dimension ``split`` (its output neurons, channels or
+        columns) divided as the layer's map divides them, each part filed
+        under its entry's mac."""
+        parts = _palette_parts(formats)
+        if parts is None:
+            self.product(name, kind, site, call, "fwd", shape, formats)
+            return
+        for mac, count in parts:
+            part = list(shape)
+            part[split] = shape[split] if count is None else count
+            if part[split]:
+                self.product(name, kind, site, call, "fwd", tuple(part), formats, key=mac)
 
     def sum(self, name, kind, site, call, step, outputs, terms, formats) -> None:
         key = _sum_key(formats, step)
@@ -352,7 +394,7 @@ class _Counter:
 
 def _linear(c: _Counter, name, call, rows, n_out, k_in, formats, x_grad, w_grad) -> None:
     """``rows`` rows times a weight ``[n_out, k_in]``, and its gradients."""
-    c.product(name, "linear", None, call, "fwd", (1, rows, n_out, k_in), formats)
+    c.forward(name, "linear", None, call, (1, rows, n_out, k_in), 2, formats)
     if c.backward:
         if x_grad:
             c.product(name, "linear", None, call, "igrad", (1, rows, k_in, n_out), formats)
@@ -368,7 +410,7 @@ def _matmul(c: _Counter, name, site, call, a, b, out, formats) -> None:
     M = a.shape[-2] if a.dim() > 1 else 1
     N = b.shape[-1] if b.dim() > 1 else 1
     batch = out.numel() // (M * N) if M * N else 0
-    c.product(name, "matmul", site, call, "fwd", (batch, M, N, K), formats)
+    c.forward(name, "matmul", site, call, (batch, M, N, K), 2, formats)
     if c.backward:
         if _needs(a):
             c.product(name, "matmul", site, call, "igrad", (batch, M, K, N), formats)
@@ -407,7 +449,10 @@ def _conv(c: _Counter, name, call, x, weight, out, stride, padding, dilation, gr
     M = weight.shape[0] // groups
     N = math.prod(out.shape[-nd:])
     K = weight.shape[1] * math.prod(kernel)
-    c.product(name, "conv", None, call, "fwd", (B * groups, M, N, K), formats)
+    if _palette_parts(formats) is None:
+        c.product(name, "conv", None, call, "fwd", (B * groups, M, N, K), formats)
+    else:  # a map of output channels cuts across the groups
+        c.forward(name, "conv", None, call, (B, weight.shape[0], N, K), 1, formats)
     if not c.backward:
         return
     if _needs(weight):
@@ -994,6 +1039,7 @@ def profile(
     cost: Mapping[Any, float] | None = None,
     backward: bool = False,
     run: bool = True,
+    palette_maps: Mapping[str, torch.Tensor | None] | None = None,
     **kwargs: Any,
 ) -> Profile:
     """Run one forward pass of ``model`` and count its products and sums by their formats.
@@ -1041,6 +1087,13 @@ def profile(
             mode, which computes nothing and allocates nothing, so that a
             model too large to run, or built on the meta device, is counted
             from its shapes. Default: ``True``
+        palette_maps (Mapping, optional): with a ``recipe`` that has
+            palettes, the maps of its palette layers, as
+            :func:`~mptorch.quant.set_palette_maps_` takes them for a
+            ``simulate``. A palette layer's forward is counted per entry, as
+            its map divides its outputs, an unset map's all in entry 0; a
+            converted model's layers are counted by their own maps.
+            Default: ``None``
         **kwargs: its keyword inputs.
 
     Returns:
@@ -1071,6 +1124,13 @@ def profile(
         )
     model = getattr(model, "_orig_mod", model)
     sim = _Counting(Recipe() if recipe is None else recipe, model)
+    if palette_maps is not None:
+        if recipe is None:
+            raise TypeError(
+                "palette_maps= gives the maps of a recipe's palette layers, and profile was given "
+                "no recipe: a converted model's layers are counted by their own maps"
+            )
+        set_palette_maps_(sim, palette_maps)
     state = sim._state
     assert isinstance(state, _CountingState)
     counter = _Counter(backward)

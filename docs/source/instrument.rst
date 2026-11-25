@@ -264,6 +264,53 @@ cannot).
    :language: text
    :caption: output
 
+Palettes: a format per neuron
+-----------------------------
+
+A layer can compute each output neuron in a format of its own, chosen from a
+:class:`~mptorch.quant.Palette` by a *map*: the layers of
+:doc:`kernels/arithmetic`'s palettes, given by a recipe. A
+:class:`~mptorch.quant.GemmFormats` whose ``fwd_mac`` holds a palette gives a
+linear layer one entry per output neuron, a convolution one per output
+channel and a matmul one per output column, and its ``output_quant`` may
+give each entry its own rounding of the result (a tuple of quantizers, or a
+``Palette`` of formats), applied after the bias. The gradient passes keep
+one mac each.
+
+The map is the layer's, not the recipe's: it comes from a calibration, a
+threshold or a seeded draw once the model exists, and a study may try
+several on the same model.
+:func:`~mptorch.quant.set_palette_maps_` sets each layer's map, by the
+layer's name, as a vector of entry indices or a bool mask (``True`` for
+entry 1), in a converted model or in a ``simulate``, where a matmul site's
+map is named ``"module#matmul#n"``. :func:`~mptorch.quant.palette_maps`
+reads them back:
+
+- **Until a map is set**, every output computes in entry 0, by entry 0's own
+  kernel. That is the words of a map of zeros, and allocates nothing. A layer
+  without a palette carries no map at all.
+- **A map follows its layer** through ``.to()``, and stays out of the
+  ``state_dict``, which is still the float model's. Save ``palette_maps(model)``
+  beside the checkpoint, and set it again after loading.
+- **Set every map before compiling.** A compiled model recompiles once when
+  an unset map is set, and keeps its graph when a map is replaced by one of
+  the same shape.
+- **A profile counts each entry's share.** :func:`~mptorch.quant.profile`
+  splits a palette layer's forward MACs by its map, each part under its
+  entry's mac. With a recipe, its ``palette_maps=`` gives the maps.
+
+A palette is refused where a map has no layer to hold it: in an
+:class:`~mptorch.quant.AttentionFormats`, whose products are shared by every
+attention it is given to, and in ``nn.MultiheadAttention``'s projections.
+
+.. literalinclude:: ../snippets/instrument_palettes.py
+   :language: python
+   :caption: docs/snippets/instrument_palettes.py
+
+.. literalinclude:: ../snippets/instrument_palettes.out
+   :language: text
+   :caption: output
+
 Counting a model's arithmetic
 -----------------------------
 

@@ -1,0 +1,8 @@
+       all low: mean difference to float32 0.02737
+a quarter high: mean difference to float32 0.02435
+      all high: mean difference to float32 0.00865
+FusedMac(BinaryK(K=8, P=4, bias=8)): 557,056 MACs (81.0%), cost 278,528
+FusedMac(BinaryK(K=16, P=11, bias=16)): 131,072 MACs (19.0%), cost 131,072
+total cost 409,600
+{'0': [0, 0, 0, 0, 1, 0, 0, 0, 0, 0], '2': [1, 0, 0, 0, 1, 1, 0, 0, 0, 0]}
+state_dict keys unchanged: True

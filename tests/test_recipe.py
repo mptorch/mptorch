@@ -251,7 +251,10 @@ def test_uniform():
         (dict(input_quant=nn.Identity()), TypeError, "module"),
         (dict(input_quant=3), TypeError, "takes a format"),
         (dict(fwd_mac=Quant(P8)), TypeError, "takes a SplitMac"),
-        (dict(fwd_mac=SplitMac(Palette([P8, BinaryK(8, 3)]))), ValueError, "palette"),
+        (dict(fwd_mac=SplitMac(Palette([P8, BinaryK(8, 3)]))), None, None),  # a palette layer
+        (dict(igrad_mac=SplitMac(Palette([P8, BinaryK(8, 3)]))), ValueError, "fwd_mac only"),
+        (dict(wgrad_mac=SplitMac(Palette([P8, BinaryK(8, 3)]))), ValueError, "fwd_mac only"),
+        (dict(output_quant=(Quant(P8), Quant(P8))), ValueError, "has no palette"),
         (dict(recompute_input=1), TypeError, "True, False or None"),
         (
             dict(fwd_mac=SplitMac(P8, block_size=4, accumulate_algorithm=AccumulateAlgorithm.TREE)),

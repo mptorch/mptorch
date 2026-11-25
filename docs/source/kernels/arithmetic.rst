@@ -524,6 +524,10 @@ mode.
    :language: text
    :caption: output
 
+A recipe gives a model's layers palettes, with one map per layer (a format
+per output neuron or channel): :doc:`/instrument`, "Palettes: a format per
+neuron".
+
 A format for every element
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

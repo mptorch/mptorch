@@ -173,21 +173,29 @@ def _linear_fwd(matmul: _Matmul2D) -> Callable:
     def fwd(
         q_input: torch.Tensor, q_weight: torch.Tensor, q_bias: torch.Tensor | None
     ) -> torch.Tensor:
-        x_flat, x_shape = _flatten_leading(q_input)
-        out = matmul(x_flat, q_weight, False, True)
-        if q_input.dim() != 2:
-            out = _unviewed(out.reshape(*x_shape[:-1], q_weight.shape[0]))
-        # add_ rather than +: `out` is a view of a tensor the op allocated
-        # inside this call, and nothing else refers to it, so adding the bias
-        # in place gives the same bits as `out + q_bias` and saves one
-        # output-sized allocation per forward. A bias of a different dtype
-        # takes `out + q_bias`, which promotes the result's dtype where `add_`
-        # would raise.
-        if q_bias is None:
-            return out
-        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
+        return _linear_forward(matmul, q_input, q_weight, q_bias)
 
     return fwd
+
+
+def _linear_forward(
+    matmul: _Matmul2D, q_input: torch.Tensor, q_weight: torch.Tensor, q_bias: torch.Tensor | None
+) -> torch.Tensor:
+    """``x @ w^T + b`` over ``matmul``, the leading dimensions flattened into
+    rows and restored: the body of every Linear forward hook."""
+    x_flat, x_shape = _flatten_leading(q_input)
+    out = matmul(x_flat, q_weight, False, True)
+    if q_input.dim() != 2:
+        out = _unviewed(out.reshape(*x_shape[:-1], q_weight.shape[0]))
+    # add_ rather than +: `out` is a view of a tensor the op allocated
+    # inside this call, and nothing else refers to it, so adding the bias
+    # in place gives the same bits as `out + q_bias` and saves one
+    # output-sized allocation per forward. A bias of a different dtype
+    # takes `out + q_bias`, which promotes the result's dtype where `add_`
+    # would raise.
+    if q_bias is None:
+        return out
+    return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
 
 def _linear_igrad(matmul: _Matmul2D) -> Callable:
@@ -254,24 +262,28 @@ def _with_output[FormatsT: (QAffineFormats, QMatmulFormats)](
     and returned.
     """
     run = formats.fwd_math or plain
-    in_place = (
-        replace(out, inplace=True)
-        if type(out) is Quant and not out.inplace and out.carrier is not torch.float64
-        else None
-    )
-    if in_place is None:
+    rounded = _output_rounding(out)
 
-        def fwd(*args, **kwargs):
-            return out(run(*args, **kwargs))
-
-    else:
-
-        def fwd(*args, **kwargs):
-            result = run(*args, **kwargs)
-            return in_place(result) if result.is_contiguous() else out(result)
+    def fwd(*args, **kwargs):
+        return rounded(run(*args, **kwargs))
 
     formats.fwd_math = fwd
     return formats
+
+
+def _output_rounding(out: Callable) -> Callable[[torch.Tensor], torch.Tensor]:
+    """``out``, as it rounds a forward result the hook has just allocated: in
+    place for a ``Quant`` that can (not one with ``carrier=torch.float64``,
+    nor on a result that is not contiguous, which the in-place quantizers
+    refuse), into a new tensor otherwise."""
+    if type(out) is not Quant or out.inplace or out.carrier is torch.float64:
+        return out
+    in_place = replace(out, inplace=True)
+
+    def rounded(result: torch.Tensor) -> torch.Tensor:
+        return in_place(result) if result.is_contiguous() else out(result)
+
+    return rounded
 
 
 def binaryK_gemm_formats(

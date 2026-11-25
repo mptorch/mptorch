@@ -446,6 +446,10 @@ See :doc:`instrument`.
 
 .. autoclass:: UncountedRecord
 
+.. autofunction:: set_palette_maps_
+
+.. autofunction:: palette_maps
+
 The ready-made recipes are in ``mptorch.quant.presets``:
 
 .. autofunction:: mptorch.quant.presets.uniform

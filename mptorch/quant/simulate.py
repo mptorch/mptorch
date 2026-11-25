@@ -84,6 +84,7 @@ from .convert import _REGISTRY
 from .modules.conv import CustomArithConvNd
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
+from .palettes import _PaletteMap
 from .recipe import _GEMM_KINDS, Recipe
 
 __all__ = ["simulate", "SimulateReport", "SimulateRow"]
@@ -118,6 +119,9 @@ class SimulateReport:
     """
 
     rows: tuple[SimulateRow, ...]
+    #: The palette layers' maps, each as its name and whether it is set (an
+    #: unset map computes every output in the palette's entry 0).
+    palette_maps: tuple[tuple[str, bool], ...] = ()
 
     @property
     def simulated(self) -> tuple[SimulateRow, ...]:
@@ -145,6 +149,11 @@ class SimulateReport:
             f"{len(self.simulated)} simulated, {len(self.not_covered)} not covered, "
             f"{len(self.rows) - len(self.simulated) - len(self.not_covered)} left plain"
         )
+        if self.palette_maps:
+            maps = ", ".join(
+                f"{n} ({'set' if is_set else 'unset: entry 0'})" for n, is_set in self.palette_maps
+            )
+            lines.append(f"palette maps: {maps}")
         return "\n".join(lines)
 
 
@@ -195,8 +204,10 @@ class _State:
         self.stack: list[list] = []
         self.rows: dict[SimulateRow, None] = {}  # a dict keeps the order rows were seen in
 
-        containers: dict[tuple[int, str], nn.Module] = {}
+        containers: dict[tuple, nn.Module] = {}
         first: dict[int, tuple[str, tuple]] = {}
+        # a module reached under several names: each later name -> its first
+        self.aliases: dict[str, str] = {}
         for name, module in model.named_modules(remove_duplicate=False):
             resolved = tuple(
                 (kind, site, recipe.resolve(name, module, kind, site))
@@ -210,6 +221,7 @@ class _State:
                         f"the module at {seen[0]!r} is also at {name!r}, and the recipe gives the "
                         "two names different formats: give both names the same formats"
                     )
+                self.aliases[name] = seen[0]
                 continue
             first[id(module)] = (name, resolved)
             self.names[id(module)] = name
@@ -224,7 +236,8 @@ class _State:
                 if kind in _OPT_IN_KINDS:  # frozen formats, read as they are
                     self.routes[(name, kind, site)] = _Route(gf, gf.label())
                     continue
-                key = (id(gf), kind)
+                # a palette's container holds its map, so each route has its own
+                key = (name, kind, site) if gf.palette else (id(gf), kind)
                 if key not in containers:
                     build = {"linear": gf.affine, "conv": gf.conv, "matmul": gf.matmul}[kind]
                     containers[key] = build()
@@ -241,6 +254,20 @@ class _State:
                         route.label,
                         cls,
                     )
+
+        for name, module in model.named_modules():
+            if isinstance(module, nn.MultiheadAttention):
+                for scope in (name, f"{name}.out_proj" if name else "out_proj"):
+                    route = self.routes.get((scope, "linear", None))
+                    if route is not None and isinstance(route.container, _PaletteMap):
+                        raise ValueError(
+                            f"the recipe gives {scope!r}, a projection of the "
+                            "nn.MultiheadAttention at "
+                            f"{name or '(the model)'!r}, a palette fwd_mac: its in-projection "
+                            "packs the query's, the key's and the value's into one product, "
+                            "whose width a map of output neurons does not follow. Give it a "
+                            "single format"
+                        )
 
     def record(self, scope: str, kind: str, site: str | None, call: Any, action: str, label=""):
         # Not while Dynamo traces: it guards on what it reads, and a report
@@ -1152,7 +1179,17 @@ class simulate:
 
     def report(self) -> SimulateReport:
         """What was seen so far, as a :class:`SimulateReport`."""
-        return SimulateReport(tuple(self._state.rows))
+        from .palettes import _simulate_slots
+
+        # the maps that are set, and the unset ones of the modules that ran a
+        # simulated product of their kind
+        used = {(r.scope, r.kind) for r in self._state.rows if r.action == SIMULATED}
+        maps = tuple(
+            (name, slot[0].prec_idx is not None)
+            for name, slot in _simulate_slots(self).items()
+            if slot[0].prec_idx is not None or not used.isdisjoint(_route_keys(name))
+        )
+        return SimulateReport(tuple(self._state.rows), maps)
 
     def wrap(self) -> "SimulatedModule":
         """The model as a module that simulates every call to it: the one to
@@ -1164,6 +1201,13 @@ class simulate:
         ``with sim:``, which would enter the mode a second time.
         """
         return SimulatedModule(self)
+
+
+def _route_keys(name: str) -> tuple[tuple[str, str], ...]:
+    """The (scope, kind) pairs a palette map's name can stand for: a module's
+    linear or conv layer, or, for ``"module#matmul..."``, its matmuls."""
+    scope, sep, _ = name.partition("#")
+    return ((scope, "matmul"),) if sep else ((scope, "linear"), (scope, "conv"))
 
 
 def _outside_compile(what: str) -> None:

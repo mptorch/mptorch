@@ -88,6 +88,7 @@ from .ops import (
     superfp_quantize,
     superfp_quantize_,
 )
+from .palettes import palette_maps, set_palette_maps_
 from .pointwise import (
     ActivationFormats,
     PointwiseFormats,
@@ -244,4 +245,6 @@ __all__ = [
     "ProfileRecord",
     "ElementRecord",
     "UncountedRecord",
+    "set_palette_maps_",
+    "palette_maps",
 ]

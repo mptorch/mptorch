@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <initializer_list>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace mptorch::gemm
@@ -249,16 +250,24 @@ namespace mptorch::gemm
   struct ValidatedPrecIdx
   {
     c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl> impl;
-    const c10::TensorImpl *raw;
     uint32_t version;
     int64_t n_formats;
+    uint64_t last_use;
   };
 
-  // The memo holds the last few distinct maps. A model rarely uses more than a
-  // handful of per-layer maps at once, which does not justify a hash table.
-  constexpr size_t PREC_IDX_MEMO_SLOTS = 4;
+  // The memo is a table keyed by the TensorImpl's address, which evicts the
+  // least recently used entry when it is full. A model with a map per layer
+  // goes through all of them in every forward pass, so a memo smaller than the
+  // model's number of maps misses on every call, whatever it evicts: four
+  // slots made a 12-layer chain of palette layers 2.1x slower on CUDA than one
+  // shared map. 1024 covers a model's layers, a lookup takes constant time,
+  // and an entry is a hundred or so bytes plus the TensorImpl its weak
+  // reference keeps; the entries of tensors that no longer exist are dropped
+  // at every insertion, so the memo holds only maps that are alive.
+  constexpr size_t PREC_IDX_MEMO_SLOTS = 1024;
   inline std::mutex g_prec_idx_memo_mutex;
-  inline std::vector<ValidatedPrecIdx> g_prec_idx_memo;
+  inline std::unordered_map<const c10::TensorImpl *, ValidatedPrecIdx> g_prec_idx_memo;
+  inline uint64_t g_prec_idx_memo_clock = 0;
 
   // Fills in the key (the TensorImpl's address and version) and returns true
   // if this tensor can be memoized. `on_device` says the bounds check would
@@ -286,14 +295,16 @@ namespace mptorch::gemm
     if (!prec_idx_memo_key(prec_idx, on_device, raw, version))
       return false;
     std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
-    for (const ValidatedPrecIdx &e : g_prec_idx_memo)
-      if (e.raw == raw && e.version == version && e.n_formats == n_formats)
-        return true;
-    return false;
+    auto it = g_prec_idx_memo.find(raw);
+    if (it == g_prec_idx_memo.end() || it->second.version != version ||
+        it->second.n_formats != n_formats)
+      return false;
+    it->second.last_use = ++g_prec_idx_memo_clock;
+    return true;
   }
 
-  // Records a map that has just passed the check, evicting the oldest entry
-  // when the memo is full.
+  // Records a map that has just passed the check, evicting the least recently
+  // used entry when the memo is full.
   inline void remember_validated_prec_idx(const Tensor &prec_idx, bool on_device,
                                           int64_t n_formats)
   {
@@ -302,18 +313,21 @@ namespace mptorch::gemm
     if (!prec_idx_memo_key(prec_idx, on_device, raw, version))
       return;
     std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
-    // Drop the entries whose tensor no longer exists, and any older entry for
-    // this one.
-    auto dead = std::remove_if(g_prec_idx_memo.begin(), g_prec_idx_memo.end(),
-                               [&](const ValidatedPrecIdx &e)
-                               { return e.impl.expired() || e.raw == raw; });
-    g_prec_idx_memo.erase(dead, g_prec_idx_memo.end());
-    if (g_prec_idx_memo.size() >= PREC_IDX_MEMO_SLOTS)
-      g_prec_idx_memo.erase(g_prec_idx_memo.begin());
-    g_prec_idx_memo.push_back(ValidatedPrecIdx{
-        c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl>(
-            prec_idx.getIntrusivePtr()),
-        raw, version, n_formats});
+    // Drop the entries whose tensor no longer exists. A miss has just paid a
+    // device sync, which this scan costs a small part of.
+    for (auto it = g_prec_idx_memo.begin(); it != g_prec_idx_memo.end();)
+      it = it->second.impl.expired() ? g_prec_idx_memo.erase(it) : std::next(it);
+    if (g_prec_idx_memo.size() >= PREC_IDX_MEMO_SLOTS && !g_prec_idx_memo.count(raw))
+    {
+      auto oldest = std::min_element(g_prec_idx_memo.begin(), g_prec_idx_memo.end(),
+                                     [](const auto &a, const auto &b)
+                                     { return a.second.last_use < b.second.last_use; });
+      g_prec_idx_memo.erase(oldest);
+    }
+    g_prec_idx_memo.insert_or_assign(
+        raw, ValidatedPrecIdx{c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl>(
+                                  prec_idx.getIntrusivePtr()),
+                              version, n_formats, ++g_prec_idx_memo_clock});
   }
 
   // Validates a palette op's precision index, the map that gives each output

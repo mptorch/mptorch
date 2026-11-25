@@ -74,6 +74,7 @@ from .mac import (
     BlockMac,
     BlockQuant,
     FusedMac,
+    Palette,
     Quant,
     SplitMac,
     _as_quant,
@@ -84,6 +85,7 @@ from .modules.format import QAffineFormats, QMatmulFormats
 from .norm import NormFormats, SoftmaxFormats
 from .ops._operands import _gemm_nd
 from .ops._spec import _run_gemm
+from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .reduce import ReductionFormats
 from .scaled import ScaledQuant
@@ -134,11 +136,13 @@ def _as_mac(slot: object, name: str) -> Any:
     if isinstance(slot, Number):
         slot = SplitMac(slot, slot)
     if isinstance(slot, SplitMac | FusedMac):
-        if spec_for_mac(slot).mixed:
+        if name != "fwd_mac" and spec_for_mac(slot).mixed:
             raise ValueError(
-                f"{name} holds a palette, which selects a format per output element and so "
-                "needs a prec_idx map for each pass, and GemmFormats takes none: build that "
-                "layer's formats with matmul_formats or conv_formats, which take the maps"
+                f"{name} holds a palette: a GemmFormats takes a palette in fwd_mac only, whose "
+                "map gives each output neuron its entry, and gives each gradient pass one mac. "
+                "Give this pass a single format (with GemmFormats.uniform, pass grad_mac=), or "
+                "build the layer's formats with matmul_formats or conv_formats, which take a map "
+                "per pass"
             )
         return slot
     if isinstance(slot, BlockMac):
@@ -146,6 +150,24 @@ def _as_mac(slot: object, name: str) -> Any:
     raise TypeError(
         f"{name} takes a SplitMac, a FusedMac, a BlockMac or a format, got {type(slot).__name__}"
     )
+
+
+def _as_output_quant(slot: object, fwd_mac: Any) -> Any:
+    """``output_quant`` as :class:`GemmFormats` keeps it: one quantizer, or,
+    with a palette ``fwd_mac``, a tuple of one per entry (a ``Palette`` of
+    formats meaning ``Quant(fmt)`` each)."""
+    if isinstance(slot, Palette):
+        slot = tuple(slot)
+    if not isinstance(slot, tuple | list):
+        return _as_quant(slot, "output_quant")
+    n = _palette_length(fwd_mac)
+    if len(slot) != n:
+        raise ValueError(
+            f"output_quant gives {len(slot)} roundings, one per palette entry, and fwd_mac "
+            + (f"has a palette of {n}" if n else "has no palette")
+            + ": give one rounding per entry of fwd_mac's palette, or a single rounding"
+        )
+    return tuple(_as_quant(q, f"output_quant[{i}]") for i, q in enumerate(slot))
 
 
 def _linear_pass(mac: Any, hook: Callable, block_hook: Callable) -> Callable | None:
@@ -187,9 +209,16 @@ class GemmFormats:
     ``BlockMac(fmt)``). A ``BlockMac``'s two operands are the pass's two, in
     order: (input, weight) for the forward, (gradient, weight) for the input
     gradient and (gradient, input) for the weight gradient, or (a, b), (grad,
-    b) and (a, grad) for a matmul. A palette, which needs a ``prec_idx`` map
-    per pass, is not taken: :func:`~mptorch.quant.matmul_formats` and
-    :func:`~mptorch.quant.conv_formats` take the maps.
+    b) and (a, grad) for a matmul.
+
+    ``fwd_mac`` may hold a :class:`~mptorch.quant.Palette`: the layer then
+    computes each output neuron (a convolution's output channel, a matmul's
+    output column) in the palette entry its map gives, and ``output_quant``
+    may give each entry its own rounding, as a tuple of one quantizer per
+    entry (or a ``Palette`` of formats, meaning ``Quant(fmt)`` each). The map
+    is the layer's, set with :func:`~mptorch.quant.set_palette_maps_` once
+    the model is converted or simulated; until then every output computes in
+    entry 0. The gradient passes take one mac each.
 
     The quantizer slots are those of :class:`~mptorch.quant.QAffineFormats`,
     plus ``output_quant``, which rounds the forward result after the bias is
@@ -206,7 +235,9 @@ class GemmFormats:
     Args:
         input_quant, weight_quant, bias_quant (optional): the forward
             operands' quantizers. Default: ``None``
-        output_quant (optional): rounds the forward result. Default: ``None``
+        output_quant (optional): rounds the forward result; with a palette
+            ``fwd_mac``, one rounding per entry may be given, as a tuple.
+            Default: ``None``
         fwd_mac, igrad_mac, wgrad_mac (optional): each pass's mac.
             Default: ``None``, PyTorch's arithmetic.
         igrad_quant, wgrad_quant, bgrad_quant (optional): the output
@@ -218,8 +249,9 @@ class GemmFormats:
     Raises:
         TypeError: for a slot of the wrong type, or a module in a quantizer
             slot.
-        ValueError: for a palette mac, or any error a mac raises when it is
-            resolved.
+        ValueError: for a palette in a gradient pass's mac, a tuple of output
+            roundings whose length is not ``fwd_mac``'s palette's, or any
+            error a mac raises when it is resolved.
 
     Example::
 
@@ -244,10 +276,15 @@ class GemmFormats:
     recompute_weight: bool | None = None
 
     def __post_init__(self) -> None:
-        for name in _QUANT_SLOTS:
-            object.__setattr__(self, name, _as_quant(getattr(self, name), name))
         for name in _MAC_SLOTS:
             object.__setattr__(self, name, _as_mac(getattr(self, name), name))
+        for name in _QUANT_SLOTS:
+            value = getattr(self, name)
+            if name == "output_quant":
+                value = _as_output_quant(value, self.fwd_mac)
+            else:
+                value = _as_quant(value, name)
+            object.__setattr__(self, name, value)
         for name in ("recompute_input", "recompute_weight"):
             if getattr(self, name) is not None and not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} is True, False or None, got {getattr(self, name)!r}")
@@ -276,6 +313,11 @@ class GemmFormats:
         )
 
     @property
+    def palette(self) -> int:
+        """The number of entries of ``fwd_mac``'s palette, or 0 without one."""
+        return _palette_length(self.fwd_mac)
+
+    @property
     def _has_block_mac(self) -> bool:
         """Whether a pass multiplies block formats, which no convolution does."""
         return any(isinstance(getattr(self, name), BlockMac) for name in _MAC_SLOTS)
@@ -293,11 +335,22 @@ class GemmFormats:
         return formats
 
     def affine(self) -> QAffineFormats:
-        """A new ``QAffineFormats`` for a Linear layer, with these formats."""
+        """A new ``QAffineFormats`` for a Linear layer, with these formats.
+
+        With a palette ``fwd_mac`` it holds the layer's map (``None`` until
+        :func:`~mptorch.quant.set_palette_maps_` sets it), and its forward
+        computes each output neuron in its entry, rounded by its entry's
+        ``output_quant``."""
+        igrad = _linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad)
+        wgrad = _linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad)
+        if self.palette:
+            palette = _Palette("linear", self.fwd_mac, self.output_quant)
+            hooks = {"bwd_igrad_math": igrad, "bwd_wgrad_math": wgrad}
+            return self._affine_slots(_PaletteAffineFormats(palette, **hooks))
         formats = QAffineFormats(
             fwd_math=_linear_pass(self.fwd_mac, _linear_fwd, _block_linear_fwd),
-            bwd_igrad_math=_linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad),
-            bwd_wgrad_math=_linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad),
+            bwd_igrad_math=igrad,
+            bwd_wgrad_math=wgrad,
         )
         if isinstance(self.fwd_mac, BlockMac):
             # the weight's quantizer, which QLinear.freeze_packed_ packs a frozen weight with
@@ -322,6 +375,13 @@ class GemmFormats:
             None if m is None else spec_for_mac(m)
             for m in (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
         )
+        if self.palette:
+            grads = _conv_formats(None, igrad, wgrad)
+            palette = _Palette("conv", self.fwd_mac, self.output_quant)
+            formats = _PaletteAffineFormats(
+                palette, bwd_igrad_math=grads.bwd_igrad_math, bwd_wgrad_math=grads.bwd_wgrad_math
+            )
+            return self._affine_slots(formats)
         formats = _conv_formats(fwd, igrad, wgrad)
         if self.output_quant is not None:
             _with_output(formats, self.output_quant, _plain_conv)
@@ -336,7 +396,13 @@ class GemmFormats:
         backward, with the quantizers this value sets in place of its own.
         """
         macs = (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
-        if all(isinstance(m, BlockMac) for m in macs):
+        if self.palette:
+            formats = _PaletteMatmulFormats(
+                _Palette("matmul", self.fwd_mac, self.output_quant),
+                bwd_agrad_math=_matmul_pass(macs[1], _matmul_agrad, _block_matmul_agrad),
+                bwd_bgrad_math=_matmul_pass(macs[2], _matmul_bgrad, _block_matmul_bgrad),
+            )
+        elif all(isinstance(m, BlockMac) for m in macs):
             formats = block_matmul_formats(macs[0], agrad_mac=macs[1], bgrad_mac=macs[2])
         else:
             formats = QMatmulFormats(
@@ -354,7 +420,7 @@ class GemmFormats:
                 setattr(formats, slot, value)
         formats.recompute_a = self.recompute_input
         formats.recompute_b = self.recompute_weight
-        if self.output_quant is not None:
+        if self.output_quant is not None and not self.palette:
             _with_output(formats, self.output_quant, torch.matmul)
         formats._source = self
         return formats
@@ -395,21 +461,31 @@ def _fmt_label(fmt: Any) -> str:
 
 
 def _mac_label(mac: Any) -> str:
-    """A mac's short label. A ``GemmFormats`` holds no palette, so each slot
-    of a ``SplitMac`` or a ``FusedMac`` holds one format, or none."""
+    """A mac's short label: each slot's format, or ``carrier`` for none, and
+    a palette slot's entries in brackets."""
     if mac is None:
         return "torch"
     if isinstance(mac, SplitMac):
-        acc = None if mac.acc is None else mac.acc[0]
-        return f"SplitMac({_fmt_label(mac.mul[0])}, {_fmt_label(acc)})"
+        return f"SplitMac({_slot_label(mac.mul)}, {_slot_label(mac.acc)})"
     if isinstance(mac, FusedMac):
-        return f"FusedMac({_fmt_label(None if mac.fma is None else mac.fma[0])})"
+        return f"FusedMac({_slot_label(mac.fma)})"
     a, b = cast_quant(mac.a).fmt, cast_quant(mac.b).fmt
     return f"BlockMac({_fmt_label(a)}, {_fmt_label(b)})"
 
 
+def _slot_label(slot: Any) -> str:
+    """A mac slot's label: its one format, or a palette's entries."""
+    if slot is None:
+        return _fmt_label(None)
+    if len(slot) == 1:
+        return _fmt_label(slot[0])
+    return "[" + ", ".join(_fmt_label(f) for f in slot) + "]"
+
+
 def _quant_label(q: Any) -> str:
     """A quantizer's short label: a format object's, or the callable's name."""
+    if isinstance(q, tuple):  # a palette layer's output roundings, one per entry
+        return "[" + ", ".join(_quant_label(e) for e in q) + "]"
     if isinstance(q, Quant | ScaledQuant | BlockQuant):
         return f"{type(q).__name__}({_fmt_label(q.fmt)}, {q.rounding.name})"
     return getattr(q, "__name__", type(q).__name__)

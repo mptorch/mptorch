@@ -120,6 +120,16 @@ class AttentionFormats:
                     f"AttentionFormats' {name} is a {cls.__name__} or None, "
                     f"got {type(value).__name__}"
                 )
+        for name in ("qk", "pv"):
+            part = getattr(self, name)
+            if part is not None and part.palette:
+                raise ValueError(
+                    f"AttentionFormats' {name} has a palette fwd_mac, whose map is a layer's: "
+                    "an AttentionFormats builds its products' containers once, for every "
+                    f"attention it is given to, so it has no map to hold. Give {name} a single "
+                    "format, or write the attention as two torch.matmul calls and give each "
+                    "site a palette with Recipe.override(where, site=..., matmul=...)"
+                )
         object.__setattr__(self, "_qk", None if self.qk is None else self.qk.matmul())
         object.__setattr__(self, "_pv", None if self.pv is None else self.pv.matmul())
 

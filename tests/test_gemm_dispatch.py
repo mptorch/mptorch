@@ -656,6 +656,30 @@ def test_mixed_prec_idx_rechecked_after_in_place_edit(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
+def test_mixed_prec_idx_rechecked_with_many_maps_in_rotation(device):
+    """
+    A model with a map per layer cycles through many maps, each kept in the
+    memo and refreshed on every hit: an in-place edit still invalidates the
+    edited map's entry, and only that one, wherever it sits in the order.
+    """
+    M, K, N = 5, 4, 6
+    a = torch.randn(M, K, device=device)
+    b = torch.randn(N, K, device=device)
+    kw: dict[str, Any] = dict(trans_b=True, mul_K=[8, 8], mul_P=[4, 3])
+    maps = [torch.randint(0, 2, (1, N), dtype=torch.int32, device=device) for _ in range(12)]
+    want = [binaryK_matmul_mixed(a, b, m, **kw) for m in maps]
+    for _ in range(2):  # every call after the first is served by the memo
+        for m, w in zip(maps, want, strict=True):
+            assert torch.equal(binaryK_matmul_mixed(a, b, m, **kw), w)
+
+    maps[5].fill_(7)
+    with pytest.raises(RuntimeError):
+        binaryK_matmul_mixed(a, b, maps[5], **kw)
+    for i in (4, 6, 11):  # the others stay valid
+        assert torch.equal(binaryK_matmul_mixed(a, b, maps[i], **kw), want[i])
+
+
+@pytest.mark.parametrize("device", available_devices)
 def test_mixed_prec_idx_rechecked_against_a_smaller_palette(device):
     """
     An index of 2 is in range for a 3-slot palette and out of range for a
