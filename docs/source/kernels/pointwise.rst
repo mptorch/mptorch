@@ -205,3 +205,74 @@ is computed through float64 there). A narrow dtype adds the widening
 and the store, a rounded gate its own pass, binary64 the float64 arithmetic,
 and rounding to odd a dozen float64 passes
 (``dev/benchmarks/timing/pointwise_ops.py``).
+
+Lookup-table activations
+------------------------
+
+A :class:`~mptorch.quant.PWLTable` is a continuous piecewise-linear function
+on uniform knots: one entry at each of the ``segments + 1`` knots of
+``[lo, hi]``. ``ActivationFormats(table=...)`` makes an activation evaluate
+the table in place of its function, and :func:`~mptorch.quant.qpwl` and
+:class:`~mptorch.quant.QPWLActivation` evaluate a table of a function of
+your own.
+
+**Evaluation.** In the carrier, ``x`` is evaluated as
+
+.. math::
+
+   u = (x - lo) \cdot \frac{n}{hi - lo}, \quad
+   i = \operatorname{clamp}(\lfloor u \rfloor, 0, n - 1), \quad
+   f = u - i, \quad
+   y = e_i + f\,(e_{i+1} - e_i),
+
+each operation rounded by the carrier and written out rather than taken from
+``torch.lerp``, whose formula changes above :math:`f = 1/2`. So every device
+gives the same words. ``out`` rounds :math:`y`. Outside ``[lo, hi]``,
+``tails`` gives ``"extend"`` (the end segments' lines), ``"clamp"`` (the end
+entries), or a callable's value: ``silu_table`` and ``gelu_table`` use
+``torch.relu``, as LoFloat's ``PWLSiLU`` does.
+
+**The fits.** :meth:`~mptorch.quant.PWLTable.fit` places the entries in one
+of three ways.
+
+- ``"chord"``: the function at each knot.
+- ``"balanced"``: LoFloat's correction (its ``init_lut``, which it calls
+  minimax). Each entry moves by the mean of its two segments' midpoint
+  errors, halved at the ends. ``silu_table(fit="balanced")`` is LoFloat's
+  ``PWLSiLU``.
+- ``"minimax"`` (the default): the entries whose largest error over 64
+  points a segment, knots included, is the smallest any entries reach.
+
+  - **How it is found.** For an error bound :math:`E`, each point bounds
+    its segment's two entries to a strip. The feasible values of each entry
+    form an interval, carried from knot to knot. Bisection on :math:`E`
+    finds the smallest bound that leaves every interval nonempty, and a walk
+    back from the last knot picks the entries.
+  - **What it guarantees.** The fit is the optimum on its grid, to a
+    relative 1e-13, and it is proven, not converged to.
+  - **Error measures.** ``error="relative"`` holds the relative error
+    instead, which :meth:`~mptorch.quant.PWLTable.rsqrt`'s table uses.
+
+``entry_quant`` rounds the fitted entries; a minimax table so rounded is no
+longer minimax. The largest errors, measured on 1,024 points a segment, are
+in the run below. Balanced and minimax come close at 64 segments, where
+LoFloat's correction is near the optimum.
+
+**The gradient** is the activation's own: the derivative of the function the
+table approximates, computed in the carrier and rounded by ``grad``. A
+table's own slope is piecewise constant and a poor gradient. A ``qpwl``
+table's gradient is ``derivative(g, x)``, or autograd's derivative of the
+table's ``fn``.
+
+An activation refuses a table of another activation (a SiLU table given to
+``qgelu``), a table together with ``inner``, and a table of 1/sqrt, which is a
+norm's ``inverse`` (:doc:`reductions`). A table of a function of your own,
+which has no ``name``, goes anywhere.
+
+.. literalinclude:: ../../snippets/pointwise_tables.py
+   :language: python
+   :caption: docs/snippets/pointwise_tables.py
+
+.. literalinclude:: ../../snippets/pointwise_tables.out
+   :language: text
+   :caption: output

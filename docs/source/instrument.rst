@@ -38,7 +38,9 @@ The last rule that matches wins, and ``None`` keeps a module PyTorch's.
   the ``linear``, ``conv`` and ``matmul`` kinds, and ``gemm`` names the
   three.
 - The other kinds each take the formats of their operations:
-  ``activation`` an :class:`~mptorch.quant.ActivationFormats`,
+  ``activation`` an :class:`~mptorch.quant.ActivationFormats` (whose
+  ``table`` evaluates a :class:`~mptorch.quant.PWLTable` in place of the
+  function),
   ``embedding`` and ``elementwise`` a
   :class:`~mptorch.quant.PointwiseFormats`, ``softmax`` a
   :class:`~mptorch.quant.SoftmaxFormats`, ``norm`` a

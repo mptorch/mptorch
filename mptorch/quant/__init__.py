@@ -46,6 +46,7 @@ from .modules import (
     QMatmulFormats,
     QMultiheadAttention,
     QPackedLinear,
+    QPWLActivation,
     QReLU,
     QRMSNorm,
     QSigmoid,
@@ -110,6 +111,7 @@ from .pointwise import (
     qtanh,
 )
 from .profile import ElementRecord, Profile, ProfileRecord, UncountedRecord, profile
+from .pwl import FISR, PWLTable, gelu_table, qpwl, silu_table
 from .recipe import GemmFormats, Recipe, Rule
 from .reduce import ReductionFormats, qmean, qsum
 from .rotation import Hadamard, hadamard_rotate
@@ -202,6 +204,13 @@ __all__ = [
     "QHardsigmoid",
     "QReLU",
     "QEmbedding",
+    # piecewise-linear tables, and the approximate inverse square roots
+    "PWLTable",
+    "silu_table",
+    "gelu_table",
+    "qpwl",
+    "QPWLActivation",
+    "FISR",
     # reductions, softmax and the norms, each step rounded
     "ReductionFormats",
     "SoftmaxFormats",

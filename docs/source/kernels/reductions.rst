@@ -158,3 +158,73 @@ estimator does. It is computed one of two ways:
 On MPS, PyTorch's own elementwise arithmetic flushes binary32 subnormals, so
 a step whose carrier result is subnormal differs from the CPU's
 (:doc:`/concepts`, "On an Apple GPU").
+
+Norm variants
+-------------
+
+Two :class:`~mptorch.quant.NormFormats` fields change what a norm computes,
+not only how it rounds.
+
+- **``deviation``**, on layer, RMS and group norms, sets the statistic. With
+  :math:`c = x - \text{mean}` (:math:`c = x` for an RMS norm):
+
+  - ``"std"``, the default, is the standard deviation.
+  - ``"l1"`` is the mean absolute deviation :math:`d`, with
+    :math:`\hat x = c \cdot \sqrt{2/\pi} / (d + \epsilon)`. The constant
+    makes it the standard deviation on Gaussian data, as LoFloat's
+    ``L1BatchNorm`` does.
+  - ``"linf"`` is the largest absolute deviation, with
+    :math:`\hat x = c / (d + \epsilon)`, which leaves every value in
+    :math:`[-1, 1]`.
+
+  ``acc`` and ``div`` compute an L1 deviation; an L∞ one is an exact
+  maximum. ``rsqrt`` rounds the inverse either way, and ``sq`` does not
+  apply. A batch norm refuses a deviation: its ``running_var`` holds the
+  variance torch's formula updates, which eval and every checkpoint read as
+  such.
+- **``inverse``** sets how :math:`1/\sqrt{\text{var} + \epsilon}` is
+  computed, on every norm, batch norm included:
+
+  - ``None``, the carrier's.
+  - ``FISR(steps=1)``, the fast inverse square root. The first guess is
+    ``0x5F3759DF - (i >> 1)`` on binary32's word (``0x5FE6EB50C7B537A9`` on
+    binary64's, which gives the same errors). Each Newton step
+    :math:`y \leftarrow y\,(1.5 - (v/2)\,y^2)` is computed in the carrier and
+    rounded by ``rsqrt``. Over :math:`[1, 4)` the error is 3.4% before any
+    step, 1.75e-3 after one and 4.7e-6 after two.
+  - ``PWLTable.rsqrt(segments)``, a table of :math:`1/\sqrt m` over
+    :math:`[1, 4)`. It writes :math:`v = m \cdot 4^k` from :math:`v`'s
+    exponent, both factors exactly, and returns :math:`T(m) \cdot 2^{-k}`,
+    the scaling exact. Its relative error is its fit's, 3.8e-4 at 32
+    segments under minimax.
+
+**The gradients.** With no backward slot, the gradient is autograd's.
+
+- **With an approximate inverse,** autograd goes through PyTorch's own norm.
+  The approximation is therefore straight through, and the gradient is the
+  exact norm's, word for word.
+- **With a deviation,** autograd goes through the variant written in
+  PyTorch's ops, whose ``amax`` splits a tie evenly.
+
+With a backward slot, the closed form is computed over the unrounded
+statistics. Write :math:`y = c\,r` with :math:`r = \kappa / (d + \epsilon)`.
+Then
+
+.. math::
+
+   \frac{\partial L}{\partial c} = r\,g - \frac{r^2}{\kappa}
+   \Big(\sum g\,c\Big)\,\frac{\partial d}{\partial c},
+
+where :math:`\partial d / \partial c` is :math:`\operatorname{sign}(c)/n`
+for L1, and :math:`\operatorname{sign}(c)/t` on the :math:`t` tied maxima
+for L∞. It is followed by :math:`\partial L/\partial x = \partial L/\partial
+c - \text{mean}(\partial L/\partial c)` for a centred norm, with the sums on
+``bwd_acc``.
+
+.. literalinclude:: ../../snippets/reductions_norm_variants.py
+   :language: python
+   :caption: docs/snippets/reductions_norm_variants.py
+
+.. literalinclude:: ../../snippets/reductions_norm_variants.out
+   :language: text
+   :caption: output

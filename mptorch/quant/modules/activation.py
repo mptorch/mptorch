@@ -16,7 +16,7 @@ from torch import nn
 
 # Module references rather than names: `pointwise` and `norm` import this package
 # for `_opaque`, and the names are read when a forward runs.
-from .. import norm, pointwise
+from .. import norm, pointwise, pwl
 
 
 class QGELU(nn.GELU):
@@ -132,6 +132,46 @@ class QReLU(nn.ReLU):
         if self.formats is None:
             return super().forward(input)
         return pointwise.qrelu(input, self.formats)
+
+
+class QPWLActivation(nn.Module):
+    """A piecewise-linear table as a module (:func:`~mptorch.quant.qpwl`), for
+    a function of your own; torch's activations take a table through their
+    ``formats`` (:class:`~mptorch.quant.ActivationFormats`' ``table``).
+
+    Args:
+        table (PWLTable): the table.
+        quant, grad_quant, derivative, carrier: as for :func:`~mptorch.quant.qpwl`.
+    """
+
+    _mptorch_owned = True
+
+    def __init__(
+        self,
+        table: Any,
+        *,
+        quant: Any = None,
+        grad_quant: Any = None,
+        derivative: Any = None,
+        carrier: torch.dtype | None = None,
+    ) -> None:
+        super().__init__()
+        self.table, self.quant, self.grad_quant = table, quant, grad_quant
+        self.derivative, self.carrier = derivative, carrier
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """The table at ``input``, rounded as ``quant`` says."""
+        return pwl.qpwl(
+            input,
+            self.table,
+            quant=self.quant,
+            grad_quant=self.grad_quant,
+            derivative=self.derivative,
+            carrier=self.carrier,
+        )
+
+    def extra_repr(self) -> str:
+        return self.table.label()
 
 
 class QSoftmax(nn.Softmax):

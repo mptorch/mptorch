@@ -621,17 +621,19 @@ def _softmax(c: _Counter, name, call, x, dim, formats) -> None:
     c.element(name, "softmax", call, x.numel(), formats)
 
 
-def _norm(c: _Counter, name, call, x, out, formats, *, rows, sums, param_rows, weight, bias):
+def _norm(
+    c: _Counter, name, call, x, out, formats, *, rows, sums, param_rows, weight, bias, bwd=None
+):
     """A norm's statistics, ``sums`` of them (none for a batch norm in eval),
     each a sum of ``numel / rows`` terms into each of ``rows`` outputs; in
-    backward the input's as many, and one each for a weight and a bias,
-    over ``param_rows`` outputs."""
+    backward the input's ``bwd`` (as many as ``sums`` by default), and one
+    each for a weight and a bias, over ``param_rows`` outputs."""
     terms = x.numel() // rows if rows else 0
     for site in sums:
         c.sum(name, "norm", site, call, "fwd", rows, terms, formats)
     if c.backward:
         if _needs(x):
-            for _ in sums:
+            for _ in range(len(sums) if bwd is None else bwd):
                 c.sum(name, "norm", "input", call, "igrad", rows, terms, formats)
         per_param = x.numel() // param_rows if param_rows else 0
         for site, p in (("weight", weight), ("bias", bias)):
@@ -640,19 +642,44 @@ def _norm(c: _Counter, name, call, x, out, formats, *, rows, sums, param_rows, w
     c.element(name, "norm", call, out.numel(), formats)
 
 
+def _norm_sums(formats, rms: bool) -> tuple[tuple[str, ...], int]:
+    """A norm's forward sums, which its deviation decides (an L-infinity
+    deviation is a maximum, not a sum), and its input gradient's: two for a
+    centred norm, one for an RMS norm, whatever the deviation."""
+    deviation = getattr(formats, "deviation", "std")
+    if deviation == "l1":
+        second = ("mean absolute deviation",)
+    elif deviation == "linf":
+        second = ()
+    else:
+        second = ("mean of squares",) if rms else ("variance",)
+    return (() if rms else ("mean",)) + second, 1 if rms else 2
+
+
 def _layer_norm(c, name, call, x, out, shape, weight, bias, formats, rms=False) -> None:
     k = math.prod((shape,) if isinstance(shape, int) else tuple(shape))
     rows = x.numel() // k if k else 0
-    sums = ("mean of squares",) if rms else ("mean", "variance")
+    sums, bwd = _norm_sums(formats, rms)
     _norm(
-        c, name, call, x, out, formats, rows=rows, sums=sums, param_rows=k, weight=weight, bias=bias
+        c,
+        name,
+        call,
+        x,
+        out,
+        formats,
+        rows=rows,
+        sums=sums,
+        param_rows=k,
+        weight=weight,
+        bias=bias,
+        bwd=bwd,
     )
 
 
 def _group_norm(c, name, call, x, out, groups, weight, bias, formats) -> None:
     rows = x.shape[0] * groups if x.dim() > 1 else groups
     channels = x.shape[1] if x.dim() > 1 else x.shape[0]
-    sums = ("mean", "variance")
+    sums, bwd = _norm_sums(formats, False)
     _norm(
         c,
         name,
@@ -665,6 +692,7 @@ def _group_norm(c, name, call, x, out, groups, weight, bias, formats) -> None:
         param_rows=channels,
         weight=weight,
         bias=bias,
+        bwd=bwd,
     )
 
 

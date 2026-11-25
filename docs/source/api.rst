@@ -343,6 +343,23 @@ See :doc:`kernels/pointwise`, and :doc:`layers` for the modules.
 
 .. autoclass:: QEmbedding
 
+Piecewise-linear tables, and the approximate inverse square roots
+(:doc:`kernels/pointwise`, "Lookup-table activations";
+:doc:`kernels/reductions`, "Norm variants"):
+
+.. autoclass:: PWLTable
+   :members: fit, rsqrt, max_error, label, segments
+
+.. autofunction:: silu_table
+
+.. autofunction:: gelu_table
+
+.. autofunction:: qpwl
+
+.. autoclass:: QPWLActivation
+
+.. autoclass:: FISR
+
 Sums, softmax and norms
 -----------------------
 

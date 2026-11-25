@@ -232,15 +232,23 @@ class ActivationFormats:
             gradient. A format means ``Quant(fmt)``. Default: ``None``
         carrier (torch.dtype, optional): as for :class:`PointwiseFormats`.
             Default: ``None``
+        table (PWLTable, optional): evaluate this piecewise-linear table in
+            the carrier in place of the activation's function
+            (:class:`~mptorch.quant.PWLTable`), ``out`` rounding the result.
+            The gradient stays the activation's own, the derivative of the
+            function the table approximates. Default: ``None``
 
     Raises:
-        TypeError, ValueError: as for :class:`PointwiseFormats`.
+        TypeError, ValueError: as for :class:`PointwiseFormats`, and for a
+            ``table`` that is not a ``PWLTable``, a table of 1/sqrt, or a table
+            together with ``inner`` (a table has no gate).
     """
 
     inner: Any = None
     out: Any = None
     grad: Any = None
     carrier: torch.dtype | None = None
+    table: Any = None
 
     def __post_init__(self) -> None:
         carrier = _checked_carrier(self.carrier)
@@ -248,6 +256,24 @@ class ActivationFormats:
             slot = _as_quant(getattr(self, name), name)
             _checked_slot(slot, carrier, name)
             object.__setattr__(self, name, slot)
+        if self.table is not None:
+            from .pwl import PWLTable  # imported here: pwl imports this module
+
+            if not isinstance(self.table, PWLTable):
+                raise TypeError(
+                    "ActivationFormats' table is a PWLTable or None, "
+                    f"got {type(self.table).__name__}"
+                )
+            if self.table.reduction is not None:
+                raise ValueError(
+                    "this is a table of 1/sqrt, which a NormFormats takes as its inverse: an "
+                    "activation's table has no reduction"
+                )
+            if self.inner is not None:
+                raise ValueError(
+                    "ActivationFormats has both a table and an inner rounding: a table replaces "
+                    "the whole function, which then has no gate to round -- set one of them"
+                )
 
     @classmethod
     def uniform(
@@ -259,7 +285,12 @@ class ActivationFormats:
 
     @property
     def _rounds(self) -> bool:
-        return self.inner is not None or self.out is not None or self.grad is not None
+        return (
+            self.inner is not None
+            or self.out is not None
+            or self.grad is not None
+            or self.table is not None
+        )
 
     def label(self) -> str:
         """A one-line summary, for reports."""
@@ -268,6 +299,8 @@ class ActivationFormats:
             parts = [f"quant {_label(self.inner)}"]
         else:
             parts = [f"{n} {_label(q)}" for n, q in slots.items() if q is not None]
+        if self.table is not None:
+            parts.insert(0, self.table.label())
         if self.carrier is not None:
             parts.append(f"carrier {str(self.carrier).removeprefix('torch.')}")
         return ", ".join(parts) or "torch"
@@ -1020,6 +1053,17 @@ def _act_grad(act: str, g: torch.Tensor, x: torch.Tensor, approximate: str) -> t
 def _act_forward(ctx, act: str, x: torch.Tensor, f: ActivationFormats, approximate: str):
     ctx.save_for_backward(x)
     ctx.formats, ctx.approximate = f, approximate
+    if f.table is not None:
+        from . import pwl  # imported here: pwl imports this module
+
+        if f.table.name is not None and f.table.name != act:
+            raise ValueError(
+                f"q{act} was given a table of {f.table.name}: an activation evaluates a table of "
+                "its own function, or of one of yours (a table with no name)"
+            )
+        dtype = x.dtype
+        t = pwl._evaluate(f.table, x.to(_carrier_dtype(f.carrier, dtype)))
+        return _stored(t, dtype) if f.out is None else _round_result(f.out, t, dtype)
     if f.inner is None and f.out is None:
         return _act_plain(act, x, approximate)
     dtype = x.dtype

@@ -1,0 +1,8 @@
+formats                          std of x_hat  largest |x_hat - layer_norm|
+deviation='l1'                         0.9987                      1.02e-01
+deviation='linf'                       0.3114                      3.41e+00
+inverse=FISR()                         0.9988                      7.39e-03
+inverse=FISR(2)                        1.0000                      1.86e-05
+inverse=PWLTable.rsqrt()               1.0001                      1.32e-03
+
+FISR's gradient is layer_norm's: True

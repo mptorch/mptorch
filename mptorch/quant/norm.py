@@ -231,6 +231,9 @@ class SoftmaxFormats:
 _NORM_MACS = ("acc", "bwd_acc")
 _NORM_QUANTS = ("div", "sub", "sq", "rsqrt", "norm", "mul", "add", "out", "bwd_mul", "bwd_out")
 _NORM_INNER = ("acc", "div", "sub", "sq", "rsqrt", "norm", "mul", "add")
+_DEVIATIONS = ("std", "l1", "linf")
+# The l1 deviation's constant: E|X - mu| = sigma * sqrt(2/pi) for Gaussian X.
+_L1_KAPPA = math.sqrt(2.0 / math.pi)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -272,9 +275,25 @@ class NormFormats:
             bias's. Default: ``None``
         carrier (torch.dtype, optional): as for :class:`SoftmaxFormats`.
             Default: ``None``
+        deviation (str): the statistic ``x`` is divided by: ``"std"``, the
+            standard deviation; ``"l1"``, the mean absolute deviation ``d``,
+            ``x_hat = c * sqrt(2/pi) / (d + eps)`` with ``c = x - mean`` (``x``
+            for an RMS norm), which matches the standard deviation on Gaussian
+            data; ``"linf"``, the largest absolute deviation, ``x_hat = c /
+            (d + eps)``. The ``rsqrt`` slot rounds the inverse either way, and
+            ``sq`` does not apply. Layer, RMS and group norms only: a batch
+            norm's running variance keeps torch's meaning. Default: ``"std"``
+        inverse: how ``1 / sqrt(var + eps)`` is computed under ``"std"``:
+            ``None``, the carrier's; a :class:`~mptorch.quant.FISR`, the fast
+            inverse square root, each Newton step rounded by ``rsqrt``; or a
+            :class:`~mptorch.quant.PWLTable` from
+            :meth:`~mptorch.quant.PWLTable.rsqrt`, rounded by ``rsqrt``. The
+            gradient is the exact one's, straight through. Default: ``None``
 
     Raises:
-        TypeError, ValueError: as for :class:`SoftmaxFormats`.
+        TypeError, ValueError: as for :class:`SoftmaxFormats`, and for a
+            ``deviation`` or an ``inverse`` that is not one of the above, or an
+            ``inverse`` with a deviation other than ``"std"``.
     """
 
     acc: Any = None
@@ -290,6 +309,8 @@ class NormFormats:
     bwd_mul: Any = None
     bwd_out: Any = None
     carrier: torch.dtype | None = None
+    deviation: str = "std"
+    inverse: Any = None
     _specs: tuple[_GemmSpec | None, ...] = field(
         init=False, repr=False, compare=False, default=(None, None)
     )
@@ -299,9 +320,36 @@ class NormFormats:
     )
 
     def __post_init__(self) -> None:
+        from .pwl import FISR, PWLTable  # imported here: pwl imports pointwise, as this does
+
         _resolve(
             self, _NORM_MACS, _NORM_QUANTS, _NORM_INNER, "out", ("bwd_acc", "bwd_mul", "bwd_out")
         )
+        if self.deviation not in _DEVIATIONS:
+            raise ValueError(
+                f"NormFormats' deviation is one of {_DEVIATIONS}, got {self.deviation!r}"
+            )
+        inv = self.inverse
+        if inv is not None:
+            if isinstance(inv, PWLTable):
+                if inv.reduction != "rsqrt":
+                    raise ValueError(
+                        "NormFormats' inverse is a table of 1/sqrt from PWLTable.rsqrt, which "
+                        "reduces its input onto [1, 4); this table has no reduction"
+                    )
+            elif not isinstance(inv, FISR):
+                raise TypeError(
+                    "NormFormats' inverse is None, a FISR or a PWLTable.rsqrt table, "
+                    f"got {type(inv).__name__}"
+                )
+            if self.deviation != "std":
+                raise ValueError(
+                    f"NormFormats' inverse approximates 1/sqrt(var + eps), and deviation "
+                    f"{self.deviation!r} divides by its own statistic: set one of them"
+                )
+        variant = self.deviation != "std" or inv is not None
+        inner, forward, backward = self._flags
+        object.__setattr__(self, "_flags", (inner or variant, forward or variant, backward))
 
     @classmethod
     def uniform(
@@ -341,7 +389,15 @@ class NormFormats:
 
     def label(self) -> str:
         """A one-line summary, for reports."""
-        return _label(self, _NORM_MACS, _NORM_QUANTS)
+        label = _label(self, _NORM_MACS, _NORM_QUANTS)
+        extra = []
+        if self.deviation != "std":
+            extra.append(f"deviation {self.deviation}")
+        if self.inverse is not None:
+            extra.append(f"inverse {self.inverse.label()}")
+        if not extra:
+            return label
+        return ", ".join(extra) if label == "torch" else f"{label}, {', '.join(extra)}"
 
 
 # --- the steps -------------------------------------------------------------------------
@@ -391,13 +447,48 @@ def _normalized(
         centred = _r(f.sub, xc - mean)
     elif rms:
         mean, centred = None, xc
+        if f.deviation != "std":
+            return _deviated(xc, None, centred, dims, eps, f)
         var = _r(f.div, _over(_total(acc, _r(f.sq, xc * xc), dims), n))
     else:
         mean = _r(f.div, _over(_total(acc, xc, dims), n))
         centred = _r(f.sub, xc - mean)
+        if f.deviation != "std":
+            return _deviated(xc, mean, centred, dims, eps, f)
         var = _r(f.div, _over(_total(acc, _r(f.sq, centred * centred), dims), n))
-    rstd = _r(f.rsqrt, torch.rsqrt(var + eps))
+    rstd = _inverse(f, var + eps)
     return _r(f.norm, centred * rstd), mean, var
+
+
+def _inverse(f: NormFormats, v: torch.Tensor) -> torch.Tensor:
+    """``1 / sqrt(v)``, ``v = var + eps``: the carrier's, FISR's or a
+    table's, as ``f.inverse`` says, rounded by ``rsqrt``."""
+    inv = f.inverse
+    if inv is None:
+        return _r(f.rsqrt, torch.rsqrt(v))
+    from . import pwl  # imported here: pwl imports pointwise, as this does
+
+    if isinstance(inv, pwl.FISR):
+        return pwl._fisr(v, inv.steps, f.rsqrt)
+    return _r(f.rsqrt, pwl._evaluate(inv, v))
+
+
+def _kappa(deviation: str) -> float:
+    return _L1_KAPPA if deviation == "l1" else 1.0
+
+
+def _deviated(xc, mean, centred, dims, eps, f: NormFormats):
+    """``x_hat`` under an ``l1`` or ``linf`` deviation ``d`` of ``centred``:
+    ``kappa / (d + eps)`` rounded by ``rsqrt``, times ``centred`` rounded by
+    ``norm``. Returns ``x_hat``, the mean and ``d``."""
+    a = centred.abs()
+    if f.deviation == "l1":
+        d = _r(f.div, _over(_total(f._specs[0], a, dims), _count(xc.shape, dims)))
+    else:
+        d = a.amax(dims, keepdim=True)
+    kappa = torch.full((), _kappa(f.deviation), dtype=xc.dtype, device=xc.device)
+    inv = _r(f.rsqrt, kappa / (d + eps))
+    return _r(f.norm, centred * inv), mean, d
 
 
 def _affine(t, weight, bias, f: NormFormats, view: Sequence[int] | None) -> torch.Tensor:
@@ -432,6 +523,53 @@ def _unrounded_stats(
         var = (centred * centred).mean(dims, keepdim=True)
     rstd = torch.rsqrt(var + eps)
     return centred * rstd, rstd
+
+
+def _variant_stats(xc, dims, eps, rms: bool, deviation: str):
+    """The unrounded ``c``, ``r = kappa / (d + eps)`` and ``x_hat = c * r``
+    of an ``l1`` or ``linf`` deviation, for the closed-form backward."""
+    c = xc if rms else xc - xc.mean(dims, keepdim=True)
+    a = c.abs()
+    d = a.mean(dims, keepdim=True) if deviation == "l1" else a.amax(dims, keepdim=True)
+    r = _kappa(deviation) / (d + eps)
+    return c, r, c * r
+
+
+def _variant_input_grad(dyhat, c, r, dims, f: NormFormats, rms: bool) -> torch.Tensor:
+    """The input's gradient under an ``l1`` or ``linf`` deviation ``d``: with
+    ``y = c * r`` and ``r = kappa / (d + eps)``, ``dc = r * g - (r**2 /
+    kappa) * sum(g * c) * dd/dc``, where ``dd/dc`` is ``sign(c) / n`` for
+    ``l1`` and ``sign(c) / t`` on the ``t`` tied maxima for ``linf`` (as
+    ``torch.amax`` splits a tie), and then ``dx = dc - mean(dc)`` for a
+    centred norm. The sums are on ``bwd_acc``."""
+    acc = f._specs[1]
+    n = _count(dyhat.shape, dims)
+    kappa = _kappa(f.deviation)
+    s = _total(acc, _r(f.bwd_mul, dyhat * c), dims)
+    if f.deviation == "l1":
+        dd = torch.sign(c) / n
+    else:
+        a = c.abs()
+        top = (a == a.amax(dims, keepdim=True)).to(c.dtype)
+        dd = torch.sign(c) * top / top.sum(dims, keepdim=True)
+    dc = r * dyhat - (r * r / kappa) * s * dd
+    if not rms:
+        dc = dc - _over(_total(acc, dc, dims), n)
+    return dc
+
+
+def _variant_plain(x, weight, bias, dims, eps, deviation: str, rms: bool, view=None):
+    """The ``l1`` or ``linf`` norm written in torch's ops, unrounded, whose
+    graph gives autograd's gradient when no backward slot is set."""
+    c = x if rms else x - x.mean(dims, keepdim=True)
+    a = c.abs()
+    d = a.mean(dims, keepdim=True) if deviation == "l1" else a.amax(dims, keepdim=True)
+    t = c * (_kappa(deviation) / (d + eps))
+    if weight is not None:
+        t = t * (weight if view is None else weight.view(view))
+    if bias is not None:
+        t = t + (bias if view is None else bias.view(view))
+    return t
 
 
 def _input_grad(
@@ -507,11 +645,18 @@ def _layer_norm_grads(x, weight, bias, g, needs, shape, eps, f: NormFormats, rms
     c = pointwise._carrier_dtype(f.carrier, g.dtype)
     xc, gc = x.to(c), g.to(c)
     dims = _layer_dims(x, shape)
-    xhat, rstd = _unrounded_stats(xc, dims, eps, rms)
+    if f.deviation == "std":
+        xhat, rstd = _unrounded_stats(xc, dims, eps, rms)
+    else:
+        centred, r, xhat = _variant_stats(xc, dims, eps, rms, f.deviation)
     dyhat = gc if weight is None else _r(f.bwd_mul, gc * weight.to(c))
     gx = None
     if needs[0]:
-        gx = _finish(f.bwd_out, _input_grad(dyhat, xhat, rstd, dims, f, rms), g.dtype)
+        if f.deviation == "std":
+            t = _input_grad(dyhat, xhat, rstd, dims, f, rms)
+        else:
+            t = _variant_input_grad(dyhat, centred, r, dims, f, rms)
+        gx = _finish(f.bwd_out, t, g.dtype)
     batch = tuple(range(x.dim() - len(shape)))
     gw = _param_grad(_r(f.bwd_mul, gc * xhat), batch, f, weight) if needs[1] else None
     gb = _param_grad(gc, batch, f, bias) if needs[2] else None
@@ -540,12 +685,19 @@ def _group_norm_grads(x, weight, bias, g, needs, groups, eps, f: NormFormats):
     c = pointwise._carrier_dtype(f.carrier, g.dtype)
     xc, gc = x.to(c), g.to(c)
     view = _channel_view(x)
-    xhat_g, rstd = _unrounded_stats(_group_view(xc, groups), (2,), eps, False)
+    if f.deviation == "std":
+        xhat_g, rstd = _unrounded_stats(_group_view(xc, groups), (2,), eps, False)
+    else:
+        centred, r, xhat_g = _variant_stats(_group_view(xc, groups), (2,), eps, False, f.deviation)
     xhat = xhat_g.reshape(x.shape)
     dyhat = gc if weight is None else _r(f.bwd_mul, gc * weight.to(c).view(view))
     gx = None
     if needs[0]:
-        t = _input_grad(_group_view(dyhat, groups), xhat_g, rstd, (2,), f, False)
+        dy_g = _group_view(dyhat, groups)
+        if f.deviation == "std":
+            t = _input_grad(dy_g, xhat_g, rstd, (2,), f, False)
+        else:
+            t = _variant_input_grad(dy_g, centred, r, (2,), f, False)
         gx = _finish(f.bwd_out, t.reshape(x.shape), g.dtype)
     others = (0, *range(2, x.dim()))
     gw = _param_grad(_r(f.bwd_mul, gc * xhat), others, f, weight) if needs[1] else None
@@ -774,7 +926,7 @@ def qlayernorm(
             return F.layer_norm(x, shape, weight, bias, eps)
         return _run(
             "layer_norm",
-            lambda: F.layer_norm(x, shape, weight, bias, eps),
+            _layer_plain(x, shape, weight, bias, eps, f, rms=False),
             f,
             x,
             weight,
@@ -805,7 +957,15 @@ def qrmsnorm(
             return F.rms_norm(x, shape, weight, eps)
         e = torch.finfo(x.dtype).eps if eps is None else eps
         return _run(
-            "rms_norm", lambda: F.rms_norm(x, shape, weight, e), f, x, weight, None, shape, e, f
+            "rms_norm",
+            _layer_plain(x, shape, weight, None, e, f, rms=True),
+            f,
+            x,
+            weight,
+            None,
+            shape,
+            e,
+            f,
         )
 
 
@@ -834,7 +994,7 @@ def qgroupnorm(
             )
         return _run(
             "group_norm",
-            lambda: F.group_norm(x, num_groups, weight, bias, eps),
+            _group_plain(x, num_groups, weight, bias, eps, f),
             f,
             x,
             weight,
@@ -876,6 +1036,12 @@ def qbatchnorm(
                 )
         elif running_mean is None or running_var is None:
             raise ValueError("qbatchnorm in eval needs the running mean and variance")
+        if f.deviation != "std":
+            raise ValueError(
+                f"qbatchnorm takes no deviation {f.deviation!r}: a batch norm's running_var holds "
+                "the variance torch's formula updates, which a checkpoint and eval read as such. "
+                "A layer, RMS or group norm takes it, and a batch norm takes an inverse"
+            )
 
         def plain():
             # torch's gradient in training reads the batch's statistics, not the running ones,
@@ -898,6 +1064,47 @@ def qbatchnorm(
             eps,
             f,
         )
+
+
+def _layer_plain(x, shape, weight, bias, eps, f: NormFormats, rms: bool) -> Callable:
+    """``plain`` for a layer or RMS norm: torch's own, or the variant's spelling."""
+    if f.deviation == "std":
+        if rms:
+            return lambda: F.rms_norm(x, shape, weight, eps)
+        return lambda: F.layer_norm(x, shape, weight, bias, eps)
+
+    def plain():
+        c = pointwise._carrier_dtype(f.carrier, x.dtype)
+        dims = _layer_dims(x, shape)
+        w = None if weight is None else weight.to(c)
+        b = None if bias is None else bias.to(c)
+        return _variant_plain(x.to(c), w, b, dims, eps, f.deviation, rms).to(x.dtype)
+
+    return plain
+
+
+def _group_plain(x, groups, weight, bias, eps, f: NormFormats) -> Callable:
+    """``plain`` for a group norm: torch's own, or the variant's spelling."""
+    if f.deviation == "std":
+        return lambda: F.group_norm(x, groups, weight, bias, eps)
+
+    def plain():
+        c = pointwise._carrier_dtype(f.carrier, x.dtype)
+        t = _variant_plain(_group_view(x.to(c), groups), None, None, (2,), eps, f.deviation, False)
+        w = None if weight is None else weight.to(c)
+        b = None if bias is None else bias.to(c)
+        view = _channel_view(x)
+        return _variant_plain_affine(t.reshape(x.shape), w, b, view).to(x.dtype)
+
+    return plain
+
+
+def _variant_plain_affine(t, weight, bias, view):
+    if weight is not None:
+        t = t * weight.view(view)
+    if bias is not None:
+        t = t + bias.view(view)
+    return t
 
 
 def _implicit_dim(ndim: int) -> int:
