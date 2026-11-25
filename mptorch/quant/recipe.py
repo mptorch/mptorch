@@ -746,7 +746,9 @@ class Recipe:
                 no rule reaches apart from every other pointwise op of the
                 module (the ``elementwise`` kind) -- round the product with
                 ``qk``'s ``output_quant`` instead, or give the ``attention``
-                kind alone.
+                kind alone. Or if ``formats.flash`` is set: an eager attention's
+                two products and its softmax are three calls, which no rule
+                can run as one flash loop.
         """
         if not isinstance(formats, AttentionFormats):
             raise TypeError(
@@ -758,6 +760,12 @@ class Recipe:
                 "attention multiplies its scores by the scale in a pointwise op, which no "
                 "rule reaches apart from the module's other pointwise ops -- round the "
                 "product with qk's output_quant instead, or give the attention kind alone"
+            )
+        if formats.flash is not None:
+            raise ValueError(
+                "attention_parts was given formats with a flash part: an eager attention's two "
+                "products and its softmax are three calls, which no rule can run as one flash "
+                "loop -- give the attention kind alone, to a model that calls SDPA"
             )
         return Recipe(
             (

@@ -12,6 +12,7 @@ that calls SDPA computes the words its eager twin computes under
 ``docs/source/kernels/attention.rst`` is the user's account.
 """
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -25,15 +26,20 @@ from mptorch.number import BlockFormat
 # `modules`, whose QMultiheadAttention imports this module, while they are
 # still loading.
 from . import norm, pointwise
-from .mac import BlockMac
+from .mac import BlockMac, BlockQuant, FusedMac, Quant, SplitMac
+from .modules._opaque import _opaque_backward
 from .modules.format import QMatmulFormats
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
+from .ops._checks import _checked_carrier
+from .ops._spec import _round_result, _stored
+from .rotation import _Rotation
+from .scaled import ScaledQuant
 
 if TYPE_CHECKING:
     from .recipe import GemmFormats
 
-__all__ = ["AttentionFormats", "qattention"]
+__all__ = ["AttentionFormats", "FlashFormats", "qattention"]
 
 _NARROW = (torch.float16, torch.bfloat16)
 
@@ -55,6 +61,87 @@ def _part_types() -> dict[str, type]:
         "softmax": norm.SoftmaxFormats,
         "pv": GemmFormats,
     }
+
+
+@dataclass(frozen=True, kw_only=True)
+class FlashFormats:
+    """Flash attention: the online softmax of FlashAttention-2, over tiles.
+
+    Given to :class:`AttentionFormats` as ``flash``, it makes
+    :func:`~mptorch.quant.qattention` compute FA2's order (Algorithms 1 and
+    2 of arXiv:2307.08691) in place of the standard path's. The keys and
+    values are taken ``block_kv`` at a time, the queries ``block_q`` at a
+    time, and for each query tile the softmax runs online: a running maximum
+    ``m``, a running sum ``l`` and a running output ``O``, rescaled by
+    ``alpha = exp(m - m')`` each time the maximum grows to ``m'``, and one
+    division ``O / l`` at the end. The scores are never held whole. The
+    backward is FA2's: the probabilities recomputed from the saved
+    logsumexp ``L = m + log l``, tile by tile.
+
+    The other parts keep their roles, tile by tile (``kernels/attention.rst``
+    has the table). These three round the steps the standard path does not
+    have, each computed in the carrier and rounded once:
+
+    Args:
+        block_q (int): the rows of a query tile. Default: ``64``
+        block_kv (int): the rows of a key and value tile. Default: ``64``
+        rescale: rounds ``alpha``. A format means ``Quant(fmt)``.
+            Default: ``None``
+        combine: rounds each running update: ``alpha * l + rowsum(P)``,
+            ``alpha * O + P @ v``, and in backward each tile's addition to
+            the gradients of ``q``, ``k`` and ``v``. Default: ``None``
+        lse: rounds the saved logsumexp. Default: ``None``
+        carrier (torch.dtype, optional): the carrier of the tiles and the
+            running state: ``None`` for the operands' own (binary32 for
+            float16, bfloat16 and float32, binary64 for float64),
+            ``torch.float64`` for binary64. Default: ``None``
+
+    Raises:
+        TypeError: for a block size that is not an ``int``, or a slot that
+            is not a ``Quant``, a format, a callable or ``None``.
+        ValueError: for a block size below 1, or a ``Quant`` whose own
+            carrier is set and differs.
+
+    Example::
+
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import AttentionFormats, FlashFormats
+        >>> af = AttentionFormats(flash=FlashFormats(block_kv=128, combine=BinaryK(16, 11)))
+    """
+
+    block_q: int = 64
+    block_kv: int = 64
+    rescale: Any = None
+    combine: Any = None
+    lse: Any = None
+    carrier: torch.dtype | None = None
+
+    def __post_init__(self) -> None:
+        from .reduce import _checked_quant_slot  # imported here: reduce imports modules
+
+        for name in ("block_q", "block_kv"):
+            size = getattr(self, name)
+            if type(size) is not int:
+                raise TypeError(f"FlashFormats' {name} is an int, got {size!r}")
+            if size < 1:
+                raise ValueError(f"FlashFormats' {name} is at least 1, got {size}")
+        carrier = _checked_carrier(self.carrier)
+        for name in ("rescale", "combine", "lse"):
+            object.__setattr__(self, name, _checked_quant_slot(getattr(self, name), carrier, name))
+
+    def label(self) -> str:
+        """A one-line summary, for reports."""
+        from .recipe import _quant_label  # imported here: recipe imports this module
+
+        parts = [f"tiles {self.block_q}x{self.block_kv}"]
+        parts += [
+            f"{name} {_quant_label(getattr(self, name))}"
+            for name in ("rescale", "combine", "lse")
+            if getattr(self, name) is not None
+        ]
+        if self.carrier is not None:
+            parts.append(f"carrier {str(self.carrier).removeprefix('torch.')}")
+        return ", ".join(parts)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -90,6 +177,9 @@ class AttentionFormats:
             ``igrad_mac`` computes the probabilities' gradient and
             ``wgrad_mac`` ``v``'s, and the gradient quantizers round the
             output's gradient for each. Default: ``None``, PyTorch's product
+        flash (FlashFormats, optional): compute FlashAttention-2's order, tile
+            by tile, the other parts rounding each tile's steps.
+            Default: ``None``, the standard path above
 
     Raises:
         TypeError: for a part that is not its type or ``None``.
@@ -106,11 +196,18 @@ class AttentionFormats:
     scores: "pointwise.PointwiseFormats | None" = None
     softmax: "norm.SoftmaxFormats | None" = None
     pv: "GemmFormats | None" = None
+    flash: FlashFormats | None = None
     # The two products' containers, built once here so that a call (functional,
     # or simulate's, perhaps while Dynamo traces) builds none: a container built
     # during a trace gave wrong gradients. A converted layer builds its own.
+    # Flash multiplies each tile of probabilities by v with _pv_tile, pv's
+    # container without its output_quant, which rounds the output once, and
+    # each tile of q by k with _qk_tile, qk's container without its rotation,
+    # which flash applies to q and k whole, outside its loop.
     _qk: QMatmulFormats | None = field(init=False, repr=False, compare=False, default=None)
     _pv: QMatmulFormats | None = field(init=False, repr=False, compare=False, default=None)
+    _qk_tile: QMatmulFormats | None = field(init=False, repr=False, compare=False, default=None)
+    _pv_tile: QMatmulFormats | None = field(init=False, repr=False, compare=False, default=None)
 
     def __post_init__(self) -> None:
         for name, cls in _part_types().items():
@@ -130,8 +227,20 @@ class AttentionFormats:
                     "format, or write the attention as two torch.matmul calls and give each "
                     "site a palette with Recipe.override(where, site=..., matmul=...)"
                 )
+        if self.flash is not None and not isinstance(self.flash, FlashFormats):
+            raise TypeError(
+                "AttentionFormats' flash is a FlashFormats or None, "
+                f"got {type(self.flash).__name__}"
+            )
         object.__setattr__(self, "_qk", None if self.qk is None else self.qk.matmul())
         object.__setattr__(self, "_pv", None if self.pv is None else self.pv.matmul())
+        if self.flash is not None and self.qk is not None:
+            unrotated = self.qk.rotation is None
+            tile = self._qk if unrotated else dataclasses.replace(self.qk, rotation=None).matmul()
+            object.__setattr__(self, "_qk_tile", tile)
+        if self.flash is not None and self.pv is not None:
+            tile = dataclasses.replace(self.pv, output_quant=None).matmul()
+            object.__setattr__(self, "_pv_tile", tile)
 
     @classmethod
     def uniform(
@@ -162,13 +271,19 @@ class AttentionFormats:
     @property
     def _plain(self) -> bool:
         """Whether every part is ``None``: the attention is PyTorch's."""
-        return self.qk is None and self.scores is None and self.softmax is None and self.pv is None
+        return (
+            self.qk is None
+            and self.scores is None
+            and self.softmax is None
+            and self.pv is None
+            and self.flash is None
+        )
 
     def label(self) -> str:
         """A one-line summary of the formats, for reports."""
         parts = [
             f"{name} [{getattr(self, name).label()}]"
-            for name in _PARTS
+            for name in (*_PARTS, "flash")
             if getattr(self, name) is not None
         ]
         return "; ".join(parts) or "torch"
@@ -209,6 +324,12 @@ def qattention(
     6. PyTorch's dropout, when ``dropout_p > 0``, in eval as in training, as
        SDPA applies it;
     7. ``p @ v``, with ``formats.pv``.
+
+    With ``formats.flash`` set, it computes FlashAttention-2's order instead,
+    tile by tile, and never holds the scores whole: :class:`FlashFormats`
+    says how, and ``kernels/attention.rst`` which part rounds which step.
+    Under flash, ``dropout_p`` must be 0 and a float ``attn_mask`` gets no
+    gradient.
 
     Each step's result is stored in the operands' dtype, as the eager
     spelling stores it, and each part computes and rounds in its own
@@ -262,6 +383,10 @@ def qattention(
             gqa = {"enable_gqa": True} if enable_gqa else {}
             return F.scaled_dot_product_attention(
                 q, k, v, attn_mask, dropout_p, is_causal, scale=scale, **gqa
+            )
+        if formats.flash is not None:
+            return _flash_attention(
+                q, k, v, formats, attn_mask, dropout_p, is_causal, scale, enable_gqa
             )
         out, _ = _attention(
             q,
@@ -371,6 +496,330 @@ def _softmax(s: torch.Tensor, formats: Any) -> torch.Tensor:
         else norm.qsoftmax(s, -1, formats, dtype=dtype)
     )
     return p.to(s.dtype) if narrow else p
+
+
+# --- flash attention ---------------------------------------------------------------------
+
+
+def _flash_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    formats: AttentionFormats,
+    attn_mask: torch.Tensor | None,
+    dropout_p: float,
+    is_causal: bool,
+    scale: float | None,
+    enable_gqa: bool,
+) -> torch.Tensor:
+    """:func:`qattention` under ``formats.flash``. The operands are broadcast
+    to one batch shape and the heads repeated here, outside the Function,
+    so that autograd sums their gradients back. Called with torch function
+    modes disabled."""
+    if attn_mask is not None and is_causal:
+        raise RuntimeError(
+            "qattention was given both attn_mask and is_causal=True: is_causal is a mask of "
+            "its own -- pass one of them, as F.scaled_dot_product_attention requires"
+        )
+    if dropout_p > 0.0:
+        raise ValueError(
+            f"qattention under FlashFormats takes no dropout, got dropout_p={dropout_p}: flash "
+            "would draw its dropout tile by tile, which cannot match the standard path's "
+            "draws. Pass dropout_p=0.0 (as an eval model does), or leave flash unset"
+        )
+    if attn_mask is not None and attn_mask.requires_grad and torch.is_grad_enabled():
+        raise ValueError(
+            "qattention under FlashFormats gives attn_mask no gradient, and this one requires "
+            "grad: detach it, or leave flash unset for the standard path, which does"
+        )
+    if enable_gqa:
+        k, v = _repeated(q, k, "k"), _repeated(q, v, "v")
+    batch = torch.broadcast_shapes(q.shape[:-2], k.shape[:-2], v.shape[:-2])
+    q = q.expand(*batch, *q.shape[-2:])
+    k = k.expand(*batch, *k.shape[-2:])
+    v = v.expand(*batch, *v.shape[-2:])
+    mask = None if attn_mask is None else attn_mask.expand(*batch, q.size(-2), k.size(-2))
+    scale = 1.0 / math.sqrt(q.size(-1)) if scale is None else scale
+    rotation = None if formats.qk is None else formats.qk.rotation
+    if rotation is not None:
+        # along the head dimension, which the tiles do not cut: q and k rotated
+        # whole, so that their gradients are summed in the rotated basis over
+        # the tiles and rotated back once
+        q, k = _Rotation.apply(q, rotation, -1), _Rotation.apply(k, rotation, -1)
+    return _FlashAttention.apply(q, k, v, mask, formats, scale, is_causal)
+
+
+def _tiles(n: int, size: int) -> list[tuple[int, int]]:
+    """``[0, n)`` cut into tiles of ``size``, the last one shorter."""
+    return [(i, min(i + size, n)) for i in range(0, n, size)]
+
+
+def _skipped(causal: bool, rows: tuple[int, int], cols: tuple[int, int]) -> bool:
+    """Whether a tile lies wholly above the diagonal of a causal mask (aligned
+    to the top left), so that every one of its scores is masked."""
+    return causal and cols[0] > rows[1] - 1
+
+
+def _may_draw(step: Any) -> bool:
+    """Whether a step may draw random bits: a stochastic rounding, or a
+    callable mptorch does not know."""
+    if step is None:
+        return False
+    if isinstance(step, Quant | ScaledQuant | BlockQuant | SplitMac | FusedMac | BlockMac):
+        return step.rounding.is_stochastic
+    return True
+
+
+def _keeps_scores(formats: AttentionFormats) -> bool:
+    """Whether flash keeps each tile's scores for backward instead of
+    recomputing them: the operands are saved quantized, so a recompute
+    gives the forward's words unless the product, its rounding or the
+    scale's may draw random bits."""
+    qk, scores = formats.qk, formats.scores
+    steps = [] if qk is None else [qk.fwd_mac, qk.output_quant]
+    steps.append(None if scores is None else scores.quant)
+    return any([_may_draw(step) for step in steps])
+
+
+def _slot(container: Any, name: str) -> Any:
+    return None if container is None else getattr(container, name)
+
+
+def _quantized(container: QMatmulFormats | None, name: str, t: torch.Tensor) -> Any:
+    """``t`` through a container's operand slot, or as it is without one."""
+    q = _slot(container, name)
+    return t if q is None else q(t)
+
+
+def _hook(container: QMatmulFormats | None, name: str, default: Any) -> Any:
+    hook = _slot(container, name)
+    return default if hook is None else hook
+
+
+def _step(formats: Any, name: str, t: torch.Tensor) -> torch.Tensor:
+    """``t``, fresh and in the carrier, rounded by a formats value's slot."""
+    return norm._r(_slot(formats, name), t)
+
+
+def _flash_scores(
+    formats: AttentionFormats,
+    qi: Any,
+    kj: Any,
+    scale: float,
+    mask: torch.Tensor | None,
+    causal: bool,
+    rows: tuple[int, int],
+    cols: tuple[int, int],
+) -> torch.Tensor:
+    """One tile of scores, masked, in the carrier: ``qk``'s product of the
+    quantized tiles (rounded by its ``output_quant``), times the scale as
+    ``scores`` rounds it, plus the tile's mask."""
+    fwd = _hook(formats._qk_tile, "fwd_math", CustomArithMatmul._default_fwd)
+    s = fwd(qi, kj)
+    sc = formats.scores
+    if sc is None or sc.quant is None:
+        s = s * scale
+    else:
+        s = pointwise.qmul(s, scale, sc.quant, None, **sc._keywords)
+    if mask is not None:
+        s = s + _bias(mask[..., rows[0] : rows[1], cols[0] : cols[1]], s)
+    elif causal and cols[1] - 1 > rows[0]:  # the tile crosses the diagonal
+        r = torch.arange(rows[0], rows[1], device=s.device)[:, None]
+        c = torch.arange(cols[0], cols[1], device=s.device)[None, :]
+        s = s + _bias(r >= c, s)
+    return s
+
+
+def _scores_grad(formats: AttentionFormats, ds: torch.Tensor, scale: float) -> torch.Tensor:
+    """The gradient of the scaled scores taken back through the scale, as
+    :func:`~mptorch.quant.qmul`'s backward computes it: in the scores'
+    carrier, rounded by their ``grad_quant``."""
+    sc = formats.scores
+    if sc is None or sc.grad_quant is None:
+        return ds * scale
+    c = pointwise._carrier_dtype(sc.carrier, ds.dtype)
+    return _round_result(sc.grad_quant, ds.to(c) * scale, ds.dtype)
+
+
+def _flash_forward(formats, q, k, v, mask, scale, causal):
+    """FA2's forward (Algorithm 1): the output, and what backward reads."""
+    fl, sm = formats.flash, formats.softmax
+    dtype = q.dtype
+    c = pointwise._carrier_dtype(fl.carrier, dtype)
+    rows, cols = _tiles(q.size(-2), fl.block_q), _tiles(k.size(-2), fl.block_kv)
+    qk, pv = formats._qk_tile, formats._pv_tile
+    # each tile quantized once, in the carrier (AE-c): q per query tile, k
+    # (transposed, as the product's right operand) and v per key tile
+    qq = [_quantized(qk, "a_quant", q[..., a:b, :].to(c)) for a, b in rows]
+    kq = [_quantized(qk, "b_quant", k[..., a:b, :].to(c).mT) for a, b in cols]
+    vq = [_quantized(pv, "b_quant", v[..., a:b, :].to(c)) for a, b in cols]
+    pv_fwd = _hook(pv, "fwd_math", CustomArithMatmul._default_fwd)
+    acc = None if sm is None else sm._specs[0]
+    out_quant = None if formats.pv is None else formats.pv.output_quant
+    keep = _keeps_scores(formats)
+    batch, ev = q.shape[:-2], v.size(-1)
+    outs, lses, kept = [], [], []
+    for i, rr in enumerate(rows):
+        n = rr[1] - rr[0]
+        m = torch.full((*batch, n, 1), float("-inf"), dtype=c, device=q.device)
+        total = torch.zeros((*batch, n, 1), dtype=c, device=q.device)
+        o = torch.zeros((*batch, n, ev), dtype=c, device=q.device)
+        for j, cc in enumerate(cols):
+            if _skipped(causal, rr, cc):
+                break  # every later tile of this row of tiles is above the diagonal too
+            s = _flash_scores(formats, qq[i], kq[j], scale, mask, causal, rr, cc)
+            if keep:
+                kept.append(s)
+            m_new = torch.maximum(m, s.amax(-1, keepdim=True))
+            # a row with no score yet subtracts 0, as torch's _safe_softmax does:
+            # its P is then exp(-inf) = 0 and its alpha exp(-inf) = 0, not NaN
+            safe = m_new.masked_fill(m_new.isneginf(), 0.0)
+            p = _step(sm, "exp", torch.exp(_step(sm, "sub", s - safe)))
+            alpha = norm._r(fl.rescale, torch.exp(m - safe))
+            total = norm._r(fl.combine, alpha * total + norm._total(acc, p, (p.dim() - 1,)))
+            o = norm._r(fl.combine, alpha * o + pv_fwd(_quantized(pv, "a_quant", p), vq[j]))
+            m = m_new
+        dead = total == 0  # a row the mask leaves without a score: zeros, as the standard path
+        o = _step(sm, "div", o / total.masked_fill(dead, 1.0))
+        if out_quant is not None:
+            o = out_quant(o)
+        safe = m.masked_fill(m.isneginf(), 0.0)
+        lse = norm._r(fl.lse, safe + torch.log(total)).masked_fill(dead, float("-inf"))
+        outs.append(o)
+        lses.append(lse)
+    out = _stored(torch.cat(outs, -2), dtype)
+    return out, (qq, kq, vq, lses, kept)
+
+
+def _flash_backward(formats, saved, out, grad, mask, scale, causal, dtypes, dims, needs):
+    """FA2's backward (Algorithm 2): the gradients of q, k and v that
+    ``needs`` asks for, ``None`` for the others. ``dims`` is ``(L, S, E)``:
+    the tiles may be packed, and carry no float shape."""
+    need_q, need_k, need_v = needs
+    need_s = need_q or need_k  # dP and dS feed only q's and k's gradients
+    fl, sm = formats.flash, formats.softmax
+    qq, kq, vq, lses, kept = saved
+    c = lses[0].dtype
+    n_queries, n_keys, e = dims
+    rows, cols = _tiles(n_queries, fl.block_q), _tiles(n_keys, fl.block_kv)
+    qk, pv = formats._qk_tile, formats._pv_tile
+    qk_agrad = _hook(qk, "bwd_agrad_math", CustomArithMatmul._default_agrad)
+    qk_bgrad = _hook(qk, "bwd_bgrad_math", CustomArithMatmul._default_bgrad)
+    pv_agrad = _hook(pv, "bwd_agrad_math", CustomArithMatmul._default_agrad)
+    pv_bgrad = _hook(pv, "bwd_bgrad_math", CustomArithMatmul._default_bgrad)
+    bwd_acc = None if sm is None else sm._specs[1]
+    g, o = grad.to(c), out.to(c)
+    dout = [g[..., a:b, :] for a, b in rows]
+    # D_i = rowsum(dO_i * O_i), once per query tile; and the output gradient
+    # quantized once per query tile for each of pv's two gradients
+    big_d = [
+        norm._total(bwd_acc, _step(sm, "bwd_mul", dout[i] * o[..., a:b, :]), (o.dim() - 1,))
+        if need_s
+        else None
+        for i, (a, b) in enumerate(rows)
+    ]
+    dout_p = [_quantized(pv, "agrad_quant", t) if need_s else None for t in dout]
+    dout_v = [_quantized(pv, "bgrad_quant", t) if need_v else None for t in dout]
+    batch, ev = out.shape[:-2], out.size(-1)
+    dq = [torch.zeros((*batch, b - a, e), dtype=c, device=g.device) for a, b in rows]
+    dk = [torch.zeros((*batch, b - a, e), dtype=c, device=g.device) for a, b in cols]
+    dv = [torch.zeros((*batch, b - a, ev), dtype=c, device=g.device) for a, b in cols]
+    tiles = {}
+    if kept:
+        keys = [
+            (i, j)
+            for i, rr in enumerate(rows)
+            for j, cc in enumerate(cols)
+            if not _skipped(causal, rr, cc)
+        ]
+        tiles = dict(zip(keys, kept, strict=True))
+    for j, cc in enumerate(cols):
+        for i, rr in enumerate(rows):
+            if _skipped(causal, rr, cc):
+                continue
+            s = (
+                tiles[(i, j)]
+                if tiles
+                else _flash_scores(formats, qq[i], kq[j], scale, mask, causal, rr, cc)
+            )
+            # P from the saved logsumexp, unrounded, as the standard softmax's
+            # backward takes the unrounded softmax; a dead row's scores are all
+            # -inf, so its P is 0 whatever its L
+            lse = lses[i]
+            p = torch.exp(s - lse.masked_fill(lse.isneginf(), 0.0))
+            if need_v:
+                pv_p = _quantized(pv, "a_quant", p)
+                dv[j] = norm._r(fl.combine, dv[j] + pv_bgrad(dout_v[i], pv_p))
+            if not need_s:
+                continue
+            dp = pv_agrad(dout_p[i], vq[j])
+            ds = _step(sm, "bwd_out", p * _step(sm, "bwd_sub", dp - big_d[i]))
+            ds = _scores_grad(formats, ds, scale)
+            if need_q:
+                dq_ij = qk_agrad(_quantized(qk, "agrad_quant", ds), kq[j])
+                dq[i] = norm._r(fl.combine, dq[i] + dq_ij)
+            if need_k:
+                dk_ij = qk_bgrad(_quantized(qk, "bgrad_quant", ds), qq[i]).mT
+                dk[j] = norm._r(fl.combine, dk[j] + dk_ij)
+    q_dtype, k_dtype, v_dtype = dtypes
+    return (
+        _stored(torch.cat(dq, -2), q_dtype) if need_q else None,
+        _stored(torch.cat(dk, -2), k_dtype) if need_k else None,
+        _stored(torch.cat(dv, -2), v_dtype) if need_v else None,
+    )
+
+
+class _FlashAttention(torch.autograd.Function):
+    """FA2's forward and backward over the parts of an ``AttentionFormats``
+    with a ``flash`` part. Its saved tensors are the quantized tiles of q, k
+    and v, the output, the logsumexp of each query tile, and, when the scores
+    may draw random bits, each tile's scores (``_keeps_scores``)."""
+
+    @staticmethod
+    def forward(ctx, q, k, v, mask, formats, scale, causal):
+        with torch._C.DisableTorchFunction():
+            out, saved = _flash_forward(formats, q, k, v, mask, scale, causal)
+            qq, kq, vq, lses, kept = saved
+            counts = (len(qq), len(kq), len(vq), len(lses), len(kept))
+            items = [*qq, *kq, *vq, *lses, *kept, out, mask]
+            ctx.save_for_backward(*[t if isinstance(t, torch.Tensor) else None for t in items])
+            ctx.structs = [None if isinstance(t, torch.Tensor) else t for t in items]
+            ctx.counts = counts
+            ctx.formats, ctx.scale, ctx.causal = formats, scale, causal
+            ctx.dtypes = (q.dtype, k.dtype, v.dtype)
+            ctx.dims = (q.size(-2), k.size(-2), q.size(-1))
+            return out
+
+    @staticmethod
+    def backward(ctx, *grads):
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
+            items = [
+                s if t is None else t for t, s in zip(ctx.saved_tensors, ctx.structs, strict=True)
+            ]
+            n_q, n_k, n_v, n_l, n_s = ctx.counts
+            at = [0, n_q, n_q + n_k, n_q + n_k + n_v, n_q + n_k + n_v + n_l]
+            saved = (
+                items[: at[1]],
+                items[at[1] : at[2]],
+                items[at[2] : at[3]],
+                items[at[3] : at[4]],
+                items[at[4] : at[4] + n_s],
+            )
+            out, mask = items[-2], items[-1]
+            needs = tuple(ctx.needs_input_grad[:3])
+            dq, dk, dv = _flash_backward(
+                ctx.formats,
+                saved,
+                out,
+                grads[0],
+                mask,
+                ctx.scale,
+                ctx.causal,
+                ctx.dtypes,
+                ctx.dims,
+                needs,
+            )
+            return dq, dk, dv, None, None, None, None
 
 
 # --- nn.MultiheadAttention ---------------------------------------------------------------
@@ -568,6 +1017,12 @@ def _qmha_forward(
         dropout_p = 0.0
 
     weights: torch.Tensor | None = None
+    if attention is not None and attention.flash is not None and need_weights:
+        raise ValueError(
+            "this MultiheadAttention's attention formats run flash attention, which never forms "
+            "the attention weights: call it with need_weights=False, as torch's own fast path "
+            "requires, or leave the formats' flash unset"
+        )
     if attention is not None and not attention._plain:
         if attn_mask is not None:
             attn_mask = (
@@ -575,6 +1030,20 @@ def _qmha_forward(
                 if attn_mask.size(0) == 1
                 else attn_mask.view(bsz, num_heads, -1, src_len)
             )
+    if attention is not None and attention.flash is not None:
+        out = _flash_attention(
+            q.view(bsz, num_heads, tgt_len, head_dim),
+            k.view(bsz, num_heads, src_len, head_dim),
+            v.view(bsz, num_heads, src_len, head_dim),
+            attention,
+            attn_mask,
+            dropout_p,
+            is_causal and attn_mask is None,
+            None,
+            False,
+        )
+        out = out.permute(2, 0, 1, 3).reshape(bsz * tgt_len, embed_dim)
+    elif attention is not None and not attention._plain:
         out, p = _attention(
             q.view(bsz, num_heads, tgt_len, head_dim),
             k.view(bsz, num_heads, src_len, head_dim),

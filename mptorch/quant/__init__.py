@@ -9,7 +9,7 @@ configure them, and the conversion of a whole model from a recipe
 """
 
 from . import presets
-from .attention import AttentionFormats, qattention
+from .attention import AttentionFormats, FlashFormats, qattention
 from .conv import conv_formats
 from .convert import ConvertReport, ConvertRow, convert, convert_, register, unconvert_
 from .gemm import (
@@ -222,6 +222,7 @@ __all__ = [
     "QBatchNorm3d",
     # attention, each part rounded
     "AttentionFormats",
+    "FlashFormats",
     "qattention",
     "QAttentionFormats",
     "QMultiheadAttention",

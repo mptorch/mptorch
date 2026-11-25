@@ -489,11 +489,16 @@ def _conv(c: _Counter, name, call, x, weight, out, stride, padding, dilation, gr
             c.product(name, "conv", None, call, "igrad", shape, formats)
 
 
-def _core(c: _Counter, name, call, BH, L, S, E, Ev, af, q_grad, k_grad, v_grad) -> None:
+def _core(
+    c: _Counter, name, call, BH, L, S, E, Ev, af, q_grad, k_grad, v_grad, causal=False
+) -> None:
     """An attention's core over ``BH`` heads (query heads: grouped keys and
     values are repeated), ``L`` queries, ``S`` keys, head dimensions ``E``
     and ``Ev``: the scores, the softmax's sum, the output; and their
-    gradients."""
+    gradients. Under a flash part, the products flash runs (``_flash_core``)."""
+    if af is not None and af.flash is not None:
+        _flash_core(c, name, call, BH, L, S, E, Ev, af, (q_grad, k_grad, v_grad), causal)
+        return
     qk = None if af is None else af.qk
     sm = None if af is None else af.softmax
     pv = None if af is None else af.pv
@@ -511,6 +516,55 @@ def _core(c: _Counter, name, call, BH, L, S, E, Ev, af, q_grad, k_grad, v_grad) 
             c.product(name, "attention", "qk", call, "wgrad", (BH, E, S, L), qk)
     if v_grad:
         c.product(name, "attention", "pv", call, "wgrad", (BH, S, Ev, L), pv)
+
+
+def _flash_core(c: _Counter, name, call, BH, L, S, E, Ev, af, grads, causal) -> None:
+    """Flash attention's products as it runs them, tile by tile, the causal
+    tiles it skips left out. Tiles of one shape are one record, their count
+    folded into the batch. The backward is FA2's: per tile, the scores again
+    (unless flash keeps them), dV, dP, dQ and dK, and per query tile the sum
+    of ``dO * O``. The running updates (``rescale``, ``combine``, ``lse``)
+    are one element record per pass."""
+    from .attention import _keeps_scores, _skipped, _tiles
+
+    fl = af.flash
+    shapes: dict[tuple[int, int], int] = {}
+    for rows in _tiles(L, fl.block_q):
+        for cols in _tiles(S, fl.block_kv):
+            if not _skipped(causal, rows, cols):
+                key = (rows[1] - rows[0], cols[1] - cols[0])
+                shapes[key] = shapes.get(key, 0) + 1
+    q_grad, k_grad, v_grad = grads
+    backward = c.backward and (q_grad or k_grad or v_grad)
+    recompute = backward and not _keeps_scores(af)
+    fwd_elements = BH * L  # the logsumexp
+    bwd_elements = 0
+    for (br, bc), n in shapes.items():
+        b = BH * n
+        c.product(name, "attention", "qk", call, "fwd", (b, br, bc, E), af.qk)
+        c.sum(name, "attention", "softmax", call, "fwd", b * br, bc, af.softmax)
+        c.product(name, "attention", "pv", call, "fwd", (b, br, Ev, bc), af.pv)
+        fwd_elements += b * br * (2 + Ev)  # alpha, and the updates of l and O
+        if not backward:
+            continue
+        if recompute:
+            c.product(name, "attention", "qk", call, "fwd", (b, br, bc, E), af.qk)
+        if v_grad:
+            c.product(name, "attention", "pv", call, "wgrad", (b, bc, Ev, br), af.pv)
+            bwd_elements += b * bc * Ev
+        if q_grad or k_grad:
+            c.product(name, "attention", "pv", call, "igrad", (b, br, bc, Ev), af.pv)
+        if q_grad:
+            c.product(name, "attention", "qk", call, "igrad", (b, br, E, bc), af.qk)
+            bwd_elements += b * br * E
+        if k_grad:
+            c.product(name, "attention", "qk", call, "wgrad", (b, E, bc, br), af.qk)
+            bwd_elements += b * bc * E
+    if backward and (q_grad or k_grad):
+        c.sum(name, "attention", "softmax", call, "igrad", BH * L, Ev, af.softmax)
+    c.element(name, "attention", call, fwd_elements, fl)
+    if bwd_elements:
+        c.element(name, "attention", call, bwd_elements, fl)
 
 
 def _mha(c: _Counter, name, out_name, call, shape, same, grads, weights, bias, extra, out_w, parts):
@@ -735,11 +789,13 @@ def _count_mha(c, state, d, func, args, kwargs, out):
 
 
 def _count_sdpa(c, state, d, func, args, kwargs, out):
-    q, k, v = _bind(args, kwargs, _SDPA_NAMES, (None, 0.0, False, None, False))[:3]
+    values = _bind(args, kwargs, _SDPA_NAMES, (None, 0.0, False, None, False))
+    q, k, v, causal = values[0], values[1], values[2], bool(values[5])
     BH = math.prod(q.shape[:-2])
     af = _route_of(state, d)
     L, E, S, Ev = q.shape[-2], q.shape[-1], k.shape[-2], v.shape[-1]
-    _core(c, d[0], _NAMES[func], BH, L, S, E, Ev, af, _needs(q), _needs(k), _needs(v))
+    needs = (_needs(q), _needs(k), _needs(v))
+    _core(c, d[0], _NAMES[func], BH, L, S, E, Ev, af, *needs, causal=causal)
 
 
 def _count_elements(c, state, d, func, args, kwargs, out):

@@ -465,7 +465,10 @@ and the blocks      32.61       2,742        72.9%
 
 The SDPA model and its eager twin (``attn_implementation="eager"``) under
 ``attention_parts`` compute the same logits, word for word, and under the
-last recipe nothing the model calls is left uncovered. The rest of the
+last recipe nothing the model calls is left uncovered. An ``attention``
+formats value with a :class:`~mptorch.quant.FlashFormats` part computes
+FlashAttention-2's order instead: under ``fp8+attention`` it gives 28.19
+rather than 28.59 (:doc:`kernels/attention`, "Flash attention"). The rest of the
 MACs are ``lm_head``'s, a third of a GPT-2 small's. Rounding the blocks'
 residual sums, GELUs and norms to bfloat16's precision costs more
 perplexity than all their products in FP8.

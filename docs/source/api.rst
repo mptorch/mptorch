@@ -394,6 +394,9 @@ recipes.
 .. autoclass:: AttentionFormats
    :members: uniform, label
 
+.. autoclass:: FlashFormats
+   :members: label
+
 .. autofunction:: qattention
 
 .. autoclass:: QMultiheadAttention

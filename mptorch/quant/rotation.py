@@ -217,6 +217,28 @@ def hadamard_rotate(
     return y.movedim(-1, dim) if moved else y
 
 
+class _Rotation(torch.autograd.Function):
+    """``hadamard_rotate(x, rotation, dim)`` with the inverse rotation as its
+    backward: the gradient rotated back exactly as ``_RotatedGrad`` rotates
+    it, rather than autograd's reversal of the butterfly's stages. Flash
+    attention rotates ``q`` and ``k`` whole with it, outside its tile loop,
+    so that their gradients are summed over the tiles in the rotated basis
+    and rotated back once."""
+
+    @staticmethod
+    def forward(ctx, x, rotation, dim):
+        with torch._C.DisableTorchFunction():
+            ctx.rotation, ctx.dim = rotation, dim
+            return hadamard_rotate(x, rotation, dim)
+
+    @staticmethod
+    def backward(ctx, *grads):
+        from .modules._opaque import _opaque_backward  # imported here: modules imports this
+
+        with _opaque_backward():
+            return hadamard_rotate(grads[0], ctx.rotation, ctx.dim, inverse=True), None, None
+
+
 class _RotatedQuant:
     """An operand slot that rotates along K, then runs the slot's quantizer
     (or nothing, for an empty slot).

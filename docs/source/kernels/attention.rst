@@ -131,3 +131,124 @@ products take three quarters of the time and the softmax the rest: an
 attention costs what its products would cost as simulated layers.
 Stochastic rounding costs about three times RNE's time on CUDA, and much
 more on the CPU, whose vector tiles take RNE only.
+
+Flash attention
+---------------
+
+``AttentionFormats(..., flash=FlashFormats(block_q, block_kv, ...))`` makes
+:func:`~mptorch.quant.qattention` compute FlashAttention-2's order
+(Algorithms 1 and 2 of arXiv:2307.08691) in place of the steps above. The
+two orders sum differently:
+
+- **The standard path** forms the whole row of scores, takes its maximum
+  :math:`m`, and divides each :math:`e_j = \exp(s_j - m)` by their sum
+  before the product with :math:`v`: :math:`o = \sum_j (e_j / \ell)\, v_j`.
+- **Flash** takes the keys ``block_kv`` at a time and keeps, for each
+  query, a running maximum :math:`m`, sum :math:`\ell` and output
+  :math:`O`. For each tile of scores :math:`S`, with :math:`m' =
+  \max(m, \max_j S_j)`, :math:`\tilde P = \exp(S - m')` and
+  :math:`\alpha = \exp(m - m')`, it updates :math:`\ell \leftarrow
+  \alpha\ell + \sum_j \tilde P_j` and :math:`O \leftarrow \alpha O +
+  \tilde P V`. It divides once, :math:`o = O / \ell`, and saves
+  :math:`L = m + \log \ell` for the backward. The scores are never held
+  whole.
+
+The parts keep their roles, tile by tile. The three steps the standard path
+has no counterpart for are ``FlashFormats``' own slots:
+
+==========================  ==================================================
+step                        rounded by
+==========================  ==================================================
+q and k tiles               ``qk.input_quant``, ``qk.weight_quant``
+:math:`S = q_i k_j^\top`    ``qk``'s mac, then ``qk.output_quant``
+:math:`S \cdot` scale       ``scores``
+the mask                    added in the carrier; the maximum is exact
+:math:`\tilde P`            ``softmax.sub`` and ``softmax.exp``
+a tile's row sums           ``softmax.acc``
+:math:`\alpha`              ``flash.rescale``
+the updates of ℓ and O      ``flash.combine``, each computed in the carrier
+                            and rounded once
+:math:`\tilde P V`          ``pv.input_quant`` on :math:`\tilde P`,
+                            ``pv.weight_quant`` on the tile of ``v``, ``pv``'s
+                            mac
+:math:`O / \ell`            ``softmax.div``, then ``pv.output_quant`` once
+:math:`L`                   ``flash.lse``
+==========================  ==================================================
+
+- **Tiles.** The operand quantizers run per tile: ``q`` per query tile, and
+  ``k`` and ``v`` per key tile. A :class:`~mptorch.quant.ScaledQuant` then
+  scales each tile by its own maximum, as FA3 scales its FP8 blocks.
+  Elementwise quantizers, and MX block formats along the head dimension,
+  give the same words either way. Everything inside runs in
+  ``FlashFormats.carrier``, binary32 by default for float32, float16 and
+  bfloat16 operands. The output is stored in the operands' dtype.
+- **Causal tiles.** With ``is_causal``, the key tiles wholly above the
+  diagonal are skipped, which gives the words of computing them under the
+  same mask, since a masked tile adds exactly nothing. The tiles are known
+  from the shapes, so flash compiles into one graph. An explicit
+  ``attn_mask``'s tiles are all computed.
+- **The backward** is FA2's. First, :math:`D = \sum (dO \circ O)` per query,
+  under ``softmax.bwd_mul`` and ``softmax.bwd_acc``. Then for each tile:
+  :math:`P = \exp(S - L)`, unrounded, as the standard softmax's backward
+  takes the unrounded softmax; :math:`dV`, :math:`dP = dO\,V^\top`,
+  :math:`dS = P \circ (dP - D)` under ``softmax.bwd_sub`` and
+  ``softmax.bwd_out``, the scale's gradient as ``scores`` rounds it, then
+  :math:`dQ` and :math:`dK`. Each product is in its pass's mac and gradient
+  quantizer, and ``combine`` rounds each tile's addition to the three
+  gradients. The scores are recomputed from the saved quantized tiles.
+  When their product, its rounding or the scale's can draw random bits,
+  the forward keeps each tile's scores instead, so the backward sees the
+  forward's words.
+- **Rotations.** ``qk.rotation`` rotates ``q`` and ``k`` whole along the
+  head dimension, before the tile loop. Their gradients are summed in the
+  rotated basis and rotated back once. ``pv.rotation`` runs along the keys
+  within each tile.
+- **What it refuses.**
+
+  - ``dropout_p > 0``, since flash would draw its dropout per tile.
+  - A mask that requires grad, since flash gives the mask no gradient.
+  - :meth:`~mptorch.quant.Recipe.attention_parts`, since an eager
+    attention is three calls.
+  - ``QMultiheadAttention``'s ``need_weights=True``, since flash never forms
+    the weights.
+
+On GPT-2 small, the recipe ``fp8+attention`` of
+``examples/instrument/gpt2_perplexity.py`` puts every projection but
+``lm_head`` in FP8, the attention's operands and probabilities in E4M3, and
+the softmax in Binary14p8. Under it, flash gives a lower perplexity than the
+standard path, over WikiText-2's first 32,768 tokens (an RTX 4060 laptop
+GPU, 2026-11-25):
+
+===========================  ==========  ===========
+attention                    perplexity  tokens/s
+===========================  ==========  ===========
+standard path                28.59       2,957
+flash, 128 x 128 tiles       28.19       2,781
+flash, 64 x 64 tiles         28.25       1,574
+===========================  ==========  ===========
+
+Flash alone, nothing rounded, gives float32's 26.76. A likely reason for
+flash's lower perplexity, not verified: the probabilities are rounded to
+E4M3. The standard path rounds them after the division, where most of a
+1,024-key row's probabilities lie near :math:`1/1024`, below E4M3's smallest
+normal value :math:`2^{-6}`. Flash rounds :math:`\tilde P`, whose largest
+entry in each row is 1.
+
+**Cost.** A causal attention over ``[1, 8, L, 64]`` under E4M3 operand
+quantizers, with 128 x 128 tiles:
+
+- **Memory.** On CUDA, flash holds 42 MiB at :math:`L = 4096` where the
+  standard path holds 1,592 MiB (91 and 2,080 MiB with the backward).
+- **CUDA time.** Flash runs a Python loop over its tiles, and takes 5 to 8
+  times the standard path's time.
+- **CPU time.** Flash is faster than the standard path, by 1.2-2.6x on 16
+  threads and 1.7-3.8x on one. It works on cache-sized tiles, skips the
+  causal tiles, and makes no passes over the whole score matrix.
+
+.. literalinclude:: ../../snippets/attention_flash.py
+   :language: python
+   :caption: docs/snippets/attention_flash.py
+
+.. literalinclude:: ../../snippets/attention_flash.out
+   :language: text
+   :caption: output
