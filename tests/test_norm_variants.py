@@ -223,7 +223,8 @@ def test_fisr_is_the_bit_trick_by_hand(device, dtype, steps):
         want = c * _fisr_by_hand(var + EPS, steps, rq)
     torch.testing.assert_close(y, want, rtol=1e-6, atol=1e-6)
     v = torch.linspace(1, 4, 100001, dtype=dtype).to(device)
-    err = (_fisr_by_hand(v, steps, lambda t: t).double() * v.double().sqrt() - 1).abs().max().item()
+    approx = _fisr_by_hand(v, steps, lambda t: t).cpu().double()  # MPS has no float64
+    err = (approx * v.cpu().double().sqrt() - 1).abs().max().item()
     assert err <= {0: 3.5e-2, 1: 1.76e-3, 2: 4.8e-6}[steps]
 
 
