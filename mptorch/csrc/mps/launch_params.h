@@ -66,6 +66,15 @@ namespace mptorch_mps
   };
   static_assert(sizeof(BlockPackLaunch) == 88, "BlockPackLaunch must have one layout on the host and the GPU");
 
+  // The scaled quantizers' launch (scaled_quant.metal): `n` elements in rows
+  // of `cols`, each row's `per_row` scales covering `block` elements each.
+  struct ScaledQuantLaunch
+  {
+    uint64_t n, cols, block, per_row;
+    uint64_t seed;
+  };
+  static_assert(sizeof(ScaledQuantLaunch) == 40, "ScaledQuantLaunch must have one layout on the host and the GPU");
+
   // The most threads a tile's threadgroup has (mpt_block_pack_tile). The
   // host gives each thread 64 of a tile's elements, with at least one
   // simdgroup and at most this many threads, which a 128 x 128 tile

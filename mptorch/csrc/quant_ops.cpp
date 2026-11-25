@@ -510,4 +510,17 @@ TORCH_LIBRARY(mptorch, m)
         "int mul_prng_bits, int acc_prng_bits, int block_size, bool outer_quant, int outer_K, "
         "int outer_P, int outer_bias, bool outer_is_signed, int outer_saturation_mode, "
         "int outer_subnormals_mode, int outer_prng_bits) -> Tensor", seeded);
+  // The scaled quantizers (common/scaled_quant_host.h): `a` a 2D tensor of
+  // rows, `scale` its rows' scales in the carrier, block_size 0 for one
+  // scale per row; each op then takes its elementwise twin's format
+  // arguments.
+  m.def("binaryK_quant_scaled(Tensor a, Tensor scale, int block_size, int K, int P, "
+        "int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode, int subnormals_mode) -> Tensor", seeded);
+  m.def("superfp_quant_scaled(Tensor a, Tensor scale, int block_size, int man_bits, int exp_bits, "
+        "int normal_binades, int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode) -> Tensor", seeded);
+  m.def("fixedpoint_quant_scaled(Tensor a, Tensor scale, int block_size, int wl, int fl, "
+        "int prng_bits, bool is_signed, bool symmetric, "
+        "int round_mode) -> Tensor", seeded);
 }

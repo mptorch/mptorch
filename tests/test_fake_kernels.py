@@ -10,7 +10,7 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 66 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  whose kernels the build has: all 69 under ``MPTORCH_ODD_ACCUMULATED=1``.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -45,6 +45,7 @@ from mptorch import (
     MXFP8_E4M3,
     AccumulateAlgorithm,
     BinaryK,
+    FixedPoint,
     FormatRangeWarning,
     RoundMode,
     SuperFP,
@@ -58,6 +59,7 @@ from mptorch.quant import (
     QMatmul,
     Quant,
     Quantizer,
+    ScaledQuant,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_matmul,
@@ -246,6 +248,10 @@ def _workload():
     superfp_quantize_(x.clone(), 3, 4, 2, 7, prng_bits=8, rounding_mode=SR)
     fixedpoint_quantize_(x.clone(), 8, 5, prng_bits=8, rounding_mode=SR)
     binaryK_quantize(x.bfloat16(), 8, 4, carrier=torch.float64)  # reaches narrow_float64
+    # the scaled quantizers' fused ops: one scale, per row, per block
+    ScaledQuant(BinaryK(8, 4, prng_bits=8), SR)(x)
+    ScaledQuant(SuperFP(3, 4, 2, 7), granularity="row")(x)
+    ScaledQuant(FixedPoint(8, 5), granularity="block", block_size=5)(x)
     xb = _rnd(gen, 4, 64)
     block_quantize(xb, MXFP8_E4M3, rounding=SR)
     block_quantize(xb.t(), MXFP8_E4M3, rounding=SR)  # a strided input keeps its layout
@@ -313,7 +319,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 66
+    assert len(names) == 69
     for key in ("Meta", "Autograd"):
         missing = [
             n

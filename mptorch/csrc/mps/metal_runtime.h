@@ -40,6 +40,7 @@ namespace mptorch_mps
     BlockUnpack,   // block.metal's mpt_block_unpack
     GemmOdd,       // gemm.metal's mpt_gemm, after odd.metal: an odd Args
     CarrierOdd,    // carrier_odd.metal's mpt_carrier_odd, after odd.metal
+    QuantizeScaled, // scaled_quant.metal's mpt_quantize_scaled
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as

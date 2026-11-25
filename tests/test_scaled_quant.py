@@ -418,3 +418,186 @@ def test_compiles_on_a_transposed_input(device, dtype, backend, granularity, axi
         torch.testing.assert_close(compiled, eager, rtol=2**-20, atol=0)
     else:
         assert torch.equal(eager, compiled)
+
+
+# --- the fused op -------------------------------------------------------------------
+#
+# With one scale for the tensor or the scaled axis last, a call is one pass of
+# the fused op (csrc/common/scaled_quant_host.h) after the largest magnitudes
+# are found; anywhere else it is the unfused spelling, which the tests above
+# hold to the statement. The fused op gives the unfused spelling's bits on the
+# CPU and CUDA. On MPS, PyTorch's own arithmetic in the unfused spelling
+# flushes binary32 subnormals and the Metal kernel does not, so MPS's fused op
+# is held to the CPU's instead.
+
+FUSED_CASES = CASES + [
+    (BinaryK(8, 4, prng_bits=8, saturation=SAT), RoundMode.SR_B, None),
+    (BinaryK(8, 3, bias=15, saturation=SAT), RoundMode.RO, None),
+    (SuperFP(3, 4, 2, 7, prng_bits=8, saturation=SAT), SR, None),
+    (FixedPoint(8, 4), RoundMode.RZ, None),
+]
+LAYOUTS = [
+    ("tensor", None, (6, 40)),
+    ("tensor", None, (77,)),
+    ("tensor", None, (2, 3, 13)),
+    ("row", None, (6, 40)),
+    ("row", None, (3, 5, 9)),
+    ("block", 8, (6, 40)),
+    ("block", 7, (5, 30)),  # a shorter last block
+    ("block", 3, (2, 2, 2)),  # rows shorter than a vector
+    ("block", 64, (4, 30)),  # a block longer than the row
+]
+UNFUSED_TWIN_DEVICES = [d for d in available_devices if d != "mps"]
+
+
+def _fused_and_unfused(sq, x, device):
+    wide = x.dtype is torch.float64 or sq.carrier is torch.float64
+    fused = _run(device, sq, x)
+    unfused = _run(device, lambda t: sq._unfused_call(t, wide), x)
+    return fused, unfused
+
+
+def _spread(device, dtype, shape):
+    return _data(device, dtype, shape) * torch.logspace(-3, 3, shape[-1], device=device).to(dtype)
+
+
+@pytest.mark.parametrize("device", UNFUSED_TWIN_DEVICES)
+@pytest.mark.parametrize("fmt,rounding,target", FUSED_CASES, ids=str)
+@pytest.mark.parametrize("granularity,block_size,shape", LAYOUTS, ids=str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_the_fused_op_is_the_unfused_spelling(
+    device, fmt, rounding, target, granularity, block_size, shape, dtype
+):
+    x = _spread(device, dtype, shape)
+    sq = ScaledQuant(fmt, rounding, target=target, granularity=granularity, block_size=block_size)
+    fused, unfused = _fused_and_unfused(sq, x, device)
+    assert fused.dtype is dtype and fused.shape == x.shape
+    assert torch.equal(fused, unfused)
+
+
+@pytest.mark.parametrize("device", [d for d in float64_devices if d != "mps"])
+@pytest.mark.parametrize("fmt,rounding,target", FUSED_CASES, ids=str)
+@pytest.mark.parametrize("granularity,block_size,shape", LAYOUTS[::2], ids=str)
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.bfloat16])
+def test_the_fused_op_in_binary64(
+    device, fmt, rounding, target, granularity, block_size, shape, dtype
+):
+    x = _data(device, dtype, shape)
+    sq = ScaledQuant(
+        fmt,
+        rounding,
+        target=target,
+        granularity=granularity,
+        block_size=block_size,
+        carrier=torch.float64,
+    )
+    fused, unfused = _fused_and_unfused(sq, x, device)
+    assert fused.dtype is dtype and torch.equal(fused, unfused)
+
+
+@pytest.mark.parametrize("fmt,rounding,target", FUSED_CASES, ids=str)
+@pytest.mark.parametrize("granularity,block_size,shape", LAYOUTS, ids=str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("device", [d for d in available_devices if d == "mps"])
+def test_mps_fused_is_the_cpus(
+    device, fmt, rounding, target, granularity, block_size, shape, dtype
+):
+    """The Metal kernel gives the CPU kernel's bits, SR included (it draws its
+    seed from the CPU generator and keys the streams as the CPU does), and
+    subnormal products and quotients too."""
+    x = _spread("cpu", dtype, shape)
+    sq = ScaledQuant(fmt, rounding, target=target, granularity=granularity, block_size=block_size)
+    want = _run("cpu", sq, x)
+    got = _run(device, sq, x.to(device)).cpu()
+    assert _same_bits(got, want)
+
+
+@pytest.mark.parametrize("device", UNFUSED_TWIN_DEVICES)
+def test_the_fused_op_on_special_values_and_layouts(device):
+    """Non-finite elements (a scale of 1, NaN positions kept), a strided
+    input, a view off a 16-byte boundary, and a power-of-two scale."""
+    x = _data(device, shape=(8, 33))
+    x[1, 3], x[2, 5], x[5, 0] = float("inf"), float("nan"), float("-inf")
+    for sq in (
+        ScaledQuant(E4M3_SAT, granularity="row"),
+        ScaledQuant(E4M3_SAT, granularity="block", block_size=4, pow2=True),
+        ScaledQuant(E5M2_SAT, pow2=True, margin=1),
+    ):
+        for t in (x, x.mT, x.flatten()[1:]):
+            fused, unfused = _fused_and_unfused(sq, t, device)
+            assert _same_bits(fused, unfused)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "fmt", [BinaryK(8, 4, saturation=SAT), SuperFP(3, 4, 2, 7), FixedPoint(8, 4)], ids=str
+)
+def test_the_call_runs_the_fused_op_where_it_can(device, fmt, monkeypatch):
+    import mptorch.quant.scaled as scaled
+
+    calls = []
+    for name, op in list(scaled._FUSED.items()):
+        monkeypatch.setitem(
+            scaled._FUSED, name, lambda *a, _op=op, **k: calls.append(_op) or _op(*a, **k)
+        )
+    sq_tensor, sq_block = ScaledQuant(fmt), ScaledQuant(fmt, granularity="block", block_size=4)
+    x = _data(device, shape=(4, 16))
+    sq_tensor(x)
+    sq_block(x)
+    assert len(calls) == 2
+    ScaledQuant(fmt, granularity="row", axis=0)(x)  # another axis: the unfused spelling
+    assert len(calls) == 2
+
+
+def _op_args(rows, scale, block_size):
+    return (rows, scale, block_size, 8, 4, 8, 0, True, 0, 2, 0)
+
+
+@pytest.mark.parametrize(
+    "rows,scale,block_size,match",
+    [
+        (torch.ones(4, 8, dtype=torch.int32), torch.ones(4, 1), 0, "float32, float64"),
+        (torch.ones(32), torch.ones(1, 1), 0, "2D tensor of rows"),
+        (torch.ones(4, 8), torch.ones(4, 1, dtype=torch.float64), 0, "values of the carrier"),
+        (
+            torch.ones(4, 8, dtype=torch.bfloat16),
+            torch.ones(4, 1, dtype=torch.bfloat16),
+            0,
+            "carrier",
+        ),
+        (torch.ones(4, 8), torch.ones(4), 0, "2D tensor, one row"),
+        (torch.ones(4, 8), torch.ones(4, 1), -1, "block_size is 0"),
+        (torch.ones(4, 8), torch.ones(4, 2), 0, "takes 4 x 1 scales"),
+        (torch.ones(4, 8), torch.ones(4, 2), 3, "takes 4 x 3 scales"),
+        (torch.ones(4, 8), torch.ones(3, 1), 0, "takes 4 x 1 scales"),
+    ],
+)
+def test_the_op_refuses_bad_operands_on_every_backend(rows, scale, block_size, match):
+    """The CPU and Meta kernels refuse the same operands with the same message."""
+    op = torch.ops.mptorch.binaryK_quant_scaled
+    with pytest.raises(RuntimeError, match=match) as cpu:
+        op(*_op_args(rows, scale, block_size))
+    meta_rows = torch.empty_like(rows, device="meta")
+    meta_scale = torch.empty_like(scale, device="meta")
+    with pytest.raises(RuntimeError) as meta:
+        op(*_op_args(meta_rows, meta_scale, block_size))
+    assert str(meta.value).split("\n")[0] == str(cpu.value).split("\n")[0]
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_the_op_on_its_own(device):
+    """A direct call: the scale is applied per row and per block as the
+    layout says, and an empty tensor returns an empty result."""
+    op = torch.ops.mptorch.binaryK_quant_scaled
+    rows = _data(device, shape=(3, 10))
+    s = torch.tensor([[2.0, 4.0, 8.0]] * 3, device=device)
+    got = op(*_op_args(rows, s, 4))
+    q = Quant(BinaryK(8, 4))
+    want = torch.cat(
+        [q(rows[:, :4] * 2) / 2, q(rows[:, 4:8] * 4) / 4, q(rows[:, 8:] * 8) / 8], dim=1
+    )
+    assert torch.equal(got, want)
+    assert op(*_op_args(rows[:0], s[:0], 4)).shape == (0, 10)
+    if device == "cuda":
+        with pytest.raises(RuntimeError, match="the scales are on cpu"):
+            op(*_op_args(rows, s.cpu(), 4))

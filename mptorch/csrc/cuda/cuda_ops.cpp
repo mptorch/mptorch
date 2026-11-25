@@ -2,7 +2,8 @@
 // ../quant_ops.cpp declares to its CUDA implementation. The functions are
 // declared in ../quant_ops.h and defined in this directory: the three
 // elementwise quantizers and their in-place twins in binaryK_kernel.cu,
-// superfp_kernel.cu and fixedpoint_kernel.cu, and every other op (the
+// superfp_kernel.cu and fixedpoint_kernel.cu, the scaled quantizers in the
+// *_scaled_kernel.cu files, and every other op (the
 // narrowing op, the GEMM, conv and block ops, and the test-only ops) in the
 // *_entry.cpp files.
 //
@@ -83,4 +84,7 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("custom_matmul_superfp_fma_accumulated_odd", superfp_matmul_fma_accumulated_odd_cuda);
     MPT_CUDA_IMPL("custom_matmul_binaryK_superfp_accumulated_odd", binaryK_superfp_matmul_accumulated_odd_cuda);
     MPT_CUDA_IMPL("custom_matmul_superfp_binaryK_accumulated_odd", superfp_binaryK_matmul_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("binaryK_quant_scaled", binaryK_quantize_scaled_cuda);
+    MPT_CUDA_IMPL("superfp_quant_scaled", superfp_quantize_scaled_cuda);
+    MPT_CUDA_IMPL("fixedpoint_quant_scaled", fixedpoint_quantize_scaled_cuda);
 }

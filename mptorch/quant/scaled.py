@@ -9,14 +9,17 @@ any ``*_quant`` slot.
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import KW_ONLY, dataclass, field
 
 import torch
 
 from mptorch.number import BinaryK, BlockFormat, FixedPoint, Number, RoundMode, SuperFP
+from mptorch.number.base import _report_per_call
 
 from .mac import Quant
 from .ops._checks import _call_carrier, _checked_carrier, _narrowed
+from .ops._spec import _QuantSpec
 from .ops.block import _amax
 
 __all__ = ["ScaledQuant"]
@@ -53,11 +56,17 @@ class ScaledQuant:
     scaled (a scale of ``5.7e7``, E5M2's 57344 over a gradient of size
     ``1e-3``, overflows float16), and its values are not rounded to float16
     between the multiplication and the format. ``x`` itself is never written.
-    A call reads and writes the tensor four times, where a :class:`Quant`
-    does once: for the largest magnitudes, for the product, which goes
-    straight into the carrier, for the rounding, and for the quotient, which
-    goes straight into the result. A narrower tensor on the CPU or MPS is
-    converted in passes of its own, six in all.
+    On a CPU, CUDA or MPS tensor, with one scale for the tensor or the
+    scaled axis last, a call reads the tensor twice: once for the largest
+    magnitudes, and once in a fused op (``binaryK_quant_scaled`` and its two
+    siblings) that multiplies, rounds, divides and stores. Any other axis
+    takes the same steps as separate operations: four passes, the product
+    going straight into a carrier tensor and the quotient straight into the
+    result, and six for a narrower tensor on the CPU or MPS, which is
+    converted in passes of its own. The two give the same bits, stochastic
+    rounding included, except on MPS, where PyTorch's own arithmetic in the
+    separate operations flushes binary32 subnormals and the fused kernel
+    does not.
 
     A tensor (or a row or block, see ``granularity``) whose largest magnitude
     is zero, infinite or NaN is scaled by 1, and so is one whose scale would
@@ -141,6 +150,9 @@ class ScaledQuant:
     carrier: torch.dtype | None = None
     eps: float = 1e-30
     _quant: Quant = field(init=False, repr=False, compare=False)
+    _fused: tuple[Callable[..., torch.Tensor], _QuantSpec] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         fmt = self.fmt
@@ -182,6 +194,11 @@ class ScaledQuant:
         # The tensor the format rounds is already in the carrier, so the inner
         # quantizer names none, and it rounds that tensor in place.
         object.__setattr__(self, "_quant", Quant(fmt, self.rounding, inplace=True))
+        # The fused op of the format's family, with the format resolved as the
+        # family's flat quantizer resolves it: its arguments and its findings.
+        spec = self._quant._spec
+        assert spec is not None  # an elementwise format, checked above
+        object.__setattr__(self, "_fused", (_FUSED[spec.name], spec))
 
     def _scale(self, amax: torch.Tensor) -> torch.Tensor:
         """The scale of each slice whose largest magnitude is ``amax``."""
@@ -230,8 +247,54 @@ class ScaledQuant:
         return _maxabs(view)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        wide, widen = _call_carrier(self.carrier, x.dtype)
+        if x.numel() and self._fusable(x):
+            return self._fused_call(x, wide, widen)
+        return self._unfused_call(x, wide)
+
+    def _fusable(self, x: torch.Tensor) -> bool:
+        """Whether the fused op takes this call: a CPU, CUDA or MPS tensor,
+        with one scale or the scaled axis last."""
+        if x.device.type not in _FUSED_DEVICES:
+            return False
+        if self.granularity == "tensor":
+            return True
+        return x.dim() > 0 and self.axis % x.dim() == x.dim() - 1
+
+    def _fused_call(self, x: torch.Tensor, wide: bool, widen: bool) -> torch.Tensor:
+        """The call through the fused op, two passes over the tensor: one
+        for the largest magnitudes, and one that multiplies, rounds, divides
+        and stores (``csrc/common/scaled_quant_host.h``). It gives the
+        unfused call's bits: the same carrier operations in the same order,
+        the same scales, and under stochastic rounding the same random word
+        for each element."""
+        op, spec = self._fused
+        found = spec.findings[wide]
+        if found is not None:
+            _report_per_call(*found)
+        carrier = torch.float64 if wide else torch.float32
+        src = x.double() if widen else x
+        if self.granularity == "tensor":
+            rows = src.reshape(1, -1)
+            scale = self._scale(_amax(src).to(carrier)).reshape(1, 1)
+            block_size = 0
+        else:
+            rows = src.reshape(-1, src.shape[-1])
+            if self.granularity == "row":
+                scale = self._scale(_maxabs(rows).to(carrier))
+                block_size = 0
+            else:
+                block_size = self.block_size
+                assert block_size is not None  # checked by __post_init__
+                scale = self._scale(_block_maxabs(rows, block_size).to(carrier))
+        out = op(rows, scale, block_size, *spec.args).view(x.shape)
+        return _narrowed(out, x.dtype) if widen else out
+
+    def _unfused_call(self, x: torch.Tensor, wide: bool) -> torch.Tensor:
+        """The call as separate passes: the largest magnitudes, the product
+        into a carrier tensor, the rounding in place, the quotient. Any
+        device, any granularity and axis; the fused op's statement."""
         dtype = x.dtype
-        wide, _ = _call_carrier(self.carrier, dtype)
         carrier = torch.float64 if wide else torch.float32
         if not x.numel():
             return torch.empty_like(x, memory_format=torch.contiguous_format)
@@ -272,6 +335,32 @@ class ScaledQuant:
         for dst, res, s in zip(targets, self._views(out), scales, strict=True):
             _div_into(dst, s, res)
         return out
+
+
+# The fused op of each family, keyed by the name of the family's flat
+# quantizer (`_QuantSpec.name`), and the devices it has kernels for. Any other
+# device takes the unfused call, which computes the same values.
+_FUSED: dict[str, Callable[..., torch.Tensor]] = {
+    "binaryK_quantize": torch.ops.mptorch.binaryK_quant_scaled.default,
+    "superfp_quantize": torch.ops.mptorch.superfp_quant_scaled.default,
+    "fixedpoint_quantize": torch.ops.mptorch.fixedpoint_quant_scaled.default,
+}
+_FUSED_DEVICES = frozenset(("cpu", "cuda", "mps"))
+
+
+def _block_maxabs(rows: torch.Tensor, block_size: int) -> torch.Tensor:
+    """``max |rows|`` over each block of ``block_size`` elements of each row,
+    the last block of a row shorter when the row's length is not a multiple:
+    one column per block."""
+    length = rows.shape[-1]
+    full = length // block_size * block_size
+    parts = []
+    if full:
+        blocks = rows[:, :full].unflatten(-1, (full // block_size, block_size))
+        parts.append(_maxabs(blocks)[..., 0])
+    if full < length:
+        parts.append(_maxabs(rows[:, full:]))
+    return parts[0] if len(parts) == 1 else torch.cat(parts, dim=-1)
 
 
 # Dynamo does not trace an `out=` tensor that is not contiguous, as a row along

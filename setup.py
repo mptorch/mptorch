@@ -292,7 +292,8 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     machine that runs them (there is no offline ``metal`` compiler without
     Xcode's), and that compiler has no include path: a library is one string.
     Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
-    ``block.metal``, ``odd.metal``, ``carrier_odd.metal``)
+    ``block.metal``, ``odd.metal``, ``carrier_odd.metal``,
+    ``scaled_quant.metal``, which includes ``quantize.metal``)
     is therefore flattened here, its quoted ``#include``\\ s replaced by the
     files they name, recursively and once each, with ``#line`` directives so a
     compile error names the header and line it is in. ``odd.metal``, which the
@@ -333,7 +334,7 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
 
     strings = []
     prelude_seen: set[Path] = set()
-    for root in ("prelude", "gemm", "quantize", "block", "odd", "carrier_odd"):
+    for root in ("prelude", "gemm", "quantize", "block", "odd", "carrier_odd", "scaled_quant"):
         lines: list[str] = []
         seen = set(prelude_seen) if root == "odd" else set()
         flatten(mps_dir / f"{root}.metal", seen, lines)

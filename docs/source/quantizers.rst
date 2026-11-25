@@ -281,11 +281,33 @@ for any ``*_quant`` slot. Its options are:
 Every step runs in the carrier. A float16 or bfloat16 tensor is copied to
 float32 first, so the scale is not limited by float16's range and the scaled
 values are not rounded to the narrow dtype before the format rounds them,
-and the result is converted back once. A call costs four passes over the
-tensor where a ``Quant`` costs one: the largest magnitudes, the product
-(written straight into the carrier), the rounding and the quotient (written
-straight into the result). On the CPU and MPS a narrower tensor converts in
-passes of its own, six in all. A tensor, row or block whose largest
+and the result is converted back once.
+
+A call reads the tensor twice where a ``Quant`` reads it once: once for the
+largest magnitudes, and once in a fused op (``binaryK_quant_scaled`` and its
+siblings) that multiplies, rounds, divides and stores each element. That
+holds on the CPU, CUDA and MPS, with one scale for the tensor or the scaled
+axis last. Another axis takes the steps as separate operations instead:
+
+- four passes (the largest magnitudes, the product written straight into the
+  carrier, the rounding, and the quotient written straight into the result);
+- six for a narrower tensor on the CPU or MPS, which converts in passes of
+  its own.
+
+The two give the same bits. On MPS the fused kernel keeps binary32
+subnormals that PyTorch's own arithmetic flushes, as the CPU does. On
+:math:`2^{24}` elements under E4M3 (an RTX 4060 laptop GPU, and a Ryzen at
+4.6 GHz), the fused call is:
+
+- on CUDA, 1.9-2.2 times faster than the separate passes in float32 and
+  2.0-3.1 in bfloat16, about twice a ``Quant``'s time;
+- on 16 CPU threads, 1.09-1.24 times faster in float32 and 1.24-2.4 in
+  bfloat16;
+- on one CPU thread, 1.45-1.84 times faster in bfloat16, and 3-12% slower in
+  float32. There nothing is converted, and the separate passes' vectorized
+  product and quotient beat the fused loop's scalar ones.
+
+A tensor, row or block whose largest
 magnitude is zero, infinite or NaN is scaled by 1. The scale is chosen on
 the tensor's device, with no wait for its value, so a ``ScaledQuant``
 compiles. Scale into a saturating format (``SaturationMode.SAT_FINITE``):

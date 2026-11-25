@@ -79,4 +79,7 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("custom_matmul_superfp_fma_accumulated_odd", TORCH_FN(superfp_matmul_fma_accumulated_odd_cpu));
   m.impl("custom_matmul_binaryK_superfp_accumulated_odd", TORCH_FN(binaryK_superfp_matmul_accumulated_odd_cpu));
   m.impl("custom_matmul_superfp_binaryK_accumulated_odd", TORCH_FN(superfp_binaryK_matmul_accumulated_odd_cpu));
+  m.impl("binaryK_quant_scaled", TORCH_FN(binaryK_quantize_scaled_cpu));
+  m.impl("superfp_quant_scaled", TORCH_FN(superfp_quantize_scaled_cpu));
+  m.impl("fixedpoint_quant_scaled", TORCH_FN(fixedpoint_quantize_scaled_cpu));
 }

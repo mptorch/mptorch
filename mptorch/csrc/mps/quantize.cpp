@@ -10,6 +10,12 @@
 // for an empty tensor, which the CPU also draws for, so that the generator's
 // later draws stay in step), and only then is the dtype checked.
 //
+// The scaled quantizers, binaryK_quant_scaled and its two siblings, run
+// scaled_quant.metal over the tail the elementwise quantizers write, and
+// return the CPU kernel's bits (cpu/scaled_quant_kernel.cpp), in its order:
+// the format checked, the scale operands checked, the input made contiguous,
+// an empty tensor returned before any seed is drawn.
+//
 // The in-place ops, binaryK_quant_, superfp_quant_ and fixedpoint_quant_,
 // run the same kernel with the tensor bound as both its input and its
 // output. That is safe for the values: mpt_quantize reads x[i] before it
@@ -18,6 +24,7 @@
 // than copy it as the out-of-place op does, since the kernel would then
 // write the copy instead of the caller's tensor.
 
+#include "../common/scaled_quant_host.h"
 #include "../common/stochastic_host.h"
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "../quant_ops.h"
@@ -52,6 +59,16 @@ namespace
                                     round_mode, op);
   }
 
+  // The tail of an instantiation: the storage type, the round mode, the
+  // sign and the random bits, then the family's format lines.
+  std::string quantize_tail(const char *storage, int64_t rm, bool is_signed, int64_t prng_bits,
+                            const std::string &format)
+  {
+    return std::string("using mpt_storage_t = ") + storage + ";\n#define MPT_ROUND_MODE " +
+           mptorch_mps::metal_round_mode(rm) + "\n#define MPT_IS_SIGNED " + (is_signed ? "true" : "false") +
+           "\n#define MPT_PRNG_BITS " + std::to_string(static_cast<int>(prng_bits)) + "\n" + format;
+  }
+
   // Launches quantize.metal over the contiguous `a` into `o`, which is `a`
   // itself for the in-place ops, with the instantiation's family and format
   // lines in `format`. The entry point has checked the format
@@ -73,15 +90,40 @@ namespace
     if (n == 0)
       return;
 
-    const std::string tail = std::string("using mpt_storage_t = ") + storage +
-                             ";\n#define MPT_ROUND_MODE " + mptorch_mps::metal_round_mode(rm) +
-                             "\n#define MPT_IS_SIGNED " + (is_signed ? "true" : "false") +
-                             "\n#define MPT_PRNG_BITS " + std::to_string(static_cast<int>(prng_bits)) + "\n" +
-                             format;
     const mptorch_mps::QuantLaunch q{static_cast<uint64_t>(n), seed};
-    mptorch_mps::launch(mptorch_mps::KernelSource::Quantize, tail,
+    mptorch_mps::launch(mptorch_mps::KernelSource::Quantize,
+                        quantize_tail(storage, rm, is_signed, prng_bits, format),
                         {a, o, mptorch_mps::KernelArg::params(q)},
                         static_cast<uint64_t>((n + 3) / 4));
+  }
+
+  // Launches scaled_quant.metal over `a` (2D, rows) with its rows' scales.
+  // The entry point has checked the format.
+  Tensor quantize_scaled(const char *op, const Tensor &a, const Tensor &scale, int64_t block_size,
+                         int64_t round_mode, bool is_signed, int64_t prng_bits, const std::string &format)
+  {
+    mptorch::check_scaled_operands(a, scale, block_size, op);
+    Tensor a_c = a.contiguous();
+    Tensor s_c = scale.contiguous();
+    Tensor o = at::empty_like(a_c);
+    const int64_t n = a_c.numel();
+    if (n == 0)
+      return o;
+    const mptorch::ScaleLayout l = mptorch::scale_layout(a_c, block_size);
+    int variant;
+    round_mode = mptorch::sr_canonical(round_mode, variant);
+    if (variant >= 0)
+      prng_bits = mptorch::sr_encode(prng_bits, variant, op);
+    const int64_t rm = cpu_round_mode(round_mode);
+    const uint64_t seed = rm == static_cast<int64_t>(RoundMode::SR) ? draw_cpu_seed() : 0;
+    const char *storage = mptorch_mps::metal_storage_type(a.scalar_type(), op);
+    const mptorch_mps::ScaledQuantLaunch q{static_cast<uint64_t>(n), static_cast<uint64_t>(l.cols),
+                                           static_cast<uint64_t>(l.block), static_cast<uint64_t>(l.per_row),
+                                           seed};
+    mptorch_mps::launch(mptorch_mps::KernelSource::QuantizeScaled,
+                        quantize_tail(storage, rm, is_signed, prng_bits, format),
+                        {a_c, s_c, o, mptorch_mps::KernelArg::params(q)}, static_cast<uint64_t>((n + 3) / 4));
+    return o;
   }
 
   Tensor quantize(const char *op, const Tensor &a, int64_t round_mode, bool is_signed,
@@ -204,4 +246,39 @@ void fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bi
                      "fixedpoint_quantize_mps_");
   quantize_into("fixedpoint_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 fixedpoint_format_lines(wl, fl, is_signed, symmetric));
+}
+
+// mptorch::binaryK_quant_scaled, superfp_quant_scaled and
+// fixedpoint_quant_scaled on an MPS tensor: the format checked as the
+// elementwise twin checks it, then quantize_scaled above.
+Tensor binaryK_quantize_scaled_mps(Tensor a, Tensor scale, int64_t block_size, int64_t K, int64_t P,
+                                   int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
+                                   int64_t saturation_mode, int64_t subnormals_mode)
+{
+  const char *op = "binaryK_quant_scaled";
+  check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+                     prng_bits, round_mode, op);
+  return quantize_scaled(op, a, scale, block_size, round_mode, is_signed, prng_bits,
+                         binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
+}
+
+Tensor superfp_quantize_scaled_mps(Tensor a, Tensor scale, int64_t block_size, int64_t man_bits,
+                                   int64_t exp_bits, int64_t normal_binades, int64_t bias,
+                                   int64_t prng_bits, bool is_signed, int64_t round_mode,
+                                   int64_t saturation_mode)
+{
+  const char *op = "superfp_quant_scaled";
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+                     prng_bits, round_mode, op);
+  return quantize_scaled(op, a, scale, block_size, round_mode, is_signed, prng_bits,
+                         superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+}
+
+Tensor fixedpoint_quantize_scaled_mps(Tensor a, Tensor scale, int64_t block_size, int64_t wl, int64_t fl,
+                                      int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode)
+{
+  const char *op = "fixedpoint_quant_scaled";
+  check_quant_format(a, mptorch::fixedpoint_format(wl - (is_signed ? 1 : 0), fl), prng_bits, round_mode, op);
+  return quantize_scaled(op, a, scale, block_size, round_mode, is_signed, prng_bits,
+                         fixedpoint_format_lines(wl, fl, is_signed, symmetric));
 }

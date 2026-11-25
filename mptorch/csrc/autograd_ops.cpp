@@ -196,6 +196,9 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_superfp_fma_accumulated_odd", kernel());
   m.impl("custom_matmul_binaryK_superfp_accumulated_odd", kernel());
   m.impl("custom_matmul_superfp_binaryK_accumulated_odd", kernel());
+  m.impl("binaryK_quant_scaled", kernel());
+  m.impl("superfp_quant_scaled", kernel());
+  m.impl("fixedpoint_quant_scaled", kernel());
 }
 
 // The four in-place quantizers also need a kernel for the ADInplaceOrView
