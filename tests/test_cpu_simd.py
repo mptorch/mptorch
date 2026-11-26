@@ -3,7 +3,8 @@
 ``cpu/gemm_rne_tile.cpp`` runs a binaryK RNE GEMM's packed tiles through a
 vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
 it, ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
-(``carrier_rounding=RoundMode.RO``), and ``cpu/pointwise_rne.cpp`` for the
+(``carrier_rounding=RoundMode.RO``), ``cpu/gemm_palette_tile.h`` runs both per
+palette entry for the palette GEMMs, and ``cpu/pointwise_rne.cpp`` serves the
 fused pointwise ops (``qadd`` and its siblings); ``MPTORCH_CPU_SIMD``, read when the
 extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
 So each case here runs in an interpreter per setting, and their results must
@@ -117,6 +118,56 @@ _CASES = textwrap.dedent(
         if ODD:
             out["odd-conv-split"] = oconv(x)
             out["odd-conv-fused"] = ofconv(x)
+    # the palette GEMMs' vector tiles (cpu/gemm_palette_tile.h): every map
+    # structure the tile tells apart (one entry, per column, per row, per
+    # element, three entries), the three macs and the odd ones, ragged tiles,
+    # the specials, an entry the vector tile does not take, and a conv
+    from mptorch.quant import Palette, binaryK_matmul_fma_mixed, binaryK_matmul_mixed
+
+    def palette_maps(m, n, g):
+        return {
+            "one": torch.zeros(1, n, dtype=torch.int32),
+            "columns": torch.randint(0, 2, (1, n), generator=g, dtype=torch.int32),
+            "halves": (torch.arange(n) >= n // 2).to(torch.int32).view(1, n),
+            "rows": torch.randint(0, 2, (m, 1), generator=g, dtype=torch.int32),
+            "elements": torch.randint(0, 2, (m, n), generator=g, dtype=torch.int32),
+            "three": torch.randint(0, 3, (m, n), generator=g, dtype=torch.int32),
+        }
+
+    g = torch.Generator().manual_seed(11)
+    for dtype in (torch.float32, torch.float16, torch.bfloat16):
+        ap = min(11, precision[dtype])
+        for s, (m, k, n) in enumerate([(64, 64, 64), (37, 70, 45)]):
+            a, b = operands(m, k, n, dtype, 20 + s)
+            split = dict(mul_K=[8, 16, 12], mul_P=[4, ap, 7], acc_K=[16, 16, 12], acc_P=[ap, ap, 7])
+            fused = dict(fma_K=[16, 12, 8], fma_P=[ap, 7, 4])
+            for name, p in palette_maps(m, n, g).items():
+                key = f"{dtype}-{m}x{k}x{n}-{name}"
+                out["pal-split-" + key] = binaryK_matmul_mixed(a, b, p, **split)
+                out["pal-mul-only-" + key] = binaryK_matmul_mixed(
+                    a, b, p, mul_K=[8, 16, 12], mul_P=[4, ap, 7], accumulate_quant=False
+                )
+                out["pal-fused-" + key] = binaryK_matmul_fma_mixed(a, b, p, **fused)
+                if ODD:
+                    odd = dict(carrier_rounding=RoundMode.RO)
+                    out["pal-odd-split-" + key] = binaryK_matmul_mixed(a, b, p, **split, **odd)
+                    out["pal-odd-fused-" + key] = binaryK_matmul_fma_mixed(a, b, p, **fused, **odd)
+            # an unsigned entry, which the vector tile does not take
+            p = palette_maps(m, n, g)["columns"]
+            out[f"pal-unsigned-{dtype}-{s}"] = binaryK_matmul_mixed(
+                a.abs(), b.abs(), p, mul_K=[8, 8], mul_P=[4, 4], acc_K=[16, 16], acc_P=[ap, ap],
+                mul_is_signed=False,
+            )  # fmt: skip
+    pal_mac = SplitMac(
+        Palette([BinaryK(8, 4), BinaryK(12, 7)]), Palette([BinaryK(16, 11), BinaryK(16, 11)])
+    )
+    # a per-channel map, [N, C, positions]: per row of the forward GEMM
+    channels = torch.randint(0, 2, (1, 5, 1), generator=g, dtype=torch.int32)
+    pconv = QConv2d(3, 5, 3, padding=1, formats=conv_formats(
+        pal_mac, prec_idx=channels.expand(2, 5, 11 * 13).contiguous()
+    ))  # fmt: skip
+    with torch.no_grad():
+        out["pal-conv"] = pconv(x)
     # the fused pointwise ops' vector blocks (cpu/pointwise_rne.cpp): every
     # op, tensor and number operands, several blocks and a ragged tail, and a
     # broadcast operand and formats that keep the scalar loop

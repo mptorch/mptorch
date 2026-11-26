@@ -265,9 +265,11 @@ Apple GPU, binary32            1.9-3.1x              0.75-2.4x
 ============================== ===================== =====================
 
 The palettes, the cross-family macs and the convolutions cost what the GEMM
-of their step costs: 1.03-1.16x on CUDA. On the CPU they cost 1.5-2.8x
-through the scalar loop, and 1.06-1.07x for a convolution over a format that
-the vector tiles take.
+of their step costs: 1.03-1.16x on CUDA. On the CPU the cross-family macs
+cost 1.5-2.8x through the scalar loop, a convolution over a format that the
+vector tiles take 1.06-1.07x, and a BinaryK palette 1.0-1.3x its
+nearest-step palette (1.6-1.7x with a map per element), since the odd tiles
+serve palettes too ("Palettes: a format per output element", below).
 
 Under ``KAHAN``, ``BLOCK`` and ``TREE`` the odd step costs the following.
 The formats are Binary8p4 products and Binary16p11 sums, with blocks of 16
@@ -662,6 +664,27 @@ mode.
 .. literalinclude:: ../../snippets/gemm_palette.out
    :language: text
    :caption: output
+
+**What a palette costs.** On CUDA a palette GEMM costs about what its
+single-format twin costs (1.1x), and 1.2-1.8x on an Apple GPU. On the CPU a
+BinaryK palette under RNE runs the vector tiles its twin runs, a tile's
+elements grouped by their entry: a tile whose elements share one entry runs
+the twin's tile, a map per row runs each entry's rows, and maps per column
+and per element run each element on its own entry's constants. Against the
+twin on one Ryzen thread, at :math:`256^3` and at
+:math:`32 \times 128 \times 128`:
+
+============================  ==========  ==========  ==========  ===========
+map                           one entry   per row     per column  per element
+============================  ==========  ==========  ==========  ===========
+nearest step                  1.0-1.1x    1.1-1.2x    1.4-1.5x    1.5-1.6x
+``carrier_rounding=RO``       1.0-1.1x    1.1-1.3x    1.3-1.6x    2.2-2.4x
+============================  ==========  ==========  ==========  ===========
+
+(on sixteen threads, 1.0-1.8x). Before these tiles a palette ran the scalar
+loop, at 9-12x its twin's time (25x for the odd macs). The other palettes
+(SuperFP, the other round modes) run the scalar loop as their twins do
+(``dev/benchmarks/timing/cpu_palette_gemm.py``).
 
 A recipe gives a model's layers palettes, with one map per layer (a format
 per output neuron or channel): :doc:`/instrument`, "Palettes: a format per

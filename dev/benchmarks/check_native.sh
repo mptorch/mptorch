@@ -69,6 +69,7 @@ done
 check sweeps/old_sr_casts.h $CXX $HOST -fsyntax-only -x c++ "$B/sweeps/old_sr_casts.h" || FAILED=1
 check sweeps/cpu_rne_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_rne_tile_sweep.cpp" || FAILED=1
 check sweeps/cpu_odd_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_odd_tile_sweep.cpp" || FAILED=1
+check sweeps/cpu_palette_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_palette_tile_sweep.cpp" || FAILED=1
 check sweeps/fixedpoint_int_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/fixedpoint_int_sweep.cpp" || FAILED=1
 check sweeps/cast_ubsan.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cast_ubsan.cpp" || FAILED=1
 if [ -n "$TI" ]; then

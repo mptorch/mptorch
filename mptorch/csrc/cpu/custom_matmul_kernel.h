@@ -38,6 +38,7 @@
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
 #include "gemm_backend.h"
+#include "gemm_palette_tile.h"
 #include "gemm_rne_tile.h"
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h> // defines at::internal::GRAIN_SIZE
@@ -552,6 +553,16 @@ namespace mptorch::gemm_cpu
             static_assert(TI * TJ <= RNE_TILE_MAX);
             if (run_rne_tile<rne_tile_kind<Accumulator>::value>(mac_single, a_pack, b_pack,
                                                                   tv.sums, ti, tk, tj))
+              continue;
+          }
+          // A palette whose Macs are such policies runs the same tiles, once
+          // per entry over the elements that take it (cpu/gemm_palette_tile.h),
+          // with the same contract: the scalar loop's words, or false.
+          if constexpr (MIXED && rne_tile_kind<Accumulator>::value != 0)
+          {
+            static_assert(TI <= PALETTE_TILE && TJ <= PALETTE_TILE && TK <= PALETTE_TILE);
+            if (run_palette_tile<rne_tile_kind<Accumulator>::value>(slot_of, a_pack, b_pack,
+                                                                      tv.sums, ti, tk, tj))
               continue;
           }
           for (int64_t i = 0; i < ti; ++i)
