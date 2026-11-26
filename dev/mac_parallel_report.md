@@ -6,7 +6,8 @@ Apple clang 21.0.0, torch 2.15.0, Python 3.14.10. Every build has
 `MPTORCH_ODD_ACCUMULATED=1`. Every timing ran on AC power, with `pmset -g
 therm` reporting no thermal or performance warning, and nothing else
 running. The changes are committed on `feature-refactor`, one commit per
-task (the last section lists them).
+task (each round's last section lists them). Round 2, the handoff's
+section 0, starts at "Round 2" below.
 
 ## M1: the verification round (at `d612464`)
 
@@ -540,3 +541,361 @@ each when it is no longer needed.
 With M2's, M3's and M6a's changes, at `d612464`: **19,759 passed, 11,430
 skipped, 0 failed**, in 9:19. The cache was partly cold, since the odd,
 scaled and block_project kernels recompiled.
+
+# Round 2 (the handoff's section 0, at `6afa44a`)
+
+Same machine, state and build flag as round 1. `git pull` brought
+`7d879b9` (SP-1), `5376e5f` and `73052e1` (phase AI's primitives and ops)
+and `6afa44a` (the handoff's round 2). Each task below is a commit of its
+own; the last section of this round lists them.
+
+## R2.0: verification of AI's CPU code on arm64
+
+### Build
+
+`MPTORCH_ODD_ACCUMULATED=1 uv sync --group hf` after clearing Inductor's
+cache: 28 s, with ccache. This is the first arm64 build of
+`cpu/pointwise_*.cpp`, `cpu/carrier_odd_kernel.cpp`'s op codes 3 and 4 and
+`common/carrier_odd_div_sqrt.h`'s host primitives (`std::fma`,
+`std::frexp`, `std::bit_cast`) under Apple clang 21. The new units
+(`cpu/pointwise_{binaryK,superfp,fixedpoint,rne}.cpp`,
+`cpu/carrier_odd_kernel.cpp`, `meta/pointwise_meta.cpp`), compiled with
+the build's flags, print no warning.
+
+**The NEON blocks vectorize.** `cpu/pointwise_rne.cpp` with the build's
+flags plus `-Rpass=loop-vectorize -Rpass-missed=loop-vectorize`:
+
+```
+14 x pointwise_rne.cpp:44:1: remark: vectorized loop (vectorization width: 4, interleaved count: 1)
+ 1 x pointwise_rne.cpp:106:1: remark: vectorized loop (vectorization width: 4, interleaved count: 4)
+```
+
+There are no missed-loop remarks. Line 44 is `block<OP, HAS_Y>`'s loop,
+seven ops times the two operand kinds, the root included. Line 106 is the
+NaN reduction. Clang needs no pragma for this: its defaults on Darwin are
+no-trapping-math and no-math-errno, which the GCC pragma sets on Linux. The
+timings below agree: on one thread the fused RNE root takes 1.89 ms, the
+time of the add (1.87 ms). The tool's docstring gives the Ryzen 6.76 ms for
+the root against 1.54 for the add.
+
+### Tests
+
+| command | result |
+|---|---|
+| `pytest tests/test_pointwise_fused.py tests/test_cpu_simd.py tests/test_carrier_rounding.py tests/test_fake_kernels.py tests/test_pointwise.py tests/test_pwl.py` | **5,937 passed, 9,479 skipped, 0 failed** |
+| the same, `-k "division_and_the_root and cpu"` | 55 passed (op codes 3 and 4 on the CPU against the exact reference) |
+| `pytest tests/` | **23,999 passed, 19,843 skipped, 0 failed**, in 7:41 |
+
+`test_cpu_simd.py` runs its cases in an interpreter per setting. On arm64
+those settings are `MPTORCH_CPU_SIMD=0` (the scalar loop), the default
+(NEON), and `avx2` (NEON again, since the cap names an x86 ISA). Its
+pointwise cases agree word for word with the scalar loop.
+
+Skips other than CUDA's, in the six files:
+
+| skips | reason |
+|---|---|
+| 4,131 | `test_pointwise_fused.py`: `no MPS kernel yet` (M6b) |
+| 75 | `test_carrier_rounding.py`: `the MPS _carrier_odd has no op codes 3 and 4 yet` (M6b) |
+| 287 | `MPS has no float64 tensors` |
+| 9 | `Inductor's CPU code generation is exercised on Linux` |
+| 2 | the odd kernels' build-flag cases (`the odd kernels are built`, ...) |
+
+The full suite's skips other than CUDA's are float64 on MPS (788, and
+1), M6b's missing kernels (4,131 and 75), Inductor's CPU code generation
+(9), the odd kernels' build-flag cases (3), and the tests' own rules for
+combinations that do not exist (56 TREE without products, 8 fused without
+a tree, 6 unsigned symmetric, 2 OCP, 2 KAHAN, 2 bfloat16 GEMMs, 1 fused
+always integer).
+
+### Timings (`dev/benchmarks/timing/pointwise_ops.py`)
+
+AC power, no thermal warning before or after, 2048 x 2048 on the CPU and
+4096 x 4096 on MPS, float32 then bfloat16 forward, ms. `2pass` is the path
+these ops took before their fused op. The glibc variables do not apply on
+macOS, so the CPU rows ran without them.
+
+| float32, forward | torch | rne | 2pass | 2pass/rne | sr | f64 | ro |
+|---|---|---|---|---|---|---|---|
+| CPU x1 add | 0.46 | 1.87 | 6.09 | 3.3x | 13.88 | 9.08 | 11.77 |
+| CPU x1 mul | 0.46 | 1.88 | 6.11 | 3.3x | 13.86 | 9.11 | 12.20 |
+| CPU x1 div | 0.46 | 1.96 | 6.11 | 3.1x | 13.87 | 9.09 | 12.36 |
+| CPU x1 sqrt | 0.56 | 1.89 | 7.82 | 4.1x | 14.02 | 8.96 | 12.39 |
+| CPU x1 pwl | 3.54 | 13.45 | 22.48 | 1.7x | 21.35 | 15.66 | |
+| CPU x11 add | 0.39 | 0.52 | 1.61 | 3.1x | 2.78 | 2.64 | 2.45 |
+| CPU x11 mul | 0.39 | 0.52 | 1.62 | 3.1x | 2.78 | 2.64 | 2.52 |
+| CPU x11 div | 0.39 | 0.53 | 1.62 | 3.1x | 2.78 | 2.76 | 2.58 |
+| CPU x11 sqrt | 0.21 | 0.47 | 2.66 | 5.7x | 2.80 | 2.23 | 2.56 |
+| CPU x11 pwl | 0.80 | 2.75 | 8.26 | 3.0x | 4.31 | 3.66 | |
+| MPS add | 1.52 | 2.51 | 2.53 | 1.0x | 2.55 | | |
+| MPS sqrt | 1.02 | 2.05 | 2.00 | 1.0x | 2.01 | | |
+| MPS pwl | 1.02 | 24.23 | 24.28 | 1.0x | 24.21 | | |
+
+| bfloat16, forward | torch | rne | 2pass | 2pass/rne | sr | f64 | ro |
+|---|---|---|---|---|---|---|---|
+| CPU x1 add | 1.31 | 2.44 | 7.83 | 3.2x | 15.15 | 15.05 | 13.57 |
+| CPU x1 sqrt | 0.65 | 2.24 | 9.09 | 4.1x | 15.40 | 14.68 | 13.51 |
+| CPU x1 pwl | 4.40 | 14.58 | 23.78 | 1.6x | 22.74 | 21.33 | |
+| CPU x11 add | 0.31 | 0.54 | 2.32 | 4.3x | 2.88 | 3.81 | 2.90 |
+| CPU x11 sqrt | 0.17 | 0.52 | 3.14 | 6.0x | 2.91 | 3.18 | 2.83 |
+| CPU x11 pwl | 0.94 | 3.05 | 8.83 | 2.9x | 4.53 | 4.54 | |
+| MPS add | 0.78 | 4.85 | 4.83 | 1.0x | 4.84 | | |
+| MPS sqrt | 0.51 | 3.53 | 3.53 | 1.0x | 3.55 | | |
+| MPS pwl | 0.52 | 25.69 | 25.70 | 1.0x | 25.66 | | |
+
+The full outputs, with the backward rows and the other activations, are
+the tool's own; the numbers above are its lines. On the CPU the fused ops
+take 1/3 to 1/6 of the two passes' time. MPS still takes the two passes
+for every variant, which is what M6b is to beat.
+
+**The tool has a bug on MPS.** `_timer` synchronizes CUDA and not MPS, so
+`--device mps` times the launches only: every row read 0.00 ms. The MPS
+rows above are from a scratch copy that adds `torch.mps.synchronize()`
+beside each `torch.cuda.synchronize()`:
+
+```diff
+     if device == "cuda":
+         torch.cuda.synchronize()
++    elif device == "mps":
++        torch.mps.synchronize()
+     t = time.perf_counter()
+     for _ in range(n):
+         fn()
+     if device == "cuda":
+         torch.cuda.synchronize()
++    elif device == "mps":
++        torch.mps.synchronize()
+```
+
+The tool is Linux's, so I did not change it.
+
+## R2.1: SP-1's rerun of the arm64 timing (section 4.4)
+
+Three builds, each with this checkout's venv: "base" `85d1d31`
+(`../mptorch-base`), "new" `d612464` (`../mptorch-wide`, reset to the
+commit), and "arm", the committed tree, which carries `7d879b9`'s arm. Same
+script and method as round 1: one thread, 384^3, four rounds with the
+order rotated, minimum in ps per mac step.
+
+| row | mode | base | new | arm | new/base | arm/new | arm/base |
+|---|---|---|---|---|---|---|---|
+| carrier | RNE | 1,193 | 1,186 | 1,192 | 0.99 | 1.01 | 1.00 |
+| carrier | RNA | 11,140 | 11,270 | 3,251 | 1.01 | **0.29** | 0.29 |
+| carrier | RU | 13,055 | 2,977 | 2,808 | 0.23 | 0.94 | 0.22 |
+| carrier | RD | 12,910 | 2,296 | 2,297 | 0.18 | 1.00 | 0.18 |
+| carrier | RZ | 11,624 | 2,288 | 2,292 | 0.20 | 1.00 | 0.20 |
+| carrier | RO | 12,148 | 11,821 | 3,588 | 0.97 | **0.30** | 0.30 |
+| carrier | SR | 10,649 | 9,714 | 9,691 | 0.91 | 1.00 | 0.91 |
+| int split | RNE | 1,554 | 1,554 | 1,552 | 1.00 | 1.00 | 1.00 |
+| int split | RNA | 5,385 | 5,534 | 3,714 | 1.03 | **0.67** | 0.69 |
+| int split | RU | 3,502 | 2,111 | 2,112 | 0.60 | 1.00 | 0.60 |
+| int split | RD | 3,054 | 1,656 | 1,650 | 0.54 | 1.00 | 0.54 |
+| int split | RZ | 3,208 | 1,775 | 1,772 | 0.55 | 1.00 | 0.55 |
+| int split | RO | 3,571 | 3,637 | 2,400 | 1.02 | **0.66** | 0.67 |
+| int split | SR | 11,960 | 8,329 | 8,329 | 0.70 | 1.00 | 0.70 |
+| int fused | RNE, RNA, RU, RD, RO | 2,137-3,272 | the same | the same | 1.00 | 1.00 | 1.00 |
+| int fused | RZ | 2,646 | 2,646 | 2,753 | 1.00 | 1.04 | 1.04 |
+| int fused | SR | 6,391 | 5,251 | 5,285 | 0.82 | 1.01 | 0.83 |
+
+The spread within a build is at most 6.2% (the carrier's RO), and mostly
+under 1%.
+
+**Findings:**
+- **The committed tree is round 1's arm build.** RNA and RO take
+  0.29-0.30x on the carrier path and 0.66-0.67x on the integer split, as
+  round 1 measured. Every other row is unchanged within 1%.
+- **The fused mac under RZ is a placement effect.** It takes 4% longer in
+  the committed build, stable over the four rounds (2,753-2,756 against
+  2,646-2,650). The fused mac never calls `fixedpoint_word_call_v`, and
+  `cpu/inst/custom_matmul_fixedpoint_fma.o` is byte-identical between the
+  two builds (`cmp`). So the only difference is where the linker puts it:
+  the committed `.so` holds phase AI's units too.
+
+## M4: the fixed-point GEMM's K-loop layouts on Metal (at `6afa44a`)
+
+### What changed
+
+`mptorch/csrc/common/fixedpoint_gemm.h` alone. The host and CUDA layouts
+(`cast_fixedpoint_stochastic_gemm`, `fixedpoint_round_sr`,
+`fixedpoint_word_round`, their constants and the policies' members) were
+behind `#if !defined(__METAL_VERSION__)`. They were already almost valid
+MSL, so the guards come off and Metal compiles the same text. Its
+differences:
+
+- **MSL 3.1 accepts `[[no_unique_address]]`, `std::conditional_t` (the
+  prelude's shim) and `inline` variable templates.** A probe compiled MSL
+  3.1 source with `MTLCompileOptions` as `metal_runtime.mm` sets them, with
+  `-Weverything` as an error except the pre-C++14 and C++17-extension
+  groups. It showed that a namespace-scope variable needs the `constant`
+  address space ("program scope variable must reside in constant address
+  space"). So `fixedpoint_word_mode_v` and `fixedpoint_word_call_v` are
+  now `inline constexpr MPTORCH_CONSTANT bool`. `MPTORCH_CONSTANT` is empty
+  on the host and CUDA, so their token streams are unchanged.
+- **Two locals were named `half`**, an MSL type, in
+  `cast_fixedpoint_stochastic_gemm` and `fixedpoint_word_round`. They are
+  now `half_unit`, as in `stochastic.h`.
+- **`fixedpoint_word_call_v` gets a Metal arm of its own**, ahead of the
+  `__aarch64__` one, as the handoff asks: every deterministic mode
+  (`fixedpoint_word_mode_v<RM>`).
+- **`fixedpoint_word_round`'s choice of spelling.** Metal takes the
+  device's logical form: `#if defined(__CUDA_ARCH__)` becomes `#if
+  defined(__CUDA_ARCH__) || defined(__METAL_VERSION__)`.
+- The comments say where each layout runs, with Metal's measurements.
+
+Under SR the carrier path and the integer accumulator take the new
+layouts on Metal as on the other backends. The Metal flush rules hold. The
+line reads only the word of the value it casts. The constants are built
+from the literal Args (folded by the compiler), and with the line on, the
+step and the range's ends are normal values. A format whose step is a
+binary32 subnormal (`FixedPoint(12, 140)`, `FixedPoint(24, 135)`) has
+`span = 0`, so every input takes the shipped cast, as before.
+
+**The hunks, all in `common/fixedpoint_gemm.h`, for Linux's
+`binary_identity.py`.** Eleven `#if !defined(__METAL_VERSION__)`/`#endif`
+pairs or `#else` arms are removed around:
+- the SR section (`FixedPointStochasticT` ... `FixedPointIntSrMember`);
+- the deterministic section (`fixedpoint_bitwise_cast` ...
+  `FixedPointWordMember`);
+- the two policies' members, constructors and calls;
+- `FixedPointIntMac::isr`, `round_sum` (whose Metal `#else` arm goes) and
+  `make_mac`'s `isr`.
+
+The token changes on the host and CUDA:
+- `half` becomes `half_unit` (two functions);
+- `MPTORCH_CONSTANT` is added (empty there);
+- `__METAL_VERSION__` is added to two `#if`/`#elif` lines;
+- the comments change.
+
+`git diff 6afa44a -- mptorch/csrc/common/fixedpoint_gemm.h` shows each
+one. The changed lines are clang-formatted.
+
+**Host objects under Apple clang: identical.** I rebuilt this tree with
+`6afa44a`'s header and saved its 325 objects, rebuilt it with M4's, and
+compared with `cmp`: only `mps/metal_runtime.o` differs, and that unit
+embeds the Metal sources. The rename moves nothing here. Linux's x86-64 and
+CUDA run is still the gate. `bash dev/benchmarks/check_native.sh`: `all
+native tools build`.
+
+### The gate
+
+| check | result |
+|---|---|
+| `pytest tests/test_fixedpoint_mps.py` | **257 passed** (every mode, the subnormal-step formats included) |
+| a GPU port of `gemm_cast_fixedpoint_arith.cu det-short` (the line against `fixedpoint_bitwise_cast`, both on the GPU, all 2^32 words) | `6 formats, 36 cases (format, mode); 0 cases mismatch` |
+| its `det-control` | `RNE against the shipped RNA 68478 mismatches, RU against RD 8321159945`: Linux's CUDA counts exactly, so every word ran |
+| the same for `sr-short` (`cast_fixedpoint_stochastic_gemm` against `cast_fixedpoint_stochastic`) | `6 formats, 54 cases (format, N, variant); 0 cases mismatch` |
+| its `sr-control` | `1941258420 mismatches`: Linux's count exactly |
+| `pytest tests/` | **23,999 passed, 19,843 skipped, 0 failed**, in 6:19 (R2.0's counts) |
+
+The GPU sweep is a scratch script, not committed. It compiles the build's
+embedded prelude and `fixedpoint` root (`build/generated/mps_metal_sources.h`)
+with sweep kernels through `torch.mps.compile_shader`, and builds the
+constants on the GPU from runtime values, with the handoff's six formats
+`(8, 4)`, `(16, 8)` symmetric, `(16, 4)`, `(12, -20)` unsigned,
+`(9, 125)` unsigned and `(10, 127)`. It takes 5 s for the deterministic
+modes and 30 s for SR. If it would help, it could become a mode of
+`dev/benchmarks/mps_backend.py`.
+
+### Which modes take the line on Metal
+
+Method: three builds alternated for four rounds, the order reversed every
+other round, through the ops at 1024^3 (min of 5 calls, ps per mac step):
+- "base", `6afa44a` (`../mptorch-m4base`);
+- "bit", every mode on the line in the bitwise (host) form;
+- "log", the same in the logical (device) form.
+
+The rows are the handoff's carrier path ((16, 8) into (16, 4), inside the
+RNE fast gate), the same past the gate ("carrier 24": (24, 12) into
+(24, 12), 23 magnitude bits), the integer split (the op's `integer` hook)
+and the fused mac. The spread within a build is at most 1.9%, except the
+5 ps carrier RNE row (6%).
+
+| row | mode | base | bit | log | bit/base | log/base |
+|---|---|---|---|---|---|---|
+| carrier | RNE | 5.0 | 5.0 | 5.0 | 1.00 | 1.00 |
+| carrier | RNA | 24.5 | 22.8 | 22.5 | 0.93 | 0.92 |
+| carrier | RU | 48.4 | 23.6 | 22.2 | 0.49 | 0.46 |
+| carrier | RD | 48.3 | 22.8 | 22.1 | 0.47 | 0.46 |
+| carrier | RZ | 57.5 | 18.8 | 18.8 | 0.33 | 0.33 |
+| carrier | RO | 24.7 | 23.7 | 22.6 | 0.96 | 0.92 |
+| carrier | SR | 75.1 | 60.5 | 60.4 | 0.81 | 0.80 |
+| carrier 24 | RNE | 30.6 | 26.2 | 25.0 | 0.86 | 0.82 |
+| carrier 24 | RNA | 24.5 | 22.4 | 22.0 | 0.92 | 0.90 |
+| carrier 24 | RU | 48.3 | 22.9 | 21.5 | 0.47 | 0.44 |
+| carrier 24 | RD | 48.4 | 22.1 | 21.4 | 0.46 | 0.44 |
+| carrier 24 | RZ | 57.6 | 18.1 | 18.2 | 0.31 | 0.32 |
+| carrier 24 | RO | 24.7 | 23.4 | 22.2 | 0.95 | 0.90 |
+| int split | RNE | 36.0 | 36.0 | 36.0 | 1.00 | 1.00 |
+| int split | RNA | 46.9 | 46.5 | 46.1 | 0.99 | 0.98 |
+| int split | RU | 52.1 | 42.2 | 41.1 | 0.81 | 0.79 |
+| int split | RD | 47.8 | 37.3 | 36.6 | 0.78 | 0.77 |
+| int split | RZ | 57.3 | 39.6 | 39.5 | 0.69 | 0.69 |
+| int split | RO | 41.2 | 41.6 | 40.1 | 1.01 | 0.97 |
+| int split | SR | 98.5 | 81.8 | 81.7 | 0.83 | 0.83 |
+| int fused | RNE, RNA, RU, RD, RZ, RO | 40.8-50.4 | the same | the same | 1.00 | 1.00 |
+| int fused | SR | 77.7 | 63.4 | 63.6 | 0.82 | 0.82 |
+
+So Metal takes **every deterministic mode on the line, in the logical
+form**, and the SR layouts. No row is slower than the base. The logical
+form is at least as fast as the bitwise one in every row, and faster
+where the bitwise one gained least (RO on the integer split, 1.01x against
+0.97x; RNE past the gate, 0.86x against 0.82x). Unlike the arm64 host's
+5.4x, RNE on the line costs Metal nothing inside the fast gate, since the
+fast path comes first, and gains 0.82-0.83x past it.
+
+The committed tree, timed again against the base in the same way, gives
+the numbers the header's comment quotes:
+- the carrier path: RZ 0.32-0.33x, RU and RD 0.44-0.46x, RNA and RO
+  0.90-0.92x, RNE 0.83x past the gate, SR 0.81x;
+- the integer split: RZ, RU and RD 0.69-0.79x, RNA 0.98x, RO 0.97x, SR
+  0.83x;
+- the fused mac: SR 0.82x.
+
+### `fixedpoint_gemm.py` on the committed tree, for the docs
+
+`ops --device mps --modes RNE RNA RU RD RZ RO SR`, ps per mac step (round
+1's numbers, before M4, in parentheses):
+
+| row | RNE | RNA | RU | RD | RZ | RO | SR |
+|---|---|---|---|---|---|---|---|
+| binaryK split, Binary16p9 into Binary16p12 | 10.4 | 18.0 | 82.1 | 82.2 | 109.4 | 16.8 | 62.3 |
+| fixed point, the carrier path | 5.0 (5.0) | 22.5 (24.5) | 22.1 (48.4) | 22.1 (48.4) | 19.4 (57.8) | 22.6 (25.3) | 60.7 (75.3) |
+| fixed point, integer accumulator, split | 36.0 (36.0) | 46.1 (46.9) | 41.1 (52.2) | 36.6 (47.8) | 39.6 (57.3) | 40.1 (41.2) | 81.6 (98.5) |
+| fixed point, integer accumulator, fused | 49.9 (49.8) | 50.5 (50.5) | 45.7 (45.9) | 40.8 (40.8) | 46.1 (46.1) | 45.3 (45.2) | 63.8 (77.8) |
+
+`layer --device mps`, a step:
+- plain: 6.99 ms;
+- binaryK: 133 ms (RNE) and 783 ms (SR);
+- fixed point: 63 ms (RNE) and **842 ms (SR, 993 before)**.
+
+Under SR the carrier path now takes 0.97x the binaryK split mac's time
+(1.21x before). Under RZ, RU and RD it takes 3.9-4.4x its own RNE time,
+down from 10-12x. These rows are what `fixedpoint_gemm.py`'s M3 Pro table
+and `docs/source/kernels/arithmetic.rst`'s cost paragraph could take. Both
+are Linux's.
+
+## Round 2's commits, so far
+
+| task | commit | files | shared? |
+|---|---|---|---|
+| R2.0, R2.1 | none | | |
+| M4 | the commit "MPS: the fixed-point GEMM's K-loop layouts on Metal" | `mptorch/csrc/common/fixedpoint_gemm.h` | yes: **Linux reruns `binary_identity.py`** (expected: no host or CUDA object moves; under Apple clang none did) |
+| this report | the commit after it | `dev/mac_parallel_report.md` | |
+
+M6b comes next, in commits of its own.
+
+**What Linux is asked to do:**
+1. Rerun `binary_identity.py` for M4's header and merge it before starting
+   S. The host and CUDA token changes are listed under "What changed"
+   above.
+2. Fix `dev/benchmarks/timing/pointwise_ops.py`'s timer on MPS (R2.0's
+   diff).
+3. If wanted, take M4's MPS rows into `fixedpoint_gemm.py`'s docstring
+   and `docs/source/kernels/arithmetic.rst`'s "Fixed-point macs".
+
+Worktrees outside the repository:
+- `../mptorch-base` (`85d1d31`) and `../mptorch-wide` (now `6afa44a`
+  with the logical-form experiment) serve R2.1 and M4;
+- `../mptorch-m4base` (`6afa44a`) is M4's base, and M6b's.
+
+`git worktree remove` deletes each once it is no longer needed.
