@@ -99,7 +99,7 @@ this document assigns to the Mac with a sync point.
 | M6b | AI's MPS part: the fused pointwise and table ops on Metal (no row-reduction kernel was built) | round 2 (SP-AI delivered) | yes |
 | M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | after M6b (SP-AK delivered, `64ac91e`) | yes |
 | M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | now (SP-S delivered, `d72fa3d`) | yes |
-| M9 | AL's Mac round, and its Metal kernel if Linux builds one | at SP-AL | yes |
+| M9 | AL's Mac round, and its Metal kernel if Linux builds one | the baseline done (`8bbfbf6`); the second half now (step 2 delivered, the commit adding this) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
@@ -798,16 +798,66 @@ Estimate on the Linux plan: 1 d plus the round.
 
 **What AL is.** Phase AE's flash attention (FlashAttention-2's order, tile by
 tile, in Python) is 5-8x the standard path's time on CUDA, because its tile
-loop is launch-bound. AL first measures `torch.compile` of it, then batches
-the query tiles of each step where the arithmetic cannot tell (every slot
-elementwise, nothing stochastic), and only then, if needed, writes a fused
-kernel for a tile's online-softmax steps on CUDA, the CPU and Metal.
+loop is launch-bound. AL step 1 measured `torch.compile` of it (`36f0c44`:
+it closes the gap on CUDA, but Inductor changes the words by about an ulp,
+and its compile time and memory grow with the number of tiles). Step 2,
+delivered with this section, batches the query tiles where the arithmetic
+cannot tell. Step 4 (a fused kernel) is deferred.
 
-**The Mac's part:** the round after steps 1 and 2 (`tests/test_flash_attention.py`
-on MPS, which holds every path word for word to an independent FA2;
-timings of the standard path, the loop and the batched path on MPS, eager
-and, after M5, compiled). If Linux builds step 4's ops, their Metal kernels
-follow M6b's pattern.
+**What Linux built** (`mptorch/quant/attention.py` only; no C++, no Metal):
+- `_flash_forward_batched` / `_flash_backward_batched`: for each key tile,
+  every query tile it reaches (the causal suffix) takes each step in one
+  call; the backward's dV and dK products are one call with the query tiles
+  as a batch dimension, added in the loop's order. The words are the loop's.
+- `_batchable(formats) -> (forward, backward)`: a pass batches when both
+  products and the softmax's sums are mptorch's (a mac in each: a
+  `SplitMac`, or `FusedMac(None)` in the carrier) and every slot is an
+  elementwise, deterministic `Quant`. torch's own products keep the loop
+  (cuBLAS's words depend on the row count), and so do stochastic rounding, a
+  `ScaledQuant`, block formats and other callables. The backward batches
+  only with the forward; a recipe with torch's gradient products batches
+  its forward only.
+- On CUDA (RTX 4060): 1.7-4.4x the loop's forward at L = 512 to 4,096
+  (`[1, 8, L, 64]`, causal, 128 x 128 tiles, every product `FusedMac(None)`),
+  faster than the standard path from L = 1,024; GPT-2 small's
+  `fp8+attention` with flash at 128 x 128 tiles runs at 3,376 tokens/s
+  against the loop's 2,755 and the standard path's 2,965, perplexities
+  unchanged.
+- `dev/benchmarks/timing/flash_attention.py` is rewritten: recipes
+  `carrier` (batches) and `torch` (does not), variants `standard`,
+  `flash-loop` (the loop forced, by patching `_batchable`), `flash`;
+  `--compile` adds the compiled variants; it prints where words differ.
+
+**M9's second half, now (one report section each):**
+
+1. **Tests on MPS:** `tests/test_flash_attention.py` (its new batched tests
+   run on MPS: four recipes x four masks x two geometries, each the
+   batched path against the loop word for word, plus
+   `test_what_the_batched_path_takes`), then `test_attention.py`,
+   `test_simulate_events.py`, `test_profile.py`, then the full suite. A
+   batched case that differs on MPS but not on the CPU means one of the
+   steps is not row-independent there: report which tensor differs first
+   (forward output, dq, dk or dv), the recipe, and whether the loop on MPS
+   still equals the CPU's loop. Do not edit `attention.py`; Linux owns it.
+2. **The baseline again, at this commit:** your `m9/flash_mps.py` over the
+   same shapes, formats and method as the baseline (section "M9's
+   baseline" in your report), with a third flash column per block size: the
+   default path (batched under RNE) and the loop forced
+   (`mock.patch.object(attention, "_batchable", lambda f: (False, False))`).
+   The SR columns keep the loop, so they are the control: they should match
+   the baseline's within noise. Forward, and forward and backward, RNE.
+3. **The tool:** `flash_attention.py --device mps --recipes carrier torch
+   --lengths 512 1024 2048`; its `[differs]` marks must be absent.
+4. **Compile, short:** retry Inductor at 4x16x1024, flash 64, forward, RNE,
+   on the batched path (`_batchable` as shipped): its graph has one step
+   per key tile instead of one per tile pair, so it may now fit Metal's 31
+   buffer arguments. Report whether it compiles, its compile time, its time
+   and whether its words are eager's; give up after one try with the
+   default config and one with `max_fusion_size = 2`.
+
+The bar: every batched case equal to the loop on MPS, and the timings with
+the method of the baseline. Report in `dev/mac_parallel_report.md`, a new
+section "M9: AL step 2 on MPS", committed and pushed as usual.
 
 ## 13. Later, when their phases are refined
 

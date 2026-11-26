@@ -45,6 +45,8 @@ from mptorch.quant import (
 )
 from tests.markers import available_devices, float64_devices
 
+_SAME = object()  # a default meaning the forward's mac
+
 
 def _fmt(p: int, prng_bits: int = 0) -> BinaryK:
     """A P-bit format with 6 exponent bits, range enough for attention."""
@@ -446,3 +448,125 @@ def test_profile_counts_the_tiles_flash_runs():
     full = 2 * 2 * 64 * 64 * 16
     assert sum([r.macs for r in qk_fwd]) == 2 * full * 10 // 16  # forward and recompute
     assert all(r.M == 16 and r.N == 16 for r in qk_fwd)
+
+
+# --- the batched path ------------------------------------------------------------------------
+
+
+def _paths(monkeypatch, q, k, v, af, g, **kw):
+    """Flash's output and gradients on the path its formats take, then on
+    the loop."""
+    from mptorch.quant import attention
+
+    runs = []
+    for loop in (False, True):
+        with monkeypatch.context() as m:
+            if loop:
+                m.setattr(attention, "_batchable", lambda formats: (False, False))
+            out = qattention(q, k, v, af, **kw)
+            runs.append((out, *_grads(out, (q, k, v), g)))
+    return runs
+
+
+def _carrier_steps(block_q=16, block_kv=8, grad_mac=_SAME):
+    """Only the operands rounded, every product and sum in the carrier on
+    mptorch's kernels (FusedMac(None)), every other step torch's; with
+    ``grad_mac=None`` the gradients' products are torch's."""
+    q8, mac = Quant(E4M3), FusedMac(None)
+    gm = mac if grad_mac is _SAME else grad_mac
+    gf = GemmFormats(input_quant=q8, weight_quant=q8, fwd_mac=mac, igrad_mac=gm, wgrad_mac=gm)
+    return AttentionFormats(
+        qk=gf,
+        pv=gf,
+        softmax=SoftmaxFormats(acc=mac, bwd_acc=mac),
+        flash=FlashFormats(block_q=block_q, block_kv=block_kv),
+    )
+
+
+def _rotated(af):
+    """``af`` with both products rotated: q and k whole, p and v per key tile."""
+    rot = Hadamard(8, signed=True)
+    assert af.qk is not None and af.pv is not None
+    qk = dataclasses.replace(af.qk, rotation=rot)
+    return dataclasses.replace(af, qk=qk, pv=dataclasses.replace(af.pv, rotation=rot))
+
+
+_RECIPES = {
+    "every slot": lambda bq, bkv: _formats(block_q=bq, block_kv=bkv),
+    "carrier steps": _carrier_steps,
+    "torch's gradients": lambda bq, bkv: _carrier_steps(bq, bkv, grad_mac=None),
+    "rotated": lambda bq, bkv: _rotated(_formats(block_q=bq, block_kv=bkv)),
+}
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("mask", ["none", "causal", "bool", "float"])
+@pytest.mark.parametrize("recipe", list(_RECIPES))
+def test_the_batched_path_is_the_loop(monkeypatch, device, mask, recipe):
+    """Every query tile a key tile reaches in one call gives the loop's
+    words, forward and backward: every slot set; the products and sums in
+    the carrier and every other step torch's elementwise one; the same with
+    the gradients' products torch's, a batched forward before the loop's
+    backward; both products rotated. Over the masks and ragged tiles, and at
+    a length of many tiles."""
+    for L, S, bq, bkv in ((40, 36, 16, 8), (200, 200, 32, 64)):
+        q, k, v = _qkv(device, L=L, S=S)
+        attn_mask, causal = _masks(device, mask, L, S)
+        af = _RECIPES[recipe](bq, bkv)
+        g = torch.randn(2, 2, L, 12, generator=torch.Generator().manual_seed(9)).to(device)
+        batched, loop = _paths(monkeypatch, q, k, v, af, g, attn_mask=attn_mask, is_causal=causal)
+        for a, b in zip(batched, loop, strict=True):
+            assert torch.equal(a, b), (L, S, bq, bkv)
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_the_batched_path_in_float64(monkeypatch, device):
+    q, k, v = _qkv(device, L=48, S=48, dtype=torch.float64)
+    g = torch.randn(2, 2, 48, 12, dtype=torch.float64, generator=torch.Generator().manual_seed(9))
+    batched, loop = _paths(
+        monkeypatch, q, k, v, _formats(block_q=16, block_kv=16), g.to(device), is_causal=True
+    )
+    for a, b in zip(batched, loop, strict=True):
+        assert torch.equal(a, b)
+
+
+def test_what_the_batched_path_takes():
+    """Each pass batches when its steps are elementwise and deterministic
+    over mptorch's products and sums; torch's own products and sums
+    (cuBLAS's words depend on the call's shape), stochastic rounding (a
+    mac's or a slot's), a ScaledQuant, a block quantizer and a callable keep
+    the loop. The backward recomputes the forward's scores, so it batches
+    only with the forward."""
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockQuant
+    from mptorch.quant.attention import _batchable
+
+    both, forward_only, neither = (True, True), (True, False), (False, False)
+    assert _batchable(_formats()) == both
+    assert _batchable(_carrier_steps()) == both
+    assert _batchable(_rotated(_formats())) == both
+    assert _batchable(_carrier_steps(grad_mac=None)) == forward_only
+    assert _batchable(AttentionFormats(flash=FlashFormats())) == neither
+    q8 = Quant(E4M3)
+    torch_products = AttentionFormats(
+        qk=GemmFormats(input_quant=q8), pv=GemmFormats(input_quant=q8), flash=FlashFormats()
+    )
+    assert _batchable(torch_products) == neither
+    no_sum = dataclasses.replace(_carrier_steps(), softmax=SoftmaxFormats(acc=FusedMac(None)))
+    assert _batchable(no_sum) == forward_only  # the backward's sum torch's
+    assert _batchable(_formats(RoundMode.SR)) == neither
+    sr = Quant(_fmt(8, 8), RoundMode.SR)
+    assert _batchable(dataclasses.replace(_formats(), flash=FlashFormats(combine=sr))) == neither
+    af = _formats()
+    assert af.scores is not None and af.pv is not None
+    sr_grad = dataclasses.replace(af, scores=dataclasses.replace(af.scores, grad_quant=sr))
+    assert _batchable(sr_grad) == forward_only
+    sr_igrad = dataclasses.replace(af, pv=dataclasses.replace(af.pv, igrad_quant=sr))
+    assert _batchable(sr_igrad) == forward_only
+    for slot in (ScaledQuant(E4M3), BlockQuant(MXFP8_E4M3), lambda t: t):
+        carrier = _carrier_steps()
+        assert carrier.qk is not None
+        qk = dataclasses.replace(carrier.qk, input_quant=slot)
+        assert _batchable(dataclasses.replace(carrier, qk=qk)) == neither
+        grad = dataclasses.replace(carrier.qk, wgrad_quant=slot)
+        assert _batchable(dataclasses.replace(carrier, qk=grad)) == forward_only

@@ -187,6 +187,23 @@ the updates of ℓ and O      ``flash.combine``, each computed in the carrier
   same mask, since a masked tile adds exactly nothing. The tiles are known
   from the shapes, so flash compiles into one graph. An explicit
   ``attn_mask``'s tiles are all computed.
+- **Batched tiles.** Where the arithmetic cannot tell the tiles apart, each
+  key tile meets every query tile it reaches in one call: each step runs
+  once over all those rows, in the order of the key tiles, which gives the
+  words of one query tile at a time. That holds when both products and the
+  softmax's sums are mptorch's (a mac in each pass: ``FusedMac(None)``
+  multiplies in the carrier) and every slot is an elementwise, deterministic
+  :class:`~mptorch.quant.Quant`. The forward and the backward decide apart,
+  so a recipe whose gradients are PyTorch's still batches its forward.
+  These run one query tile at a time:
+
+  - PyTorch's own products, since cuBLAS's words for a taller product are
+    not its words for a tile;
+  - stochastic rounding, whose draws are keyed on an element's index in its
+    call;
+  - a :class:`~mptorch.quant.ScaledQuant`, which scales each tile by its own
+    maximum;
+  - a block format's quantizer or mac, and any other callable.
 - **The backward** is FA2's. First, :math:`D = \sum (dO \circ O)` per query,
   under ``softmax.bwd_mul`` and ``softmax.bwd_acc``. Then for each tile:
   :math:`P = \exp(S - L)`, unrounded, as the standard softmax's backward
@@ -215,17 +232,18 @@ the updates of ℓ and O      ``flash.combine``, each computed in the carrier
 On GPT-2 small, the recipe ``fp8+attention`` of
 ``examples/instrument/gpt2_perplexity.py`` puts every projection but
 ``lm_head`` in FP8, the attention's operands and probabilities in E4M3, and
-the softmax in Binary14p8. Under it, flash gives a lower perplexity than the
-standard path, over WikiText-2's first 32,768 tokens (an RTX 4060 laptop
-GPU, 2026-11-25):
+the softmax in Binary14p8. Its products are mptorch's in the forward and
+PyTorch's in the backward, so flash batches its forward. Under it, flash gives
+a lower perplexity than the standard path, over WikiText-2's first 32,768
+tokens (an RTX 4060 laptop GPU, 2026-11-26, the mean of two runs):
 
-===========================  ==========  ===========
-attention                    perplexity  tokens/s
-===========================  ==========  ===========
-standard path                28.59       2,957
-flash, 128 x 128 tiles       28.19       2,781
-flash, 64 x 64 tiles         28.25       1,574
-===========================  ==========  ===========
+===========================  ==========  ===========  ===================
+attention                    perplexity  tokens/s     one tile at a time
+===========================  ==========  ===========  ===================
+standard path                28.59       2,965
+flash, 128 x 128 tiles       28.19       3,376        2,755
+flash, 64 x 64 tiles         28.25       3,081        1,495
+===========================  ==========  ===========  ===================
 
 Flash alone, nothing rounded, gives float32's 26.76. A likely reason for
 flash's lower perplexity, not verified: the probabilities are rounded to
@@ -235,15 +253,25 @@ normal value :math:`2^{-6}`. Flash rounds :math:`\tilde P`, whose largest
 entry in each row is 1.
 
 **Cost.** A causal attention over ``[1, 8, L, 64]`` under E4M3 operand
-quantizers, with 128 x 128 tiles:
+quantizers, with 128 x 128 tiles (``dev/benchmarks/timing/flash_attention.py``):
 
 - **Memory.** On CUDA, flash holds 42 MiB at :math:`L = 4096` where the
-  standard path holds 1,592 MiB (91 and 2,080 MiB with the backward).
-- **CUDA time.** Flash runs a Python loop over its tiles, and takes 5 to 8
-  times the standard path's time.
+  standard path holds 1,592 MiB (91 and 2,080 MiB with the backward). The
+  batched path holds a key tile's scores for every query row it reaches,
+  about 1.6 times the peak of one tile at a time, and under a tenth of the
+  standard path's.
+- **CUDA time.** One query tile at a time, each pair of tiles is about
+  twenty kernel launches, and flash takes 5 to 8 times the standard path's
+  time. Batched, with every product and sum ``FusedMac(None)``, it runs 1.7
+  times faster than that at :math:`L = 512` and 4.4 times at 4,096, and from
+  :math:`L = 1024` it is faster than the standard path in the same recipe
+  (0.44 of its time at 4,096, 0.57 with the backward), since it skips the
+  causal tiles.
 - **CPU time.** Flash is faster than the standard path, by 1.2-2.6x on 16
   threads and 1.7-3.8x on one. It works on cache-sized tiles, skips the
-  causal tiles, and makes no passes over the whole score matrix.
+  causal tiles, and makes no passes over the whole score matrix. Batching
+  gains less here (1.05-1.85x on 16 threads, forward), since a CPU call
+  costs little next to its arithmetic.
 
 .. literalinclude:: ../../snippets/attention_flash.py
    :language: python
