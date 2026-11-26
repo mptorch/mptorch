@@ -1519,3 +1519,79 @@ docstring.
 |---|---|---|---|
 | M8 | "MPS: the counted GEMM and conv ops" | the files listed above | yes: the three `common/` headers need **`binary_identity.py`**; `quant_ops.h`, `setup.py` and the three test files are listed above |
 | this section | the commit after it | `dev/mac_parallel_report.md` | |
+
+## M9's baseline: flash attention on MPS before AL (at `3937f31`)
+
+SP-AL is not delivered yet, so this is the "before" for AL's MPS round: the
+current flash path (`FlashFormats`, FA2's tile loop in Python) against the
+standard path on MPS, eager and compiled. No file changed but this report.
+The scratch script is the session's `m9/flash_mps.py`.
+
+**Method.** Causal self-attention over `[batch, heads, length, 64]` float32,
+in the formats of `dev/benchmarks/timing/attention_ops.py`: both products
+`SplitMac(BinaryK(8, 4), BinaryK(14, 8))`, the operands and probabilities
+`BinaryK(8, 4)`, the softmax's steps too; RNE, or SR with its random bits.
+The flash rows add `FlashFormats(block_q=b, block_kv=b)`, its three slots
+unset. Minimum over three rounds of two calls, the variants alternated,
+`torch.mps.synchronize()` around each batch. AC power, no thermal warning
+before or after.
+
+`tests/test_flash_attention.py` passes on this tree: 57 passed, 28 skipped
+(CUDA, float64), 27 of the cases on MPS.
+
+### Eager: ms, and against the standard path in the same mode
+
+| shape | math | std RNE | flash 64 RNE | flash 128 RNE | std SR | flash 64 SR | flash 128 SR |
+|---|---|---|---|---|---|---|---|
+| 8x8x256 | 0.4 | 9.5 | 7.2 (0.76x) | 7.0 (0.74x) | 38.2 | 25.6 (0.67x) | 28.7 (0.75x) |
+| 4x16x1024 | 3.1 | 143.4 | 83.9 (0.58x) | 75.9 (0.53x) | 608.4 | 333.2 (0.55x) | 333.3 (0.55x) |
+| 1x16x4096 | 11.6 | 568.6 | 478.6 (0.84x) | 301.7 (0.53x) | 2490.5 | 1485.8 (0.60x) | 1286.6 (0.52x) |
+
+Forward and backward, RNE:
+
+| shape | math | std | flash 64 | flash 128 |
+|---|---|---|---|---|
+| 8x8x256 | 4.0 | 24.6 | 21.8 (0.89x) | 22.1 (0.90x) |
+| 4x16x1024 | 49.4 | 379.1 | 258.5 (0.68x) | 242.1 (0.64x) |
+| 1x16x4096 | 181.3 | 1497.6 | 1354.9 (0.90x) | 947.1 (0.63x) |
+
+**On MPS flash is faster than the standard path, not 5-8x slower as on
+CUDA.** The likely reason: flash skips the causal tiles above the diagonal,
+about half of the simulated GEMMs' work, and on the M3 Pro's GPU those GEMMs
+are slow enough to outweigh the loop's launches. The loop's cost still
+shows. At 1x16x4096, block 64 runs 2,080 tile steps and block 128 runs 528,
+and the two take 478.6 and 301.7 ms. That puts the loop's overhead near
+0.11 ms per tile step, about half of the block-64 time (my estimate from
+the difference, not a profile). So batching the query tiles (AL's step 2)
+should pay on MPS too, most at small blocks and long sequences.
+
+### Compiled (forward, RNE, `torch.compile(fullgraph=True)`)
+
+| shape | path | backend | compile | eager | compiled | words |
+|---|---|---|---|---|---|---|
+| 8x8x256 | std | inductor | 2.3 s | 9.4 ms | 8.0 ms (1.17x faster) | equal |
+| 8x8x256 | flash 64 | inductor | 1.7 s | 7.2 ms | 5.3 ms (1.36x faster) | equal |
+| 4x16x1024 | std | inductor | 0.4 s | 143.8 ms | 123.8 ms (1.16x faster) | equal |
+| 4x16x1024 | flash 64 | inductor | **fails** | 83.3 ms | | |
+| 4x16x1024 | flash 64 | inductor, `max_fusion_size = 2` | 16.5 s | 83.3 ms | 66.7 ms (1.25x faster) | equal |
+| 4x16x1024 | flash 64 | aot_eager | 6.8 s | 83.3 ms | 98.2 ms (0.85x) | equal |
+
+**Inductor fails on the flash loop at 4x16x1024.** It fuses so many inputs
+into one generated Metal kernel that the kernel needs more than Metal's 31
+buffer arguments, and the Metal compiler refuses it: "no 'buffer' resource
+location available for 'in_ptr8'", and the same for other inputs.
+`torch._inductor.config.max_fusion_size = 8` still fails; `2` compiles and
+gains 1.25x. That is a torch bug, Inductor's MPS backend not capping a
+kernel's buffers. AL's step 1, if it compiles flash, needs a workaround on
+MPS, or a test that the fallback is eager. Every compiled result equals
+eager's word for word. The gains are small because each mptorch op stays
+one opaque dispatch: Inductor fuses only the torch operations between them.
+
+### For Linux
+
+- **`dev/benchmarks/timing/attention_ops.py --device mps` times the
+  enqueueing, not the work.** Its `_timer` synchronizes CUDA only, the
+  pointwise tool's bug of R2.0. At 4x8x256 it reports 0.01 / 0.09 / 0.09 ms
+  for math / rne / sr, which take 0.45 / 4.68 / 19.12 ms synchronized. It
+  also has no MPS shapes (it falls back to the CPU's).
+- If AL's tools time flash on MPS, the numbers above are the base.
