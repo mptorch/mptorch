@@ -284,11 +284,14 @@ Tensor block_project_mps(Tensor x, Tensor scales, c10::IntArrayRef fmt, double e
   L.xs0 = j.xs0;
   L.xs1 = j.xs1;
   L.xs2 = j.xs2;
-  L.per_row = p.n_blocks * (p.block_size / project_group(p.elem_bits));
+  // One thread per block of a row (block_project.metal), whose 32-bit index
+  // arithmetic needs fewer than 2^32 of them.
+  L.per_row = p.n_blocks;
   L.groups = static_cast<uint64_t>(j.batch * j.rows * L.per_row);
-  TORCH_CHECK(L.groups <= std::numeric_limits<uint32_t>::max(), op,
-              ": an MPS block_project runs one thread per group of codes that fill whole bytes, at most "
-              "2^32 - 1 of them, got ", L.groups);
+  TORCH_CHECK(
+      L.groups <= std::numeric_limits<uint32_t>::max(), op,
+      ": an MPS block_project runs one thread per block of a row, at most 2^32 - 1 of them, got ",
+      L.groups);
   L.seed = seed_for(round_mode);
   const std::string tail = std::string("using mpt_storage_t = ") +
                            mptorch_mps::metal_storage_type(x.scalar_type(), op) + ";\n#define MPT_ROUND_MODE " +

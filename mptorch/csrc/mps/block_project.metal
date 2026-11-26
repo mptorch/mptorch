@@ -9,11 +9,17 @@
 // block.metal's pack takes them. The layout, BlockFormatParams, is bound as
 // a buffer, as for the pack.
 //
-// One thread takes a group of consecutive elements of a row whose codes fill
-// whole bytes (project_group), as the CUDA kernel does, so that no two
-// threads write one byte; the codes go into the bytes through a bit
-// accumulator, low bits first, and past the row's last element they are
-// zero, as block_pack leaves the end of its last block. Under SR, element
+// One thread takes one block of a row, so that no two threads write one byte
+// and a block's scale is decoded and its casts built once; the codes go into
+// the bytes through a bit accumulator, low bits first, and past the row's
+// last element they are zero, as block_pack leaves the end of its last
+// block. A thread per group of codes that fill whole bytes (project_group,
+// the CUDA kernel's layout), each dividing its index in 64 bits, took
+// 2.1-4.2x block_pack's time at 4096 x 4096 on an M3 Pro, and 2.3-5.3x the
+// present kernel's; a block a thread takes 0.79-0.98x block_pack's. The two
+// divisions below are 32-bit ones, which the GPU computes much faster than
+// the 64-bit ones it emulates: block_project_mps keeps the thread count,
+// and so every quotient and divisor here, below 2^32. Under SR, element
 // i = (b * rows + r) * cols + c draws word i & 3 of Philox block i >> 2 of
 // the CPU generator's seed, the CPU's layout. The division by a cast scale
 // goes through block_decode.h's MPTORCH_BLOCK_DIV, metal_div_rn on the GPU,
@@ -35,11 +41,12 @@ kernel void mpt_block_project(device const mpt_storage_t *x [[buffer(0)]],
         return;
     const BlockFormatParams p = fmt;
     const BlockCastT<float> c = mpt_block_cast();
-    const int G = project_group(p.elem_bits);
+    const int G = p.block_size; // L.per_row is the row's block count
     const int group_bytes = G * p.elem_bits / 8;
-    const int64_t g = int64_t(t) / L.per_row;
+    const uint32_t g32 = uint32_t(t) / uint32_t(L.per_row);
+    const int64_t g = int64_t(g32);
     const int64_t gi = int64_t(t) - g * L.per_row;
-    const int64_t b = g / L.rows;
+    const int64_t b = int64_t(g32 / uint32_t(L.rows));
     const int64_t r = g - b * L.rows;
     const int64_t c0 = gi * G;
     const int64_t blk = c0 >> p.log2_block_size;
