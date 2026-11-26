@@ -135,13 +135,13 @@ namespace mptorch::gemm
   }
 
   // The checks of the test-only _carrier_odd op: three tensors with the same
-  // dtype (float32 or float64), device and shape (add and mul ignore c, but
-  // it must still match).
+  // dtype (float32 or float64), device and shape (only fma reads c, but it
+  // must still match), and an op code below `ops`, the backend's count.
   inline void check_carrier_odd(const at::Tensor &a, const at::Tensor &b, const at::Tensor &c,
-                                int64_t op)
+                                int64_t op, int64_t ops = 3)
   {
-    TORCH_CHECK(op >= 0 && op <= 2, "_carrier_odd: op is 0 (fma), 1 (add) or 2 (mul), got ",
-                op);
+    TORCH_CHECK(op >= 0 && op < ops, "_carrier_odd: op is 0 (fma), 1 (add), 2 (mul), 3 (div) "
+                "or 4 (sqrt), of which this backend has the first ", ops, ", got ", op);
     TORCH_CHECK(a.scalar_type() == at::kFloat || a.scalar_type() == at::kDouble,
                 "_carrier_odd: float32 or float64 tensors, got ", a.scalar_type());
     for (const at::Tensor *t : {&b, &c})

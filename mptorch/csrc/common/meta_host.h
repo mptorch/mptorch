@@ -714,11 +714,11 @@ namespace mptorch::meta
   // _carrier_odd
   // ----------------------------------------------------------------------
 
-  // The twin of check_carrier_odd (carrier_odd_host.h).
-  inline void sym_check_carrier_odd(const Tensor &a, const Tensor &b, const Tensor &c, int64_t op)
-  {
-    TORCH_CHECK(op >= 0 && op <= 2, "_carrier_odd: op is 0 (fma), 1 (add) or 2 (mul), got ",
-                op);
+  inline void sym_check_carrier_odd(const Tensor &a, const Tensor &b, const Tensor &c, int64_t op,
+                                    int64_t ops)
+  { // the twin of check_carrier_odd (carrier_odd_host.h)
+    TORCH_CHECK(op >= 0 && op < ops, "_carrier_odd: op is 0 (fma), 1 (add), 2 (mul), 3 (div) "
+                "or 4 (sqrt), of which this backend has the first ", ops, ", got ", op);
     TORCH_CHECK(a.scalar_type() == at::kFloat || a.scalar_type() == at::kDouble,
                 "_carrier_odd: float32 or float64 tensors, got ", a.scalar_type());
     for (const Tensor *t : {&b, &c})

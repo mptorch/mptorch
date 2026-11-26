@@ -158,7 +158,7 @@ Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op)
 #if defined(MPTORCH_NO_ODD)
   mptorch::gemm::odd_unavailable("_carrier_odd");
 #else
-  sym_check_carrier_odd(a, b, c, op);
+  sym_check_carrier_odd(a, b, c, op, 5); // the CPU's and CUDA's five op codes
   return at::empty_like(a.contiguous());
 #endif
 }

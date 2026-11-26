@@ -1,9 +1,10 @@
-#include "../common/carrier_odd.h"
+#include "../common/carrier_odd_div_sqrt.h"
 #include "carrier_odd_kernel.h"
 
-// _carrier_odd on the device, a test-only op: common/carrier_odd.h's device
-// primitives (each operation rounded down and up, and the result with the
-// odd word kept) applied elementwise, one element per thread.
+// _carrier_odd on the device, a test-only op: the device primitives of
+// common/carrier_odd.h and common/carrier_odd_div_sqrt.h (each operation
+// rounded down and up, and the result with the odd word kept) applied
+// elementwise, one element per thread.
 
 namespace mptorch::carrier_odd_cuda
 {
@@ -17,8 +18,11 @@ namespace mptorch::carrier_odd_cuda
       const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
       if (i >= n)
         return;
-      o[i] = op == 0 ? odd::fma(a[i], b[i], c[i]) : op == 1 ? odd::add(a[i], b[i])
-                                                            : odd::mul(a[i], b[i]);
+      o[i] = op == 0   ? odd::fma(a[i], b[i], c[i])
+             : op == 1 ? odd::add(a[i], b[i])
+             : op == 2 ? odd::mul(a[i], b[i])
+             : op == 3 ? odd::div(a[i], b[i])
+                       : odd::sqrt(a[i]);
     }
 
     template <class T>

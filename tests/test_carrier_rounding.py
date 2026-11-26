@@ -59,6 +59,7 @@ from .markers import (
     HAS_ODD_ACCUMULATED,
     accelerator_devices,
     available_devices,
+    cuda_devices,
     float64_devices,
     has_float64,
     requires_cuda,
@@ -81,7 +82,7 @@ K16, P8 = 16, 8
 BELOW, ONE, ABOVE = 1 - 2.0**-8, 1.0, 1 + 2.0**-7
 
 odd_op = torch.ops.mptorch._carrier_odd.default
-FMA, ADD, MUL = 0, 1, 2
+FMA, ADD, MUL, DIV, SQRT = 0, 1, 2, 3, 4
 
 
 def _correct(exact: Fraction, mode: RoundMode) -> float:
@@ -382,13 +383,213 @@ def test_a_devices_primitives_agree_with_the_cpus_word_for_word(device, dtype, r
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
-@pytest.mark.parametrize("op", [FMA, ADD, MUL], ids=["fma", "add", "mul"])
+@pytest.mark.parametrize("op", [FMA, ADD, MUL, DIV, SQRT], ids=["fma", "add", "mul", "div", "sqrt"])
 def test_a_nan_passes_through_the_host_primitives_whole(dtype, op):
     """On the host a NaN takes today's expression, payload included."""
     payload = 0x7FC12340 if dtype is torch.float32 else 0x7FF8123456789AB0
     nan = _value(payload, dtype)
     got = _call([nan], [1.0], [1.0], op, dtype, "cpu")
     assert got == [payload]
+
+
+# --- division and the square root ------------------------------------------------
+
+# The MPS _carrier_odd op has no division or root yet: it refuses op codes 3
+# and 4.
+_NO_METAL_QUOTIENT = pytest.mark.skip(reason="the MPS _carrier_odd has no op codes 3 and 4 yet")
+QUOTIENT_DEVICES = [
+    "cpu",
+    *cuda_devices,
+    pytest.param("mps", marks=[requires_mps, _NO_METAL_QUOTIENT]),
+]
+QUOTIENT_ACCELERATORS = [
+    *cuda_devices,
+    pytest.param("mps", marks=[requires_mps, _NO_METAL_QUOTIENT]),
+]
+
+
+def _ro_sqrt(x: Fraction, dtype: torch.dtype) -> Fraction:
+    """RO of the exact root of ``x > 0``, which no carrier's root takes out of
+    its normal range: the root's last place q, the integer square root of
+    x / q^2, and the odd bit when it is inexact."""
+    p, emin, _, _, _ = CARRIERS[dtype]
+    e = x.numerator.bit_length() - x.denominator.bit_length()
+    if Fraction(2) ** e > x:
+        e -= 1
+    e //= 2  # 2^e <= sqrt(x) < 2^(e + 1)
+    q = Fraction(2) ** max(e - p + 1, emin - p + 1)
+    y = x / (q * q)
+    k = math.isqrt(math.floor(y))
+    if k * k != y:
+        k |= 1
+    return k * q
+
+
+def _expected_quotient(a: float, b: float, op: int, dtype: torch.dtype) -> int | None:
+    """The word RO gives for ``a / b`` or ``sqrt(a)``, or None where IEEE's
+    special values decide (an infinity or a NaN operand, a zero divisor, a
+    negative radicand)."""
+    if op == DIV:
+        if not (math.isfinite(a) and math.isfinite(b)) or b == 0:
+            return None
+        if a == 0:
+            return _word(math.copysign(0.0, math.copysign(1, a) * math.copysign(1, b)), dtype)
+        return _word(float(_ro(Fraction(a) / Fraction(b), dtype)), dtype)
+    if not math.isfinite(a) or a < 0:
+        return None
+    if a == 0:
+        return _word(a, dtype)  # IEEE's root of -0 is -0
+    return _word(float(_ro_sqrt(Fraction(a), dtype)), dtype)
+
+
+# (a, b, op, dtype, the word RO gives); sqrt ignores b.
+QUOTIENT_VECTORS = [
+    # round to nearest takes the even neighbour, RO the odd one
+    (1, 11, DIV, torch.float32, 0x3DBA2E8B),
+    (1, 25, DIV, torch.float32, 0x3D23D70B),
+    (10, 1, SQRT, torch.float32, 0x404A62C1),
+    (13, 1, SQRT, torch.float32, 0x4066C15B),
+    (1, 5, DIV, torch.float64, 0x3FC9999999999999),
+    (1, 7, DIV, torch.float64, 0x3FC2492492492493),
+    (3, 1, SQRT, torch.float64, 0x3FFBB67AE8584CAB),
+    (5, 1, SQRT, torch.float64, 0x4001E3779B97F4A7),
+    # exact results stay
+    (6, 3, DIV, torch.float32, 0x40000000),
+    (4, 1, SQRT, torch.float32, 0x40000000),
+    (6, 3, DIV, torch.float64, 0x4000000000000000),
+    (4, 1, SQRT, torch.float64, 0x4000000000000000),
+    # below the subnormals and at their parity: RN would give 2 and 0
+    (3 * 2**-149, 2, DIV, torch.float32, 0x00000001),
+    (2**-149, 4, DIV, torch.float32, 0x00000001),
+    (-(2**-149), 4, DIV, torch.float32, 0x80000001),
+    (3 * 2**-1074, 2, DIV, torch.float64, 0x0000000000000001),
+    (2**-1074, 4, DIV, torch.float64, 0x0000000000000001),
+    # an exact subnormal quotient, and a normal one past binary64's range test
+    (2**-1000, 2**30, DIV, torch.float64, 0x0000100000000000),
+    ((1 + 2**-52) * 2**-1020, 3, DIV, torch.float64, 0x0015555555555557),
+    # overflow to the largest finite value, not infinity
+    (OMEGA32, 0.5, DIV, torch.float32, 0x7F7FFFFF),
+    (-OMEGA32, 0.5, DIV, torch.float32, 0xFF7FFFFF),
+    (2**127, 2**-127, DIV, torch.float32, 0x7F7FFFFF),
+    (1, 2**-1074, DIV, torch.float64, 0x7FEFFFFFFFFFFFFF),
+    (OMEGA64, -0.5, DIV, torch.float64, 0xFFEFFFFFFFFFFFFF),
+    # roots of subnormals, normal and inexact
+    (2**-149, 1, SQRT, torch.float32, 0x1A3504F3),
+    (2**-1073, 1, SQRT, torch.float64, 0x1E66A09E667F3BCD),
+    (2**-1074, 1, SQRT, torch.float64, 0x1E60000000000000),
+    # IEEE's specials: division by zero, zeros, infinities
+    (1, 0.0, DIV, torch.float32, 0x7F800000),
+    (1, -0.0, DIV, torch.float32, 0xFF800000),
+    (-0.0, 5, DIV, torch.float32, 0x80000000),
+    (0.0, -5, DIV, torch.float64, 0x8000000000000000),
+    (math.inf, 2, DIV, torch.float64, 0x7FF0000000000000),
+    (2, -math.inf, DIV, torch.float64, 0x8000000000000000),
+    (-0.0, 1, SQRT, torch.float32, 0x80000000),
+    (math.inf, 1, SQRT, torch.float64, 0x7FF0000000000000),
+]
+
+
+@pytest.mark.parametrize("device", QUOTIENT_DEVICES)
+@pytest.mark.parametrize(
+    "a, b, op, dtype, want", QUOTIENT_VECTORS, ids=[f"q{i}" for i in range(len(QUOTIENT_VECTORS))]
+)
+def test_division_and_the_root_on_vectors(device, a, b, op, dtype, want):
+    assert _call([a], [b], [1.0], op, dtype, device) == [want]
+    expected = _expected_quotient(float(a), float(b), op, dtype)
+    assert expected is None or expected == want  # the reference agrees with the table
+
+
+def _quotient_operands(regime: str, n: int, dtype: torch.dtype, op: int, rng: random.Random):
+    """``n`` operand pairs of one regime for ``a / b`` or ``sqrt(a)`` (b = 1),
+    as Python floats the dtype holds."""
+    wide = dtype is torch.float64
+    p = 53 if wide else 24
+
+    def value(lo: int, hi: int, bits: int = p, signed: bool = True) -> float:
+        m = rng.getrandbits(bits) | (1 << (bits - 1))
+        x = math.ldexp(m, rng.randint(lo, hi) - bits + 1) * (rng.choice((1, -1)) if signed else 1)
+        return x if wide else struct.unpack("<f", struct.pack("<f", x))[0]
+
+    def nudged(x: float) -> float:
+        """x, or a neighbour of it (x is normal in the carrier)."""
+        step = math.ulp(x) * (1 if wide else 2**29)
+        return x + rng.choice((0, 0, 1, -1)) * step
+
+    root = op == SQRT
+    out = []
+    for _ in range(n):
+        if regime == "normal":
+            a, b = (value(-60, 60, signed=False), 1.0) if root else (value(-30, 30), value(-30, 30))
+        elif regime == "exact":  # exact results of short significands, and their neighbours
+            h = p // 2
+            if root:
+                s = value(-20, 20, h, signed=False)
+                a, b = nudged(s * s), 1.0
+            else:
+                q, b = value(-10, 10, h), value(-10, 10, h)
+                a = nudged(q * b)
+        elif regime == "subnormal":  # subnormal operands, and quotients near and below them
+            lo = -1074 if wide else -149
+            if root:
+                a, b = value(lo, lo + 51 if wide else lo + 22, signed=False), 1.0
+            else:
+                a, b = value(lo, lo + 70), value(-5, 60 if wide else 30)
+        elif regime == "gate":  # binary64's range tests and either side of them
+            if root:
+                a, b = value(*((-975, -965) if wide else (-130, -120)), signed=False), 1.0
+            elif wide:
+                a, b = value(-1000, -940), value(-500, -470)
+            else:
+                a, b = value(-149, -120), value(-149, -100)
+        else:  # "huge": quotients past the largest finite value, and large roots
+            if root:
+                a, b = value(*((1000, 1023) if wide else (120, 127)), signed=False), 1.0
+            else:
+                a, b = value(*((1000, 1023) if wide else (100, 127))), value(-60, 2)
+        out.append((a, b))
+    return out
+
+
+QUOTIENT_REGIMES = ["normal", "exact", "subnormal", "gate", "huge"]
+
+
+@pytest.mark.parametrize("device", QUOTIENT_DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("regime", QUOTIENT_REGIMES)
+@pytest.mark.parametrize("op", [DIV, SQRT], ids=["div", "sqrt"])
+def test_division_and_the_root_match_the_exact_reference(device, dtype, regime, op):
+    """The host's binary32 through binary64 and its rounding to odd at 24
+    bits, the host's binary64 by the remainder and its rescaled slow path, and
+    CUDA's directed pairs."""
+    rng = random.Random(f"{dtype}{regime}{op}")
+    pairs = _quotient_operands(regime, 400, dtype, op, rng)
+    a, b = (list(t) for t in zip(*pairs, strict=True))
+    got = _call(a, b, [1.0] * len(a), op, dtype, device)
+    for i, (x, y) in enumerate(pairs):
+        want = _expected_quotient(x, y, op, dtype)
+        assert got[i] == want, (x, y, hex(got[i]), want and hex(want))
+
+
+@pytest.mark.parametrize("device", QUOTIENT_ACCELERATORS)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("regime", QUOTIENT_REGIMES)
+@pytest.mark.parametrize("op", [DIV, SQRT], ids=["div", "sqrt"])
+def test_a_devices_division_and_root_agree_with_the_cpus_word_for_word(device, dtype, regime, op):
+    """A NaN with any NaN: its payload is the backend's."""
+    rng = random.Random(f"device{dtype}{regime}{op}")
+    pairs = _quotient_operands(regime, 4000, dtype, op, rng)
+    tiny = 2.0**-149 if dtype is torch.float32 else 5e-324
+    omega = OMEGA32 if dtype is torch.float32 else OMEGA64
+    specials = [math.inf, -math.inf, 0.0, -0.0, 1.0, -1.0, tiny, -tiny, omega, -omega]
+    pairs += [(x, y) for x in specials for y in specials]
+    a, b = (list(t) for t in zip(*pairs, strict=True))
+    ones = [1.0] * len(a)
+    cpu, dev = _call(a, b, ones, op, dtype, "cpu"), _call(a, b, ones, op, dtype, device)
+    nan = [math.isnan(_value(w, dtype)) for w in cpu]
+    assert [w for w, n in zip(cpu, nan, strict=True) if not n] == [
+        w for w, n in zip(dev, nan, strict=True) if not n
+    ]
+    assert nan == [math.isnan(_value(w, dtype)) for w in dev]
 
 
 @requires_mps

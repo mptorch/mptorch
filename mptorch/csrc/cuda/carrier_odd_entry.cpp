@@ -15,7 +15,7 @@ Tensor carrier_odd_cuda(Tensor a, Tensor b, Tensor c, int64_t op)
 #if defined(MPTORCH_NO_ODD)
   mptorch::gemm::odd_unavailable("_carrier_odd");
 #else
-  mptorch::gemm::check_carrier_odd(a, b, c, op);
+  mptorch::gemm::check_carrier_odd(a, b, c, op, 5);
   Tensor a_c = a.contiguous(), b_c = b.contiguous(), c_c = c.contiguous();
   Tensor o = at::empty_like(a_c);
   const int64_t n = o.numel();

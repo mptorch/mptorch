@@ -830,7 +830,7 @@ def _other_cases():
         "binaryK in place": _with("binaryK_quant_", a=x(4, 6).t()),
         "superfp in place": _with("superfp_quant_", a=x(4, 6).t()),
         "fixedpoint in place": _with("fixedpoint_quant_", a=x(4, 6).t()),
-        "carrier_odd op": _with("_carrier_odd", op=3),
+        "carrier_odd op": _with("_carrier_odd", op=5),
         "carrier_odd shape": _with("_carrier_odd", b=x(3)),
         "carrier_odd dtype": _with("_carrier_odd", a=x(16, 16).int()),
         "binaryK prng": _with("binaryK_quant", prng_bits=21),

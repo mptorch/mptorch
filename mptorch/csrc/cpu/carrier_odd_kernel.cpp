@@ -1,8 +1,10 @@
-// _carrier_odd on the CPU: common/carrier_odd.h's host primitives applied
-// elementwise, so that the tests can see what the format casts that follow
-// them would erase (the signs of zeros, the largest finite value, the parity
-// of subnormals). It is a test-only op, run on small tensors on one thread.
+// _carrier_odd on the CPU: the host primitives of common/carrier_odd.h and
+// common/carrier_odd_div_sqrt.h applied elementwise, so that the tests can
+// see what the format casts that follow them would erase (the signs of
+// zeros, the largest finite value, the parity of subnormals). It is a
+// test-only op, run on small tensors on one thread.
 
+#include "../common/carrier_odd_div_sqrt.h"
 #include "../common/carrier_odd_host.h"
 #include "../quant_ops.h"
 #include <ATen/ops/empty_like.h>
@@ -17,8 +19,11 @@ namespace
   {
     namespace odd = mptorch::gemm::odd;
     for (int64_t i = 0; i < n; ++i)
-      o[i] = op == 0 ? odd::fma(a[i], b[i], c[i]) : op == 1 ? odd::add(a[i], b[i])
-                                                            : odd::mul(a[i], b[i]);
+      o[i] = op == 0   ? odd::fma(a[i], b[i], c[i])
+             : op == 1 ? odd::add(a[i], b[i])
+             : op == 2 ? odd::mul(a[i], b[i])
+             : op == 3 ? odd::div(a[i], b[i])
+                       : odd::sqrt(a[i]);
   }
 } // namespace
 #endif
@@ -28,7 +33,7 @@ Tensor carrier_odd_cpu(Tensor a, Tensor b, Tensor c, int64_t op)
 #if defined(MPTORCH_NO_ODD)
   mptorch::gemm::odd_unavailable("_carrier_odd");
 #else
-  mptorch::gemm::check_carrier_odd(a, b, c, op);
+  mptorch::gemm::check_carrier_odd(a, b, c, op, 5);
   Tensor a_c = a.contiguous(), b_c = b.contiguous(), c_c = c.contiguous();
   Tensor o = at::empty_like(a_c);
   if (a.scalar_type() == at::kFloat)
