@@ -622,8 +622,11 @@ integer accumulator, fused      20.1 ps    23.6 ps    9.8 ns       6.3 ns
   vector tiles.
 - A wide result costs about what a narrow one does: 8.6 ps a step on CUDA
   under RNE into ``FixedPoint(40, 8)``.
-- The directed modes run the carrier path's bitwise casts: ``RZ`` takes
-  35.6 ps a step on CUDA.
+- The other modes cost more than RNE. On CUDA the carrier path takes 8.3 ps
+  a step under ``RZ``, 10.9-11.6 ps under ``RU``, ``RD`` and ``RNA`` and
+  12.0 ps under ``RO``, and 21-24 ps in binary64 in every mode but SR. On one
+  CPU thread (at :math:`384^3`) it takes 2.8 ns under ``RZ``, 5.2-5.5 ns
+  under ``RU`` and ``RD`` and 4.3-4.9 ns under ``RNA`` and ``RO``.
 - On an M3 Pro's GPU the integer accumulator takes 7 to 10 times the
   carrier path under RNE, since Apple GPUs emulate 64-bit integer
   arithmetic.

@@ -43,8 +43,12 @@ fixed point, integer accumulator, fused      20.1    23.6   9,825   6,263
 fixed point, split into (40, 8), wide         8.6    21.6   1,004   8,036
 =========================================  ======  ======  ======  ======
 
-SR_C times as SR. On 16 threads: 53 (binaryK, the vector tiles), 77 (the
-carrier path), 530 (integer split) and 875 (integer fused) under RNE; 1,027,
+SR_C times as SR. Under the other modes (2026-11-26, the GEMM's own
+deterministic layouts; ``--modes RNA RU RD RZ RO``), the carrier path on
+CUDA: 10.9 (RNA), 10.9 (RU), 11.6 (RD), 8.3 (RZ), 12.0 (RO); on one CPU
+thread 4,260, 5,241, 5,477, 2,764 and 4,929 (at 384^3). On 16 threads: 53
+(binaryK, the vector tiles), 77 (the carrier path), 530 (integer split) and
+875 (integer fused) under RNE; 1,027,
 1,308, 1,233 and 830 under SR. ``layer`` on CUDA, a QLinear step: plain
 2.9 ms; binaryK 98 ms (RNE) and 286 ms (SR); fixed point 54 ms (RNE) and
 336 ms (SR). Before the stochastic layouts (137dc14) SR was, on CUDA, 29.8
@@ -72,7 +76,7 @@ from mptorch.quant import (
 from mptorch.quant.ops.fixedpoint import _fixedpoint_spec
 
 R = RoundMode
-MODES = {"RNE": R.RNE, "SR": R.SR, "SR_C": R.SR_C}
+MODES = {m.name: m for m in (R.RNE, R.RNA, R.RU, R.RD, R.RZ, R.RO, R.SR, R.SR_C)}
 
 
 def _timer(device: str) -> Callable[[Callable[[], object]], float]:

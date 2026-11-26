@@ -56,8 +56,26 @@
 // cases, 21 min, also 0); `sr-short` 0 on the GPU and on the host (9 min 45 s
 // on 16 threads); `sr-control` 1,941,258,420 mismatches.
 //
+// The `det` modes do the same for the GEMM's deterministic casts
+// (fixedpoint_word_round, under RNE, RNA, RU, RD, RZ and RO) against the
+// shipped bitwise casts, on the same grid of formats:
+//   /tmp/fx_arith det          # 216 formats x 6 modes
+//   /tmp/fx_arith det-short    # six formats, the gate for a change
+//   /tmp/fx_arith det-control  # the line under RNE against the shipped RNA
+//                              # (they differ only at ties) and under RU
+//                              # against RD: both must mismatch
+// The line has a device spelling and a host one (the same answers, each
+// faster on its side), so run `det` on the GPU and `det-short` on the host.
+//
+// Results (2026-11-26): `det` 0 of 1,296 cases mismatch on the GPU (1 min 33
+// s); `det-short` 0 on the GPU and on the host (1 min 18 s on 16 threads);
+// `det-control` 68,478 tie mismatches and 8,321,159,945 RU-against-RD ones on
+// both. A first version, which read a code's parity from the word's bit at
+// the step, mismatched `det-short` under RNE and RO for FixedPoint(9, 125):
+// under twice the step that bit is the exponent field's lowest bit.
+//
 // Exit status 0 when every admitted format matches on every input (in the
-// `sr` modes, every case; in `sr-control`, when B and C mismatch).
+// `sr` and `det` modes, every case; in the controls, when they mismatch).
 #include "common/cast_fixedpoint.h"
 #include "common/fixedpoint_gemm.h"
 #include "common/modes.h"
@@ -340,10 +358,155 @@ static int sr_main(const char *mode)
   return bad ? 1 : 0;
 }
 
+// --- the deterministic casts ------------------------------------------------------
+
+using mptorch::gemm::FixedPointWordT;
+
+// The line in mode RM against the shipped bitwise cast in mode REF (REF = RM
+// but in the control).
+template <RoundMode RM, RoundMode REF>
+CUDA_HOST_DEVICE_INLINE bool det_differs(uint32_t bits, const FixedPointWordT<float> &c, bool is_signed,
+                                         const FixedPointParamsT<float> &p)
+{
+  const float x = bits_to_float(bits);
+  const uint32_t g = word_of(mptorch::gemm::fixedpoint_word_round<float, RM>(x, c, is_signed, p));
+  const uint32_t s = word_of(mptorch::gemm::fixedpoint_bitwise_cast<float, REF>(x, is_signed, p));
+  return !same(g, s);
+}
+
+#if defined(__CUDACC__)
+template <RoundMode RM, RoundMode REF>
+__global__ void exhaustive_det(FixedPointWordT<float> c, bool is_signed, FixedPointParamsT<float> p, Counts *out)
+{
+  const uint64_t base = ((uint64_t)blockIdx.x * blockDim.x + threadIdx.x) * PER_THREAD;
+  unsigned long long bad = 0;
+  uint32_t first = 0;
+  for (int k = 0; k < PER_THREAD; ++k)
+    if (det_differs<RM, REF>((uint32_t)(base + k), c, is_signed, p) && bad++ == 0)
+      first = (uint32_t)(base + k);
+  if (bad && atomicAdd(&out->fast_vs_bitwise, bad) == 0)
+    out->first_bad = first;
+}
+
+template <RoundMode RM, RoundMode REF>
+static Counts run_det(const FixedPointWordT<float> &c, bool is_signed, const FixedPointParamsT<float> &p)
+{
+  static Counts *dc = nullptr;
+  if (!dc)
+    CHECK(cudaMalloc(&dc, sizeof(Counts)));
+  CHECK(cudaMemset(dc, 0, sizeof(Counts)));
+  exhaustive_det<RM, REF><<<(unsigned)((1ull << 32) / (256 * PER_THREAD)), 256>>>(c, is_signed, p, dc);
+  CHECK(cudaDeviceSynchronize());
+  Counts h;
+  CHECK(cudaMemcpy(&h, dc, sizeof(Counts), cudaMemcpyDeviceToHost));
+  return h;
+}
+#else
+template <RoundMode RM, RoundMode REF>
+static Counts run_det(const FixedPointWordT<float> &c, bool is_signed, const FixedPointParamsT<float> &p)
+{
+  unsigned long long bad = 0;
+  uint32_t first = 0xFFFFFFFFu;
+#pragma omp parallel for schedule(static) reduction(+ : bad) reduction(min : first)
+  for (int64_t hi = 0; hi < (1 << 16); ++hi)
+    for (uint32_t lo = 0; lo < (1u << 16); ++lo)
+    {
+      const uint32_t bits = (uint32_t)(((uint64_t)hi << 16) | lo);
+      if (det_differs<RM, REF>(bits, c, is_signed, p))
+      {
+        ++bad;
+        first = bits < first ? bits : first;
+      }
+    }
+  return Counts{bad, 0, 0, first};
+}
+#endif
+
+static Counts run_det_mode(RoundMode rm, const FixedPointWordT<float> &c, bool is_signed,
+                           const FixedPointParamsT<float> &p)
+{
+  switch (rm)
+  {
+  case RoundMode::RNA:
+    return run_det<RoundMode::RNA, RoundMode::RNA>(c, is_signed, p);
+  case RoundMode::RU:
+    return run_det<RoundMode::RU, RoundMode::RU>(c, is_signed, p);
+  case RoundMode::RD:
+    return run_det<RoundMode::RD, RoundMode::RD>(c, is_signed, p);
+  case RoundMode::RZ:
+    return run_det<RoundMode::RZ, RoundMode::RZ>(c, is_signed, p);
+  case RoundMode::RO:
+    return run_det<RoundMode::RO, RoundMode::RO>(c, is_signed, p);
+  default:
+    return run_det<RoundMode::RNE, RoundMode::RNE>(c, is_signed, p);
+  }
+}
+
+static int det_main(const char *mode)
+{
+  const bool shortrun = !std::strcmp(mode, "det-short");
+  const bool control = !std::strcmp(mode, "det-control");
+  std::vector<Fmt> fmts;
+  if (shortrun || control)
+    fmts = {{8, 4, true, false}, {16, 8, true, true}, {16, 4, true, false},
+            {12, -20, false, false}, {9, 125, false, false}, {10, 127, true, false}};
+  else
+    for (int wl : {2, 8, 12, 16, 23, 24})
+      for (int fl : {-100, -20, 0, 3, 8, 16, 40, 120, 125, 126, 127, 130})
+        for (int kind = 0; kind < 3; ++kind)
+        {
+          const bool is_signed = kind != 2, symmetric = kind == 1;
+          const int mag = wl - (is_signed ? 1 : 0);
+          if (mag - fl > 127 || -fl < -149 || (is_signed && wl < 2) || mag < 1)
+            continue;
+          fmts.push_back({wl, fl, is_signed, symmetric});
+        }
+  const RoundMode modes[] = {RoundMode::RNE, RoundMode::RNA, RoundMode::RU,
+                             RoundMode::RD,  RoundMode::RZ,  RoundMode::RO};
+  const char *names[] = {"RNE", "RNA", "RU", "RD", "RZ", "RO"};
+  int cases = 0, bad = 0;
+  unsigned long long control_ties = 0, control_sides = 0;
+  for (const Fmt &f : fmts)
+  {
+    const auto p = make_fixedpoint_params<float>(f.wl, f.fl, f.is_signed, f.symmetric);
+    const auto c = mptorch::gemm::make_fixedpoint_word<float>(p, f.is_signed);
+    if (control)
+    {
+      control_ties += run_det<RoundMode::RNE, RoundMode::RNA>(c, f.is_signed, p).fast_vs_bitwise;
+      control_sides += run_det<RoundMode::RU, RoundMode::RD>(c, f.is_signed, p).fast_vs_bitwise;
+      cases += 2;
+      continue;
+    }
+    for (int m = 0; m < 6; ++m)
+    {
+      const Counts r = run_det_mode(modes[m], c, f.is_signed, p);
+      ++cases;
+      if (r.fast_vs_bitwise)
+      {
+        ++bad;
+        std::printf("wl=%2d fl=%4d %-9s %-3s: %llu mismatches (one at word 0x%08x)\n", f.wl, f.fl,
+                    f.is_signed ? (f.symmetric ? "symmetric" : "signed") : "unsigned", names[m],
+                    r.fast_vs_bitwise, r.first_bad);
+      }
+    }
+  }
+  if (control)
+  {
+    std::printf("%d cases: the line's RNE against the shipped RNA %llu mismatches, RU against RD "
+                "%llu (the control: both must be nonzero)\n",
+                cases, control_ties, control_sides);
+    return control_ties != 0 && control_sides != 0 ? 0 : 1;
+  }
+  std::printf("%zu formats, %d cases (format, mode); %d cases mismatch\n", fmts.size(), cases, bad);
+  return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
   if (argc > 1 && !std::strncmp(argv[1], "sr", 2))
     return sr_main(argv[1]);
+  if (argc > 1 && !std::strncmp(argv[1], "det", 3))
+    return det_main(argv[1]);
 #if defined(__CUDACC__)
   bool spot = argc > 1 && !std::strcmp(argv[1], "spot");
 #else
