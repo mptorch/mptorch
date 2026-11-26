@@ -56,6 +56,17 @@ the two test files, which Linux leaves alone meanwhile), so keep them in
 separate commits. Each shared hunk goes in the report, and Linux reruns
 `binary_identity.py` for every edit under `common/`.
 
+### Round 2's progress (Linux, 2026-11-26)
+
+- R2.0, R2.1 and M4 reported; M4 (`e72a53b`) is merged: `binary_identity.py`
+  against the build before it is IDENTICAL (2,324 device functions, 16,443
+  host bodies), so S may start.
+- Linux took the report's asks: `pointwise_ops.py` waits for MPS's queue
+  (`_sync`), and M4's M3 Pro numbers are in `fixedpoint_gemm.py`'s
+  docstring and `kernels/arithmetic.rst`.
+- **SP-AK is delivered** (`64ac91e`, phase AK): M7 (section 10) follows
+  M6b.
+
 ## 1. In short (the first round)
 
 **Where things stand.** The last Mac round passed at `137dc14` (phase T's
@@ -86,7 +97,7 @@ this document assigns to the Mac with a sync point.
 | M5 | phase AJ's open question: what `torch.compile` does on MPS | now | no |
 | M6a | AI's pre-work: binary32 round-to-odd division and square root on Metal | now | no (an interface is fixed below) |
 | M6b | AI's MPS part: the fused pointwise and table ops on Metal (no row-reduction kernel was built) | round 2 (SP-AI delivered) | yes |
-| M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | at SP-AK | yes |
+| M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | after M6b (SP-AK delivered, `64ac91e`) | yes |
 | M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | at SP-S | yes |
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | at SP-AL | yes |
 
@@ -176,8 +187,8 @@ timing. Lint any Python you change, as CI does:
 | **SP-0** (now) | the commit adding this file, pushed | M1 first; then M2, M3, M5 and M6a in any order; M4 only with the user's go-ahead |
 | **SP-1** (delivered, `7d879b9`) | after M1's report: if the arm64 timing disagrees with the host's choice of modes (section 4.4), Linux adjusts `fixedpoint_word_call_v` and pushes | rerun section 4.4 on the new commit |
 | **SP-AI** (delivered, `5376e5f` and `73052e1`) | AI's ops on the CPU, CUDA and Meta, with `common/pointwise.h` written as valid Metal (the tables' step is there too: no `common/pwl.h`), the schemas, and tests with MPS parameters that skip without an MPS kernel; the interface of M6a's primitives confirmed | M6b; M6a's primitives are already merged |
-| **SP-AK** | AK's palette tiles, NEON included, written on Linux and checked on x86 | M7 |
-| **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. **M4, if done, must be merged before Linux starts S**, since S wraps the GEMM policies, the fixed-point ones included |
+| **SP-AK** (delivered, `64ac91e`) | AK's palette tiles, NEON included, written on Linux and checked on x86 | M7 |
+| **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. M4 had to be merged before Linux started S, since S wraps the GEMM policies, the fixed-point ones included: merged (`e72a53b`) |
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
 
 Linux will say at each point which commit it is, and the user relays it.
@@ -675,24 +686,52 @@ M1's kind of check: `tests/test_cpu_simd.py` holds it to the scalar loop.
 ## 10. M7, at SP-AK: the NEON palette tiles
 
 **What AK is.** On the CPU a palette GEMM (a format per output element, or
-per neuron in a recipe) runs the scalar loop, because phase P's vector RNE
-tiles (`cpu/gemm_rne_tile.cpp`) serve single-format macs only; it costs
-9-15x its single-format twin on the Ryzen. AK gives palettes vector tiles,
-NEON included, with results word for word the scalar loop's.
+per neuron in a recipe) ran the scalar loop, because phase P's vector RNE
+tiles (`cpu/gemm_rne_tile.cpp`) served single-format macs only: 9.4-12.4x its
+single-format twin on the Ryzen. AK gives palettes vector tiles, NEON
+included, with results word for word the scalar loop's.
 
-**The Mac's part** (as for P and AA, whose NEON code Linux wrote and the Mac
-measured):
-- build, `tests/test_cpu_simd.py` under each `MPTORCH_CPU_SIMD` setting the
-  test covers on arm64, the palette tests (`test_gemm_mixed_palette.py`,
-  `test_palette_recipes.py`, `test_qmatmul.py`'s palette tier);
-- the tile sweep Linux adds (in `cpu_rne_tile_sweep.cpp`'s manner) under
-  Apple clang, as section 4.3 builds the others;
-- timing with `dev/benchmarks/timing/cpu_gemm_ab.cpp` on 1 and 11 threads
-  against the scalar loop and against the single-format twin;
+**What Linux built** (`64ac91e`):
+- `cpu/gemm_palette_tile.h`: per K-block, the tile's slots decide. One
+  entry runs the single-format tile; a map per row runs each entry's rows as
+  a group; the split, product-only and fused macs with a map per column or
+  per element run the lane tiles; the odd macs take column groups or one
+  masked run per entry.
+- `cpu/gemm_palette_lanes.cpp`: the lane tiles, `cast_binaryK_rne_fast` with
+  each lane's constants read from `LaneParams` arrays (by column, or by
+  element in bands of 8 rows), with AVX-512, AVX2 and **NEON** arms chosen
+  at load as `cpu/gemm_rne_tile.cpp`'s are. Its `#pragma GCC optimize` is
+  GCC's; clang already defaults to no-trapping-math.
+- `LaneParams`' arrays are padded by a cache line (`LANE_STRIDE`): unpadded,
+  4,096 bytes apart, a lane's twelve constants fell in one 8-way L1 set on
+  the Ryzen, and the split mac's per-element tile took 3.6x its twin instead
+  of 1.5x. The M3 Pro's L1 is larger with more ways, so the padding may not
+  matter there; it costs nothing.
+- On the Ryzen, against the twin: one entry 1.0-1.1x, per row 1.1-1.2x, per
+  column 1.4-1.5x, per element 1.5-1.6x (one thread); 1.0-1.8x on sixteen;
+  the odd macs 1.0-1.6x, 2.2-2.4x per element.
+
+**The Mac's part:**
+- build; `tests/test_cpu_simd.py` (its palette cases: every map structure,
+  three entries, the three macs and the odd ones, ragged tiles, the
+  specials, an unsigned entry, a per-channel conv), the palette tests
+  (`test_gemm_mixed_palette.py`, `test_palette_recipes.py`,
+  `test_qmatmul.py`'s palette tier, the odd palettes in
+  `test_carrier_rounding.py`), and the suite;
+- `dev/benchmarks/sweeps/cpu_palette_tile_sweep.cpp` under Apple clang, as
+  section 4.3 builds the others (`-Xpreprocessor -fopenmp` with Homebrew's
+  libomp for a standalone binary), and its `control`, which must mismatch:
+  every binary32 word through the NEON lane tiles under nine formats,
+  per element and per column, and whole tiles;
+- timing: `dev/benchmarks/timing/cpu_palette_gemm.py --threads 1` and
+  `--threads 11`, with `--carrier-rounding RO` too, and with
+  `MPTORCH_CPU_SIMD=0` for the scalar loop; the docstring has the Ryzen's
+  numbers to compare;
 - NEON-specific layout choices, if the M3 Pro prefers one (AA kept NEON's
   product-only and fused tiles row by row, `tile_rows`, because passes over
-  the whole tile cost the M3 Pro 2-4%): measure, report, and propose; the
-  tile file is Linux's, so a NEON-only change goes to Linux as a hunk.
+  the whole tile cost the M3 Pro 2-4%; the lane tiles use passes): measure,
+  report, and propose; the tile files are Linux's, so a NEON-only change goes
+  to Linux as a hunk.
 
 ## 11. M8, at SP-S: the counting variant of `gemm.metal`
 

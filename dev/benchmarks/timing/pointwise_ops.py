@@ -159,15 +159,21 @@ def _call(op: str, variant: str):
     return lambda x, y: q_op(x, y, *slots, **kw)
 
 
-def _timer(device: str, fn, n: int) -> float:
-    """Milliseconds per call of ``fn``, over ``n`` calls."""
+def _sync(device: str) -> None:
+    """Wait for the device's queued work, so that a timing covers it."""
     if device == "cuda":
         torch.cuda.synchronize()
+    elif device == "mps":
+        torch.mps.synchronize()
+
+
+def _timer(device: str, fn, n: int) -> float:
+    """Milliseconds per call of ``fn``, over ``n`` calls."""
+    _sync(device)
     t = time.perf_counter()
     for _ in range(n):
         fn()
-    if device == "cuda":
-        torch.cuda.synchronize()
+    _sync(device)
     return (time.perf_counter() - t) / n * 1e3
 
 

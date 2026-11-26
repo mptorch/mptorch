@@ -635,7 +635,9 @@ integer accumulator, fused      20.1 ps    23.6 ps    9.8 ns       6.3 ns
   casts.
 - On an M3 Pro's GPU the integer accumulator takes 7 to 10 times the
   carrier path under RNE, since Apple GPUs emulate 64-bit integer
-  arithmetic.
+  arithmetic. The carrier path takes 5.0 ps a step under RNE, 19-23 ps under
+  the other deterministic modes and 61 ps under SR, against 10.4, 17-110 and
+  62 ps for the BinaryK split mac.
 
 Palettes: a format per output element
 -------------------------------------

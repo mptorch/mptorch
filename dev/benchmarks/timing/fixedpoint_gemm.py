@@ -57,19 +57,23 @@ thread 4,260, 5,241, 5,477, 2,764 and 4,929 (at 384^3). On 16 threads: 53
 9,846, 13,367, 10,974 and 8,280; the layer 401 ms.
 
 On an Apple M3 Pro (2026-11-26, macOS 26.7, at 1024^3; MPS has no wide row,
-since a wide result is float64), ps per mac step:
+since a wide result is float64), with the layouts on Metal too (every
+deterministic mode on the line, in the device's logical form, and the SR
+layouts), ps per mac step:
 
 =========================================  =====  =====  =====  =====  =====  =====  =====
 row                                        RNE    RNA    RU     RD     RZ     RO     SR
 =========================================  =====  =====  =====  =====  =====  =====  =====
-binaryK split, Binary16p9 into Binary16p12  10.4   17.8   82.1   82.2  109.9   16.8   62.2
-fixed point, the carrier path                5.0   24.5   48.4   48.4   57.8   25.3   75.3
-fixed point, integer accumulator, split     36.0   46.9   52.2   47.8   57.3   41.2   98.5
-fixed point, integer accumulator, fused     49.8   50.5   45.9   40.8   46.1   45.2   77.8
+binaryK split, Binary16p9 into Binary16p12  10.4   18.0   82.1   82.2  109.4   16.8   62.3
+fixed point, the carrier path                5.0   22.5   22.1   22.1   19.4   22.6   60.7
+fixed point, integer accumulator, split     36.0   46.1   41.1   36.6   39.6   40.1   81.6
+fixed point, integer accumulator, fused     49.9   50.5   45.7   40.8   46.1   45.3   63.8
 =========================================  =====  =====  =====  =====  =====  =====  =====
 
-``layer`` there: plain 7.0 ms; binaryK 134 ms (RNE) and 784 ms (SR); fixed
-point 63 ms (RNE) and 993 ms (SR). On its CPU (one thread, 384^3, Apple
+Before Metal took the layouts, the carrier path took 24.5, 48.4, 48.4, 57.8,
+25.3 and 75.3 under RNA, RU, RD, RZ, RO and SR. ``layer`` there: plain 7.0
+ms; binaryK 133 ms (RNE) and 783 ms (SR); fixed point 63 ms (RNE) and 842 ms
+(SR; 993 before). On its CPU (one thread, 384^3, Apple
 clang), the carrier path takes 1,195 (RNE), 2,981 (RU), 2,299 (RD), 2,302
 (RZ) and 9,725 (SR), and with every deterministic mode but RNE on the
 GEMM's line (the arm64 host's choice) 3,211 (RNA) and 3,592 (RO), against
