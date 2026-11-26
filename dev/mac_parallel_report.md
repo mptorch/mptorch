@@ -1758,3 +1758,39 @@ batched operands out so `_packed` passes them through (contiguous, or the
 transpose of a contiguous tensor) would likely close most of the gap. The
 non-contiguous causal-bias `add_` is the next largest. I did not try
 either, since `attention.py` is Linux's.
+
+## AQ re-measured at HEAD: closed, nothing to build (at `f714e5e`)
+
+Phase AQ was M2 above, fixed in `fc2caad`. I re-measured it at the current
+tree with M2's own per-pass script (the session's `m2/sq_parts.py`): 4096 x
+4096, `BinaryK(8, 4)` under `SAT_FINITE`, RNE, AC power. Each figure is the
+minimum over rounds of the mean of 20 calls, in ms.
+
+| float32 | fused call | amax + scale | fused kernel | four passes | speedup |
+|---|---|---|---|---|---|
+| per tensor | 2.08 | 1.05 | 1.02 | 3.99 | 1.92x |
+| per row | 2.06 | 1.05 | 1.03 | 5.80 | 2.81x |
+| blocks of 32 | 2.40 | 1.33 | 1.04 | 6.05 | **2.52x** (0.97x before `fc2caad`) |
+
+bfloat16 per tensor: 1.35 against 5.03 (3.7x).
+
+**The kernel has nothing left to gain.** The fused kernel takes 1.02-1.04 ms
+at every granularity, a plain quantizer pass's time (0.98 ms). That is one
+read and one write of 64 MB, about 129 GB/s, near the M3 Pro's memory
+bandwidth.
+
+**What remains is the amax pass**, torch's, about half the call (1.05-1.33
+ms). Folding it into the kernel (a block's maximum taken inside the
+threadgroup) could take a block-of-32 call from 2.4 to about 1.1 ms. I do
+not propose it:
+- the scale rule (the largest magnitude, the format's maximum, scale 1 for
+  a bad amax by `torch.where`) is Python in `mptorch/quant/scaled.py`, so
+  that every backend agrees, nothing syncs and it compiles; moving it into
+  kernels is CPU, CUDA, MPS and Meta work, with new word-for-word gates;
+- `f714e5e` measures all quantizers at 1-3% of GPT-2 small's GPU time, so
+  halving `ScaledQuant` moves a model by well under 2%.
+
+**For Linux:** mark AQ done in the live `dev/continuation_plan.md` (done as
+M2 in `fc2caad`; 0.97x to 2.52x by blocks of 32 in float32). If the amax
+fusion is worth keeping as an idea, it belongs with the cross-backend work,
+with the numbers above.
