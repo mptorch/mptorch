@@ -1,7 +1,10 @@
 // The GEMM kernel, which runs every GEMM-shaped op on an Apple GPU: the
 // eight NAIVE GEMMs, their *_accumulated twins (KAHAN, BLOCK and TREE), the
-// cross-family GEMMs, the conv ops, the block GEMM and, compiled after
-// odd.metal, the odd ops. Each thread computes one element of C: it runs
+// cross-family GEMMs, the conv ops, the block GEMM and, each compiled after
+// a file of its own headers (metal_runtime.h), the odd ops (odd.metal), the
+// fixed-point GEMM and conv ops (fixedpoint.metal) and the counted ops
+// (counted.metal, fixedpoint_counted.metal). Each thread computes one
+// element of C: it runs
 // that element's whole sum over K through the same Accumulator policy the
 // CPU and CUDA kernels use (common/gemm_policy.h, common/gemm_accumulate.h),
 // in the same order and with the same casts. Under RoundMode::SR it also
@@ -38,6 +41,12 @@
 //                     built from the BlockFormatParams bound at buffers 5 and
 //                     6; the scales are at buffers 7 and 8, and their batch
 //                     strides at 9
+//   MPT_COUNTING 1    a counted op (common/gemm_counted.h), dense or a conv
+//                     pass: mpt_args() returns a CountingArgs or a
+//                     FixedPointCountingArgs, whose policies count their
+//                     casts' events, and the call's int64 [3, 6] counts are
+//                     bound after the variant's buffers (at 5, or at 6 for a
+//                     conv pass); see "The counted ops" below
 //
 // The formats are literals, while the geometry and the block layouts are
 // buffers: a layer's formats are fixed, but its geometry changes with every
@@ -133,12 +142,35 @@
 // MPTORCH_BLOCK_MUL, which the flush cannot reach. The odd ops are the
 // exception: their carrier operations are common/carrier_odd_metal.h's,
 // which are exact on the GPU too.
+//
+// The counted ops. A thread's counts are in its accumulator, 32 bits each
+// (common/gemm_counted.h's Counted, and the fixed-point integer mac's
+// tallies). After its store, the threadgroup sums them (count_tile): each
+// SIMD group with simd_sum, over the counts' 16-bit halves so that no sum
+// can wrap, then one thread per count over the SIMD groups, in 64 bits. The
+// total is added to the call's int64 count with two 32-bit atomic adds, the
+// low word's carry going into the high word, since Metal has 64-bit atomics
+// on few GPUs: the one add that wraps the low word sees it wrap, so the
+// count is exact in any order. A thread outside C counts nothing, and every
+// thread reaches the reduction's barrier. The events are decided on the
+// words (common/event_counts.h), which the flush cannot reach, but they
+// describe the cast the GPU made: a product or sum below 2^-126, flushed
+// before its cast as above, is counted as the zero the cast received.
 
 #ifndef MPT_GATHERED
 #define MPT_GATHERED 0
 #endif
 #ifndef MPT_BLOCKED
 #define MPT_BLOCKED 0
+#endif
+#ifndef MPT_COUNTING
+#define MPT_COUNTING 0
+#endif
+// The counts' buffer, after the variant's (no block GEMM is counted).
+#if MPT_COUNTING && MPT_GATHERED
+#define MPT_COUNTS_BUFFER 6
+#elif MPT_COUNTING
+#define MPT_COUNTS_BUFFER 5
 #endif
 // The operands' element type: the block GEMM's are bytes of codes.
 #if MPT_BLOCKED
@@ -311,10 +343,76 @@ struct BlockLoad
 };
 #endif
 
+#if MPT_COUNTING
+// A threadgroup's share of the counting: its counts' cells (a role's six
+// events, for each of the three roles), the most SIMD groups it can have
+// (Apple GPUs' are 32 threads wide; this allows 16), and what count_tile
+// needs: the call's counts, each int64 as two 32-bit words, the scratch for
+// the SIMD groups' sums of the cells' low and high halves, and where this
+// thread is.
+enum : uint32_t
+{
+    COUNT_CELLS = mptorch::events::ROLES * mptorch::events::EVENTS,
+    COUNT_SIMDS = GEMM_TILE * GEMM_TILE / 16
+};
+
+struct CountingTile
+{
+    device metal::atomic_uint *counts;
+    threadgroup uint32_t *part; // [2][COUNT_SIMDS][COUNT_CELLS]
+    uint lane, simd, simds, t;
+};
+
+// Adds v to the int64 at w (little-endian), as two 32-bit atomic adds.
+inline void add_count(device metal::atomic_uint *w, uint64_t v)
+{
+    const uint32_t lo = uint32_t(v), hi = uint32_t(v >> 32);
+    const uint32_t old = metal::atomic_fetch_add_explicit(w, lo, metal::memory_order_relaxed);
+    const uint32_t carry = old > 0xFFFFFFFFu - lo ? 1u : 0u;
+    if (hi + carry != 0)
+        metal::atomic_fetch_add_explicit(w + 1, hi + carry, metal::memory_order_relaxed);
+}
+
+// The end of a counted tile, which every thread of the threadgroup reaches
+// (see "The counted ops" above).
+template <class Acc>
+inline void count_tile(const thread Acc &acc, bool inside, const thread CountingTile &ct)
+{
+    using namespace mptorch::events;
+    EventTally tally[ROLES] = {};
+    if (inside)
+        mptorch::gemm::counting_tallies(acc, tally);
+    for (uint c = 0; c < COUNT_CELLS; ++c)
+    {
+        const uint32_t v = tally[c / EVENTS].n[c % EVENTS];
+        const uint32_t lo = metal::simd_sum(v & 0xFFFFu), hi = metal::simd_sum(v >> 16);
+        if (ct.lane == 0)
+        {
+            ct.part[ct.simd * COUNT_CELLS + c] = lo;
+            ct.part[(COUNT_SIMDS + ct.simd) * COUNT_CELLS + c] = hi;
+        }
+    }
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    if (ct.t < COUNT_CELLS)
+    {
+        uint64_t total = 0;
+        for (uint s = 0; s < ct.simds; ++s)
+            total += uint64_t(ct.part[s * COUNT_CELLS + ct.t]) +
+                     (uint64_t(ct.part[(COUNT_SIMDS + s) * COUNT_CELLS + ct.t]) << 16);
+        if (total != 0)
+            add_count(ct.counts + 2 * ct.t, total);
+    }
+}
+#endif
+
 template <class Acc, class Load>
 inline void gemm_tile(Acc acc, Element e, constant GemmLaunch &g, thread Load &load,
                       device mpt_storage_t *C, uint64_t store_at, threadgroup float *As,
-                      threadgroup float *Bs, uint2 l)
+                      threadgroup float *Bs, uint2 l
+#if MPT_COUNTING
+                      , const thread CountingTile &ct
+#endif
+)
 {
     if (e.inside && g.use_rng)
         acc.seed_rng(g.seed, e.out);
@@ -367,6 +465,9 @@ inline void gemm_tile(Acc acc, Element e, constant GemmLaunch &g, thread Load &l
     }
     if (e.inside)
         store_carrier(C, store_at, acc.finalize());
+#if MPT_COUNTING
+    count_tile(acc, e.inside, ct);
+#endif
 }
 
 // gemm_tile with every argument but the policy bound, which the Args'
@@ -384,11 +485,18 @@ struct TileRunner
     threadgroup float *As;
     threadgroup float *Bs;
     uint2 l;
+#if MPT_COUNTING
+    CountingTile ct;
+#endif
 
     template <class Acc>
     void operator()(Acc acc) const
     {
+#if MPT_COUNTING
+        gemm_tile(acc, e, *g, *load, C, store_at, As, Bs, l, ct);
+#else
         gemm_tile(acc, e, *g, *load, C, store_at, As, Bs, l);
+#endif
     }
 };
 
@@ -400,9 +508,17 @@ struct TileRunner
 template <class Args, class Load>
 inline void gemm(const thread Args &args, constant GemmLaunch &g, thread Load &load, Element e,
                  uint64_t store_at, uint64_t map_at, device mpt_storage_t *C,
-                 device const int32_t *prec_idx, threadgroup float *As, threadgroup float *Bs, uint2 l)
+                 device const int32_t *prec_idx, threadgroup float *As, threadgroup float *Bs, uint2 l
+#if MPT_COUNTING
+                 , const thread CountingTile &ct
+#endif
+)
 {
+#if MPT_COUNTING
+    TileRunner<Load> run{e, &g, &load, C, store_at, As, Bs, l, ct};
+#else
     TileRunner<Load> run{e, &g, &load, C, store_at, As, Bs, l};
+#endif
     if constexpr (Args::mixed)
     {
         const int32_t idx = e.inside ? prec_idx[map_at] : 0;
@@ -438,6 +554,12 @@ kernel void mpt_gemm(device const MPT_OPERAND_T *A [[buffer(0)]],
                      device const uint8_t *scales_a [[buffer(7)]],
                      device const uint8_t *scales_b [[buffer(8)]],
                      constant mptorch_mps::BlockGemmLaunch &bl [[buffer(9)]],
+#endif
+#if MPT_COUNTING
+                     device metal::atomic_uint *counts [[buffer(MPT_COUNTS_BUFFER)]],
+                     uint simd_lane [[thread_index_in_simdgroup]],
+                     uint simd_group [[simdgroup_index_in_threadgroup]],
+                     uint simd_groups [[simdgroups_per_threadgroup]],
 #endif
                      uint3 group [[threadgroup_position_in_grid]],
                      uint3 local [[thread_position_in_threadgroup]])
@@ -517,5 +639,12 @@ kernel void mpt_gemm(device const MPT_OPERAND_T *A [[buffer(0)]],
     const uint64_t store_at = e.out;
     const uint64_t map_at = e.bt * g.idx_batch_stride + e.i * g.idx_row_stride + e.j * g.idx_col_stride;
 #endif
+#if MPT_COUNTING
+    threadgroup uint32_t count_part[2 * mptorch_mps::COUNT_SIMDS * mptorch_mps::COUNT_CELLS];
+    const mptorch_mps::CountingTile ct{counts, count_part, simd_lane, simd_group, simd_groups,
+                                       l.y * GEMM_TILE + l.x};
+    mptorch_mps::gemm(mpt_args(), g, load, e, store_at, map_at, C, prec_idx, As, Bs, l, ct);
+#else
     mptorch_mps::gemm(mpt_args(), g, load, e, store_at, map_at, C, prec_idx, As, Bs, l);
+#endif
 }

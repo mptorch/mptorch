@@ -976,7 +976,8 @@ at::Tensor fixedpoint_pwl_mps(at::Tensor x, at::Tensor entries, double lo, doubl
 
 // The counted GEMM ops (common/gemm_counted.h): the *_accumulated ops'
 // arguments, every algorithm, the result and the counts. Defined in
-// cpu/custom_matmul_counted_entry.cpp and cuda/custom_matmul_counted_entry.cpp.
+// cpu/custom_matmul_counted_entry.cpp, cuda/custom_matmul_counted_entry.cpp and
+// mps/custom_matmul_counted_entry.cpp.
 std::tuple<at::Tensor, at::Tensor> binaryK_matmul_counted_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                           int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                                           bool accumulate_quant, int64_t acc_K, int64_t acc_P,
@@ -989,6 +990,17 @@ std::tuple<at::Tensor, at::Tensor> binaryK_matmul_counted_cuda(at::Tensor a, at:
                                           int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
                                           int64_t outer_subnormals_mode, int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> binaryK_matmul_counted_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_K, int64_t acc_P,
+                                          int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                                          int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                          int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                          int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> binaryK_matmul_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                           int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                                           bool accumulate_quant, int64_t acc_K, int64_t acc_P,
                                           int64_t acc_bias, bool acc_is_signed,
@@ -1021,6 +1033,17 @@ std::tuple<at::Tensor, at::Tensor> superfp_matmul_counted_cpu(at::Tensor a, at::
                                           int64_t block_size, bool outer_quant, int64_t outer_man_bits,
                                           int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
                                           bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> superfp_matmul_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                                          int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
+                                          int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                          int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                          bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> binaryK_matmul_fma_counted_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                               bool fma_quant, int64_t fma_K, int64_t fma_P,
                                               int64_t fma_bias, bool fma_is_signed,
@@ -1031,6 +1054,15 @@ std::tuple<at::Tensor, at::Tensor> binaryK_matmul_fma_counted_cuda(at::Tensor a,
                                               int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
                                               int64_t outer_subnormals_mode, int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> binaryK_matmul_fma_counted_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_K, int64_t fma_P,
+                                              int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                              int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                              int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                              int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> binaryK_matmul_fma_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                               bool fma_quant, int64_t fma_K, int64_t fma_P,
                                               int64_t fma_bias, bool fma_is_signed,
                                               int64_t accumulate_algorithm, int64_t round_mode,
@@ -1055,10 +1087,18 @@ std::tuple<at::Tensor, at::Tensor> superfp_matmul_fma_counted_cpu(at::Tensor a, 
                                               int64_t block_size, bool outer_quant, int64_t outer_man_bits,
                                               int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
                                               bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> superfp_matmul_fma_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                              int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                              int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                              bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
 
 // The counted conv ops: the single-format conv ops' arguments, the pass's
-// result and the counts. Defined in cpu/custom_conv_counted_entry.cpp and
-// cuda/custom_conv_counted_entry.cpp.
+// result and the counts. Defined in cpu/custom_conv_counted_entry.cpp,
+// cuda/custom_conv_counted_entry.cpp and mps/custom_conv_counted_entry.cpp.
 std::tuple<at::Tensor, at::Tensor> binaryK_conv_counted_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass,
                             c10::IntArrayRef out_size, c10::IntArrayRef stride,
                             c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
@@ -1083,6 +1123,18 @@ std::tuple<at::Tensor, at::Tensor> binaryK_conv_counted_cpu(at::Tensor a, at::Te
                             bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias,
                             bool outer_is_signed, int64_t outer_saturation_mode,
                             int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> binaryK_conv_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass,
+                            c10::IntArrayRef out_size, c10::IntArrayRef stride,
+                            c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
+                            int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                            bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias,
+                            bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode,
+                            int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                            int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                            int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size,
+                            bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias,
+                            bool outer_is_signed, int64_t outer_saturation_mode,
+                            int64_t outer_subnormals_mode, int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> binaryK_conv_fma_counted_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass,
                                 c10::IntArrayRef out_size, c10::IntArrayRef stride,
                                 c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
@@ -1095,6 +1147,17 @@ std::tuple<at::Tensor, at::Tensor> binaryK_conv_fma_counted_cuda(at::Tensor a, a
                                 int64_t outer_saturation_mode, int64_t outer_subnormals_mode,
                                 int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> binaryK_conv_fma_counted_cpu(at::Tensor a, at::Tensor b, int64_t conv_pass,
+                                c10::IntArrayRef out_size, c10::IntArrayRef stride,
+                                c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
+                                bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias,
+                                bool fma_is_signed, int64_t accumulate_algorithm,
+                                int64_t round_mode, int64_t fma_saturation_mode,
+                                int64_t fma_subnormals_mode, int64_t fma_prng_bits,
+                                int64_t block_size, bool outer_quant, int64_t outer_K,
+                                int64_t outer_P, int64_t outer_bias, bool outer_is_signed,
+                                int64_t outer_saturation_mode, int64_t outer_subnormals_mode,
+                                int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> binaryK_conv_fma_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass,
                                 c10::IntArrayRef out_size, c10::IntArrayRef stride,
                                 c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
                                 bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias,
@@ -1131,6 +1194,19 @@ std::tuple<at::Tensor, at::Tensor> superfp_conv_counted_cpu(at::Tensor a, at::Te
                             int64_t outer_man_bits, int64_t outer_exp_bits,
                             int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed,
                             int64_t outer_saturation_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> superfp_conv_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass,
+                            c10::IntArrayRef out_size, c10::IntArrayRef stride,
+                            c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
+                            int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                            int64_t mul_bias, bool mul_is_signed, bool accumulate_quant,
+                            int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades,
+                            int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm,
+                            int64_t round_mode, int64_t mul_saturation_mode,
+                            int64_t acc_saturation_mode, int64_t mul_prng_bits,
+                            int64_t acc_prng_bits, int64_t block_size, bool outer_quant,
+                            int64_t outer_man_bits, int64_t outer_exp_bits,
+                            int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed,
+                            int64_t outer_saturation_mode, int64_t outer_prng_bits);
 std::tuple<at::Tensor, at::Tensor> superfp_conv_fma_counted_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass,
                                 c10::IntArrayRef out_size, c10::IntArrayRef stride,
                                 c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
@@ -1153,14 +1229,29 @@ std::tuple<at::Tensor, at::Tensor> superfp_conv_fma_counted_cpu(at::Tensor a, at
                                 int64_t outer_exp_bits, int64_t outer_normal_binades,
                                 int64_t outer_bias, bool outer_is_signed,
                                 int64_t outer_saturation_mode, int64_t outer_prng_bits);
+std::tuple<at::Tensor, at::Tensor> superfp_conv_fma_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass,
+                                c10::IntArrayRef out_size, c10::IntArrayRef stride,
+                                c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
+                                bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                int64_t accumulate_algorithm, int64_t round_mode,
+                                int64_t fma_saturation_mode, int64_t fma_prng_bits,
+                                int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                int64_t outer_exp_bits, int64_t outer_normal_binades,
+                                int64_t outer_bias, bool outer_is_signed,
+                                int64_t outer_saturation_mode, int64_t outer_prng_bits);
 
 // The counted fixed-point GEMM and conv ops: their twins' arguments, the
 // result and the counts. Defined in the counted entry files.
 std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_counted_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_counted_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
+std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_fma_counted_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_fma_counted_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
+std::tuple<at::Tensor, at::Tensor> fixedpoint_matmul_fma_counted_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_counted_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_counted_cpu(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
+std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t mul_wl, int64_t mul_fl, bool mul_is_signed, bool mul_symmetric, int64_t acc_wl, int64_t acc_fl, bool acc_is_signed, bool acc_symmetric, int64_t round_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, bool wrap, bool integer);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_fma_counted_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
 std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_fma_counted_cpu(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);
+std::tuple<at::Tensor, at::Tensor> fixedpoint_conv_fma_counted_mps(at::Tensor a, at::Tensor b, int64_t conv_pass, c10::IntArrayRef out_size, c10::IntArrayRef stride, c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups, int64_t fma_wl, int64_t fma_fl, bool fma_is_signed, bool fma_symmetric, int64_t round_mode, int64_t fma_prng_bits, bool wrap);

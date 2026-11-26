@@ -11,8 +11,11 @@
 // the cross-family ops (custom_matmul_cross_entry.cpp), the conv ops
 // (custom_conv_entry.cpp), the block GEMM (custom_matmul_block_entry.cpp),
 // the elementwise block ops (block_entry.cpp), the odd ops
-// (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp), the fused
-// pointwise and table ops (pointwise_entry.cpp) and the test-only
+// (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp), the
+// fixed-point GEMM and conv ops (custom_matmul_fixedpoint_entry.cpp,
+// custom_conv_fixedpoint_entry.cpp), the counted ops, whose counts are the
+// CPU's too (custom_matmul_counted_entry.cpp, custom_conv_counted_entry.cpp),
+// the fused pointwise and table ops (pointwise_entry.cpp) and the test-only
 // _carrier_odd (carrier_odd_entry.cpp). There are two exceptions. The
 // test-only _stochastic_cast has no Metal kernel and raises
 // (stochastic_cast_entry.cpp). narrow_float64
@@ -115,4 +118,16 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_mps));
   m.impl("custom_conv_fixedpoint", TORCH_FN(fixedpoint_conv_mps));
   m.impl("custom_conv_fixedpoint_fma", TORCH_FN(fixedpoint_conv_fma_mps));
+  m.impl("custom_matmul_binaryK_counted", TORCH_FN(binaryK_matmul_counted_mps));
+  m.impl("custom_matmul_superfp_counted", TORCH_FN(superfp_matmul_counted_mps));
+  m.impl("custom_matmul_binaryK_fma_counted", TORCH_FN(binaryK_matmul_fma_counted_mps));
+  m.impl("custom_matmul_superfp_fma_counted", TORCH_FN(superfp_matmul_fma_counted_mps));
+  m.impl("custom_conv_binaryK_counted", TORCH_FN(binaryK_conv_counted_mps));
+  m.impl("custom_conv_binaryK_fma_counted", TORCH_FN(binaryK_conv_fma_counted_mps));
+  m.impl("custom_conv_superfp_counted", TORCH_FN(superfp_conv_counted_mps));
+  m.impl("custom_conv_superfp_fma_counted", TORCH_FN(superfp_conv_fma_counted_mps));
+  m.impl("custom_matmul_fixedpoint_counted", TORCH_FN(fixedpoint_matmul_counted_mps));
+  m.impl("custom_matmul_fixedpoint_fma_counted", TORCH_FN(fixedpoint_matmul_fma_counted_mps));
+  m.impl("custom_conv_fixedpoint_counted", TORCH_FN(fixedpoint_conv_counted_mps));
+  m.impl("custom_conv_fixedpoint_fma_counted", TORCH_FN(fixedpoint_conv_fma_counted_mps));
 }

@@ -24,7 +24,12 @@
 //     a wrapper adds to its role's row of a thread_local tally, and the kernel
 //     adds a task's tally to the call's counts when the task ends
 //     (counting_task_end).
-// Both are integer sums, so the counts depend on neither the order nor the
+//   - On an Apple GPU, as on CUDA, each thread's counts are in its own
+//     accumulator; mps/gemm.metal, compiled under MPT_COUNTING, sums them
+//     over the threadgroup (counting_tallies gathers them) and adds the sums
+//     to the call's counts. Metal has no derived classes, so there Counting
+//     holds the accumulator as a member instead of deriving from it.
+// All are integer sums, so the counts depend on neither the order nor the
 // number of threads.
 //
 // NAIVE is counted through the positional contract
@@ -205,7 +210,31 @@ namespace mptorch::gemm
 #endif
   };
 
-#if !defined(__METAL_VERSION__)
+#if defined(__METAL_VERSION__)
+  // A counted accumulator on Metal: the accumulator as a member, and the
+  // calls gemm.metal makes passed on to it. The kernel binds the call's
+  // counts itself (MPT_COUNTING), so `counts` holds nothing: it is there for
+  // CountingArgs' initializers, which are the host's. Every counted
+  // accumulator takes the positional contract.
+  template <class Acc>
+  struct Counting
+  {
+    using value_t = typename Acc::value_t;
+    static constexpr MPTORCH_CONSTANT bool counting = true;
+    static constexpr MPTORCH_CONSTANT bool positional = true;
+
+    Acc acc;
+    uint32_t counts;
+
+    void seed_rng(uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
+    {
+      acc.seed_rng(seed, subsequence, offset);
+    }
+    void accumulate(value_t a, value_t b, int pos) { acc.accumulate(a, b, pos); }
+    void end_slab(int64_t k_end, int64_t K) { acc.end_slab(k_end, K); }
+    value_t finalize() const { return acc.finalize(); }
+  };
+#else
   // A counted accumulator: the accumulator, and where the call's counts go,
   // an int64 [ROLES, EVENTS] tensor's data. A Gathered (the conv ops) wraps
   // it in turn.
@@ -215,6 +244,7 @@ namespace mptorch::gemm
     static constexpr bool counting = true;
     unsigned long long *counts = nullptr;
   };
+#endif
 
   // The Args of a counted op: its single-format twin's Args (`base`), the
   // algorithm, and the *_accumulated schema's tail. The algorithm is a
@@ -227,25 +257,29 @@ namespace mptorch::gemm
   {
     using Widths = typename AccumulateFamily<Base>::Widths;
     using Common = typename AccumulateFamily<Base>::Common;
-    static constexpr bool mixed = false;
-    static constexpr bool has_product = AccumulateFamily<Base>::has_product;
-    static constexpr AccumulateAlgorithm counted_alg = ALG;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT bool has_product = AccumulateFamily<Base>::has_product;
+    static constexpr MPTORCH_CONSTANT AccumulateAlgorithm counted_alg = ALG;
 
     Base base{};
     int block_size = 0;
     bool outer_quant = false;
     Widths outer{};
     Common outer_c{};
+#if defined(__METAL_VERSION__)
+    uint32_t counts = 0; // unused: see Counting
+#else
     unsigned long long *counts = nullptr;
+#endif
 
     template <class T, RoundMode RM, class F>
     struct Builder
     {
-      const CountingArgs &args;
-      F &f;
+      const MPTORCH_THREAD CountingArgs &args;
+      MPTORCH_THREAD F &f;
 
       template <class Naive>
-      void operator()(const Naive &naive) const
+      void operator()(const MPTORCH_THREAD Naive &naive) const
       {
         const auto mac = counted_mac<T>(naive.mac, args.base);
         using Mac = std::remove_const_t<decltype(mac)>;
@@ -279,12 +313,13 @@ namespace mptorch::gemm
     };
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       base.template with_accumulator<T, RM>(Builder<T, RM, F>{*this, f});
     }
   };
 
+#if !defined(__METAL_VERSION__)
 #if !defined(__CUDA_ARCH__)
   // The end of a CPU task: its counts into the call's, and the tally back
   // to zero for the thread's next task. The add is the compilers' builtin
@@ -359,4 +394,66 @@ namespace mptorch::gemm
   }
 #endif
 #endif // !__METAL_VERSION__
+
+#if defined(__METAL_VERSION__)
+  // A GPU thread's counts on Metal, what counting_thread_end adds on CUDA:
+  // each wrapper's tally added into `t`, which has a row per role, for
+  // gemm.metal to sum over the threadgroup. The overloads are chosen as
+  // counting_flush's are, and the outer format's by the accumulator's type,
+  // since Metal has no requires-expression.
+  template <class P, int ROLE>
+  inline void counting_gather(const MPTORCH_THREAD Counted<P, ROLE> &c,
+                              MPTORCH_THREAD events::EventTally *t)
+  {
+    for (int e = 0; e < events::EVENTS; ++e)
+      t[ROLE].n[e] += c.tally.n[e];
+  }
+
+  template <class P>
+  inline void counting_gather(const MPTORCH_THREAD P &, MPTORCH_THREAD events::EventTally *)
+  {
+  }
+
+  template <class M, class A>
+  inline void counting_gather_mac(const MPTORCH_THREAD SplitMac<M, A> &m,
+                                  MPTORCH_THREAD events::EventTally *t)
+  {
+    counting_gather(m.mul, t);
+    counting_gather(m.add, t);
+  }
+
+  template <class A>
+  inline void counting_gather_mac(const MPTORCH_THREAD FusedMac<A> &m,
+                                  MPTORCH_THREAD events::EventTally *t)
+  {
+    counting_gather(m.add, t);
+  }
+
+  template <class Acc>
+  inline void counting_gather_outer(const MPTORCH_THREAD Acc &, MPTORCH_THREAD events::EventTally *)
+  {
+  }
+
+  template <class Mac, class Outer>
+  inline void counting_gather_outer(const MPTORCH_THREAD BlockAccumulator<Mac, Outer> &acc,
+                                    MPTORCH_THREAD events::EventTally *t)
+  {
+    counting_gather(acc.outer, t);
+  }
+
+  template <class Mac, class Outer>
+  inline void counting_gather_outer(const MPTORCH_THREAD TreeAccumulator<Mac, Outer> &acc,
+                                    MPTORCH_THREAD events::EventTally *t)
+  {
+    counting_gather(acc.outer, t);
+  }
+
+  template <class Acc>
+  inline void counting_tallies(const MPTORCH_THREAD Counting<Acc> &c,
+                               MPTORCH_THREAD events::EventTally *t)
+  {
+    counting_gather_mac(c.acc.mac, t);
+    counting_gather_outer(c.acc, t);
+  }
+#endif
 } // namespace mptorch::gemm

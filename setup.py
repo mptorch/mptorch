@@ -325,9 +325,10 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
     ``block.metal``, ``odd.metal``, ``carrier_odd.metal``,
     ``scaled_quant.metal``, which includes ``quantize.metal``,
-    ``block_project.metal``, ``fixedpoint.metal``, ``pointwise.metal`` and
-    ``pointwise_kernel.metal``, which includes ``quantize.metal`` too) is
-    therefore flattened here, its quoted
+    ``block_project.metal``, ``fixedpoint.metal``, ``pointwise.metal``,
+    ``pointwise_kernel.metal``, which includes ``quantize.metal`` too,
+    ``counted.metal`` and ``fixedpoint_counted.metal``) is therefore
+    flattened here, its quoted
     ``#include``\\ s replaced by the files they name, recursively and once
     each, with ``#line`` directives so a compile error names the header and
     line it is in. ``odd.metal``, which the
@@ -338,8 +339,10 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     since the header it includes includes ``block_decode.h``, which the
     prelude holds, and so is ``fixedpoint.metal``, which the fixed-point
     GEMM's kernels compile between the prelude and their instantiation, as
-    the odd ones compile ``odd.metal``, and ``pointwise.metal``, which the
-    fused pointwise ops' kernel compiles there. The shared headers under
+    the odd ones compile ``odd.metal``, ``pointwise.metal``, which the
+    fused pointwise ops' kernel compiles there, and ``counted.metal`` and
+    ``fixedpoint_counted.metal``, which the counted GEMMs' kernels compile
+    there. The shared headers under
     ``csrc/common`` are what the prelude includes, so the kernels are
     compiled from the same casts the CPU and CUDA backends are, and a change
     to one of them reaches the GPU at the next build.
@@ -385,14 +388,21 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
         "fixedpoint",
         "pointwise",
         "pointwise_kernel",
+        "counted",
+        "fixedpoint_counted",
+    )
+    # The roots compiled after the prelude, flattened against its headers.
+    after_prelude = (
+        "odd",
+        "block_project",
+        "fixedpoint",
+        "pointwise",
+        "counted",
+        "fixedpoint_counted",
     )
     for root in roots:
         lines: list[str] = []
-        seen = (
-            set(prelude_seen)
-            if root in ("odd", "block_project", "fixedpoint", "pointwise")
-            else set()
-        )
+        seen = set(prelude_seen) if root in after_prelude else set()
         flatten(mps_dir / f"{root}.metal", seen, lines)
         if root == "prelude":
             prelude_seen = seen

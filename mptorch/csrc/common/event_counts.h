@@ -42,6 +42,14 @@
 #endif
 #endif
 
+// Darwin's <math.h> (which bit_helper.h's <cmath> has included by now)
+// defines OVERFLOW and UNDERFLOW, System V's matherr codes, which would
+// replace the two enumerators below.
+#if defined(__APPLE__) && !defined(__METAL_VERSION__)
+#undef OVERFLOW
+#undef UNDERFLOW
+#endif
+
 namespace mptorch::events
 {
   enum Event : int32_t

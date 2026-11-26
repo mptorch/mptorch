@@ -11,7 +11,8 @@
 // quantize.metal or block.metal. The odd carrier step's kernels put
 // odd.metal between the prelude and the tail, and end in gemm.metal or
 // carrier_odd.metal; the fixed-point GEMM's put fixedpoint.metal there, and
-// end in gemm.metal. The tail holds everything that is a constant of the
+// end in gemm.metal, and so do the counted GEMMs', after counted.metal or
+// fixedpoint_counted.metal. The tail holds everything that is a constant of the
 // instantiation: the storage dtype, the rounding mode and the format, from
 // which the kernel builds its cast constants at compile time (gemm.metal
 // says why). Each distinct tail is one compile, 20-300 ms the first time a
@@ -31,9 +32,9 @@ namespace mptorch_mps
   // Which kernel source follows the tail, and so which kernel is launched.
   // The two odd carrier step sources also put odd.metal, the odd headers,
   // between the prelude and the tail, the fixed-point GEMM's puts
-  // fixedpoint.metal there, and the fused pointwise ops' pointwise.metal.
-  // New sources go at the end, since the cache key starts with the source's
-  // number.
+  // fixedpoint.metal there, the fused pointwise ops' pointwise.metal, and the
+  // counted GEMMs' counted.metal or fixedpoint_counted.metal. New sources go
+  // at the end, since the cache key starts with the source's number.
   enum class KernelSource
   {
     Gemm,          // gemm.metal's mpt_gemm
@@ -47,16 +48,23 @@ namespace mptorch_mps
     BlockProject,   // block_project.metal's mpt_block_project
     GemmFixedPoint, // gemm.metal's mpt_gemm, after fixedpoint.metal: a fixed-point Args
     Pointwise,      // pointwise_kernel.metal's mpt_pointwise, after pointwise.metal
+    GemmCounted,    // gemm.metal's mpt_gemm, after counted.metal: a CountingArgs
+    GemmFixedPointCounted, // gemm.metal's mpt_gemm, after fixedpoint_counted.metal
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as
-  // its storage's MTLBuffer at the tensor's byte offset, or a few bytes of
-  // launch parameters, copied into the command stream.
+  // its storage's MTLBuffer at the tensor's byte offset, a few bytes of
+  // launch parameters, copied into the command stream, or a storage known
+  // only by its data pointer, bound at offset 0. An MPS storage's data
+  // pointer is its MTLBuffer, and it is all a driver hands its backend of a
+  // tensor the driver allocates itself (the counted GEMMs' counts,
+  // common/gemm_counted_host.h), whose data starts at its storage's start.
   struct KernelArg
   {
     const at::Tensor *tensor = nullptr;
     const void *bytes = nullptr;
     size_t size = 0;
+    void *storage = nullptr;
 
     KernelArg(const at::Tensor &t) : tensor(&t) {}
     template <class Params>
@@ -65,6 +73,12 @@ namespace mptorch_mps
       KernelArg a;
       a.bytes = &p;
       a.size = sizeof(Params);
+      return a;
+    }
+    static KernelArg storage_at(void *data)
+    {
+      KernelArg a;
+      a.storage = data;
       return a;
     }
 

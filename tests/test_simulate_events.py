@@ -37,10 +37,10 @@ from mptorch.quant.events import _recount
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops._counted import _counted_twin
 
-from .markers import cuda_devices, requires_counting
+from .markers import cuda_devices, requires_counting, requires_mps
 
 E4M3, E5M2, B16 = BinaryK(8, 4), BinaryK(8, 3), BinaryK(16, 11)
-devices = ["cpu", *cuda_devices]
+devices = ["cpu", *cuda_devices, pytest.param("mps", marks=requires_mps)]
 
 
 def _recipe(mode=RoundMode.RNE, **extra):

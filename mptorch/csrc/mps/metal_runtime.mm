@@ -29,6 +29,8 @@ namespace mptorch_mps
       case KernelSource::Gemm:
       case KernelSource::GemmOdd:
       case KernelSource::GemmFixedPoint:
+      case KernelSource::GemmCounted:
+      case KernelSource::GemmFixedPointCounted:
         return metal_sources::gemm;
       case KernelSource::Quantize:
         return metal_sources::quantize;
@@ -47,8 +49,8 @@ namespace mptorch_mps
 
     // What comes between the prelude and the tail: the odd headers for the
     // odd carrier step's kernels, the fixed-point GEMM's header for its
-    // kernels, the fused pointwise ops' headers for theirs, and nothing for
-    // the others.
+    // kernels, the fused pointwise ops' headers for theirs, the counted
+    // GEMMs' headers for theirs, and nothing for the others.
     const char *kernel_head(KernelSource s)
     {
       switch (s)
@@ -60,6 +62,10 @@ namespace mptorch_mps
         return metal_sources::fixedpoint;
       case KernelSource::Pointwise:
         return metal_sources::pointwise;
+      case KernelSource::GemmCounted:
+        return metal_sources::counted;
+      case KernelSource::GemmFixedPointCounted:
+        return metal_sources::fixedpoint_counted;
       default:
         return "";
       }
@@ -72,6 +78,8 @@ namespace mptorch_mps
       case KernelSource::Gemm:
       case KernelSource::GemmOdd:
       case KernelSource::GemmFixedPoint:
+      case KernelSource::GemmCounted:
+      case KernelSource::GemmFixedPointCounted:
         return "mpt_gemm";
       case KernelSource::Quantize:
         return "mpt_quantize";
@@ -217,6 +225,8 @@ namespace mptorch_mps
             const KernelArg &a = bound[i];
             if (a.tensor != nullptr)
               [encoder setBuffer:buffer_of(*a.tensor) offset:offset_of(*a.tensor) atIndex:i];
+            else if (a.storage != nullptr)
+              [encoder setBuffer:__builtin_bit_cast(id<MTLBuffer>, a.storage) offset:0 atIndex:i];
             else
               [encoder setBytes:a.bytes length:a.size atIndex:i];
           }

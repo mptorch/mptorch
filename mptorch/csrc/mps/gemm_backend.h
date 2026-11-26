@@ -31,6 +31,14 @@
 // else. The odd Args' args_source are templates, instantiated in
 // gemm_backend.cpp for the sixteen Args the odd ops build, and so is the
 // one for FixedPointIntArgs, for its four.
+//
+// The counted ops' Args (common/gemm_counted.h's CountingArgs and
+// common/fixedpoint_counted.h's FixedPointCountingArgs) run the same kernel
+// under MPT_COUNTING, compiled after mps/counted.metal or
+// mps/fixedpoint_counted.metal. Their `counts` is the counts tensor's data
+// pointer, which the driver allocated (gemm_counted_host.h): on MPS that is
+// the tensor's MTLBuffer, which the launch binds after the variant's
+// buffers, and into which the kernel adds its counts.
 
 #include "../common/fixedpoint_gemm.h"
 #include "../common/gemm_accumulate.h"
@@ -49,6 +57,10 @@ namespace mptorch::gemm
   struct OddArgs;
   template <class Base>
   struct OddPaletteArgs;
+  template <class Base, AccumulateAlgorithm ALG>
+  struct CountingArgs;
+  template <class Args>
+  struct FixedPointCountingArgs;
 } // namespace mptorch::gemm
 
 namespace mptorch::gemm_mps
@@ -56,8 +68,10 @@ namespace mptorch::gemm_mps
 
   // The kernel source an Args compiles from: gemm.metal after the prelude
   // (KernelSource::Gemm), after mps/odd.metal for the odd carrier step's
-  // Args (GemmOdd), or after mps/fixedpoint.metal for the fixed-point GEMM's
-  // (GemmFixedPoint).
+  // Args (GemmOdd), after mps/fixedpoint.metal for the fixed-point GEMM's
+  // (GemmFixedPoint), or after mps/counted.metal or
+  // mps/fixedpoint_counted.metal for the counted ops' (GemmCounted,
+  // GemmFixedPointCounted).
   template <class Args>
   struct gemm_kernel_source
   {
@@ -86,6 +100,17 @@ namespace mptorch::gemm_mps
   struct gemm_kernel_source<mptorch::gemm::FixedPointIntArgs<FUSED, WRAP>>
   {
     static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmFixedPoint;
+  };
+  template <class Base, AccumulateAlgorithm ALG>
+  struct gemm_kernel_source<mptorch::gemm::CountingArgs<Base, ALG>>
+  {
+    static constexpr mptorch_mps::KernelSource value = mptorch_mps::KernelSource::GemmCounted;
+  };
+  template <class Args>
+  struct gemm_kernel_source<mptorch::gemm::FixedPointCountingArgs<Args>>
+  {
+    static constexpr mptorch_mps::KernelSource value =
+        mptorch_mps::KernelSource::GemmFixedPointCounted;
   };
 
   struct MpsBackend
@@ -131,12 +156,13 @@ namespace mptorch::gemm_mps
     // equality.)
     static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
 
-    // A NAIVE GEMM: single-family, palette, cross-family, odd or fixed-point.
+    // A NAIVE GEMM: single-family, palette, cross-family, odd or
+    // fixed-point; and a counted op, under any algorithm.
     template <class Args>
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
                        const LaunchContext &ctx)
     {
-      launch_source(s, variant_source(args), gemm_kernel_source<Args>::value, ctx);
+      launch_source(s, variant_source(args), gemm_kernel_source<Args>::value, ctx, counts_of(args));
     }
 
     // KAHAN, BLOCK and TREE: the AccumulateArgs, with the algorithm, which
@@ -155,7 +181,8 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
                        const LaunchContext &ctx)
     {
-      launch_conv(s, variant_source(args.inner), args.geom, gemm_kernel_source<Inner>::value, ctx);
+      launch_conv(s, variant_source(args.inner), args.geom, gemm_kernel_source<Inner>::value, ctx,
+                  counts_of(args.inner));
     }
 
     // The block GEMM: the Args of its mac, over two packed operands. MPS has
@@ -199,6 +226,10 @@ namespace mptorch::gemm_mps
     static std::string args_source(const mptorch::gemm::FixedPointSplitArgs &a);
     template <bool FUSED, bool WRAP>
     static std::string args_source(const mptorch::gemm::FixedPointIntArgs<FUSED, WRAP> &a);
+    template <class Base, AccumulateAlgorithm ALG>
+    static std::string args_source(const mptorch::gemm::CountingArgs<Base, ALG> &a);
+    template <class Args>
+    static std::string args_source(const mptorch::gemm::FixedPointCountingArgs<Args> &a);
 
   private:
     // The instantiation's lines for an Args: its mpt_args(), and for an
@@ -215,13 +246,46 @@ namespace mptorch::gemm_mps
       return args_source(args) + accumulate_line(args.alg);
     }
 
+    template <class Base, AccumulateAlgorithm ALG>
+    static std::string variant_source(const mptorch::gemm::CountingArgs<Base, ALG> &args)
+    {
+      return args_source(args) + "#define MPT_COUNTING 1\n";
+    }
+
+    template <class Args>
+    static std::string variant_source(const mptorch::gemm::FixedPointCountingArgs<Args> &args)
+    {
+      return args_source(args) + "#define MPT_COUNTING 1\n";
+    }
+
+    // Where a counted op's counts go (its counts tensor's data pointer: see
+    // the top of the file), and nothing for any other Args.
+    template <class Args>
+    static void *counts_of(const Args &)
+    {
+      return nullptr;
+    }
+
+    template <class Base, AccumulateAlgorithm ALG>
+    static void *counts_of(const mptorch::gemm::CountingArgs<Base, ALG> &args)
+    {
+      return args.counts;
+    }
+
+    template <class Args>
+    static void *counts_of(const mptorch::gemm::FixedPointCountingArgs<Args> &args)
+    {
+      return args.counts;
+    }
+
     static std::string accumulate_line(AccumulateAlgorithm alg);
 
     static void launch_source(const mptorch::gemm::GemmShape &s, const std::string &args,
-                              mptorch_mps::KernelSource source, const LaunchContext &ctx);
+                              mptorch_mps::KernelSource source, const LaunchContext &ctx,
+                              void *counts = nullptr);
     static void launch_conv(const mptorch::gemm::GemmShape &s, const std::string &args,
                             const mptorch::gemm::ConvGeom &geom, mptorch_mps::KernelSource source,
-                            const LaunchContext &ctx);
+                            const LaunchContext &ctx, void *counts);
     static void launch_block(const mptorch::gemm::GemmShape &s, const std::string &args,
                              const mptorch::gemm::BlockOperand &a, const mptorch::gemm::BlockOperand &b,
                              const LaunchContext &ctx);

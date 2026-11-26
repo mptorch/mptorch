@@ -1,6 +1,10 @@
 #include "gemm_backend.h"
 #include "../common/carrier_odd_accumulate.h"
 #include "../common/carrier_odd_mixed.h"
+#if defined(MPTORCH_COUNTING)
+#include "../common/fixedpoint_counted.h"
+#include "../common/gemm_counted.h"
+#endif
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "launch_params.h"
 #include "metal_runtime.h"
@@ -469,6 +473,89 @@ namespace mptorch::gemm_mps
   template std::string MpsBackend::args_source(const FixedPointIntArgs<true, false> &);
   template std::string MpsBackend::args_source(const FixedPointIntArgs<true, true> &);
 
+#if defined(MPTORCH_COUNTING)
+  namespace
+  {
+    const char *name_of(const FixedPointSplitArgs &)
+    {
+      return "FixedPointSplitArgs";
+    }
+
+    template <bool FUSED, bool WRAP>
+    std::string name_of(const FixedPointIntArgs<FUSED, WRAP> &)
+    {
+      return std::string("FixedPointIntArgs<") + (FUSED ? "true" : "false") + ", " +
+             (WRAP ? "true" : "false") + ">";
+    }
+  } // namespace
+
+  // The counted ops' Args, for the sixteen CountingArgs the counted binaryK
+  // and superfp ops build (four macs, four algorithms) and the five
+  // FixedPointCountingArgs of the fixed-point ones (the carrier path and the
+  // integer accumulator's four). Every field is written but `counts`, which
+  // the kernel's counts buffer stands for; the size assertions are the
+  // structs' sizes with those fields and the pointer.
+  template <class Base, AccumulateAlgorithm ALG>
+  std::string MpsBackend::args_source(const CountingArgs<Base, ALG> &a)
+  {
+    using Args = CountingArgs<Base, ALG>;
+    constexpr size_t fields = sizeof(Base) + 2 * sizeof(int) + sizeof(typename Args::Widths) +
+                              sizeof(typename Args::Common);
+    static_assert(sizeof(Args) == (fields + sizeof(void *) - 1) / sizeof(void *) * sizeof(void *) +
+                                      sizeof(void *),
+                  "write every CountingArgs field");
+    static const char *const algorithms[] = {"NAIVE", "KAHAN", "BLOCK", "TREE"};
+    ArgsWriter w((std::string("CountingArgs<mptorch::gemm::") + name_of(a.base) +
+                  ", AccumulateAlgorithm::" + algorithms[static_cast<int>(ALG)] + ">")
+                     .c_str());
+    write(w, "base.", a.base);
+    w.set("block_size", int64_t{a.block_size});
+    w.set("outer_quant", a.outer_quant);
+    // An outer format that is off arrives as zero widths, as in an
+    // AccumulateArgs, and the device's Builder never derives a cast from it.
+    w.set("outer", a.outer);
+    w.set("outer_c", a.outer_c);
+    return w.str();
+  }
+
+  template <class Args>
+  std::string MpsBackend::args_source(const FixedPointCountingArgs<Args> &a)
+  {
+    static_assert(sizeof(FixedPointCountingArgs<Args>) ==
+                      (sizeof(Args) + sizeof(void *) - 1) / sizeof(void *) * sizeof(void *) +
+                          sizeof(void *),
+                  "write every FixedPointCountingArgs field");
+    ArgsWriter w(
+        (std::string("FixedPointCountingArgs<mptorch::gemm::") + name_of(a.base) + ">").c_str());
+    write(w, "base.", a.base);
+    return w.str();
+  }
+
+#define MPTORCH_COUNTING_ARGS(BASE)                                                                \
+  template std::string MpsBackend::args_source(                                                    \
+      const CountingArgs<BASE, AccumulateAlgorithm::NAIVE> &);                                     \
+  template std::string MpsBackend::args_source(                                                    \
+      const CountingArgs<BASE, AccumulateAlgorithm::KAHAN> &);                                     \
+  template std::string MpsBackend::args_source(                                                    \
+      const CountingArgs<BASE, AccumulateAlgorithm::BLOCK> &);                                     \
+  template std::string MpsBackend::args_source(                                                    \
+      const CountingArgs<BASE, AccumulateAlgorithm::TREE> &);
+  MPTORCH_COUNTING_ARGS(BinaryKSplitArgs)
+  MPTORCH_COUNTING_ARGS(BinaryKFusedArgs)
+  MPTORCH_COUNTING_ARGS(SuperfpSplitArgs)
+  MPTORCH_COUNTING_ARGS(SuperfpFusedArgs)
+#undef MPTORCH_COUNTING_ARGS
+  template std::string MpsBackend::args_source(const FixedPointCountingArgs<FixedPointSplitArgs> &);
+  template std::string MpsBackend::args_source(
+      const FixedPointCountingArgs<FixedPointIntArgs<false, false>> &);
+  template std::string MpsBackend::args_source(
+      const FixedPointCountingArgs<FixedPointIntArgs<false, true>> &);
+  template std::string MpsBackend::args_source(
+      const FixedPointCountingArgs<FixedPointIntArgs<true, false>> &);
+  template std::string MpsBackend::args_source(
+      const FixedPointCountingArgs<FixedPointIntArgs<true, true>> &);
+#endif
+
   std::string MpsBackend::accumulate_line(AccumulateAlgorithm alg)
   {
     static const char *const names[] = {"NAIVE", "KAHAN", "BLOCK", "TREE"};
@@ -530,10 +617,11 @@ namespace mptorch::gemm_mps
     // One launch over (ceil(N / tile), ceil(M / tile), batch) threadgroups:
     // the operands, C, the launch parameters and the precision map at
     // buffers 0 to 4 (gemm.metal binds a map on every op and reads it only
-    // on the mixed ones; the others bind C there, which is never read), and
-    // the variant's buffers after them.
+    // on the mixed ones; the others bind C there, which is never read), the
+    // variant's buffers after them, and a counted op's counts last.
     void launch_gemm(const GemmShape &s, const std::string &tail, mptorch_mps::KernelSource source,
-                     const MpsBackend::LaunchContext &ctx, std::vector<mptorch_mps::KernelArg> extra)
+                     const MpsBackend::LaunchContext &ctx,
+                     std::vector<mptorch_mps::KernelArg> extra, void *counts = nullptr)
     {
       TORCH_INTERNAL_ASSERT(ctx.a && ctx.b && ctx.c, "mptorch: the MPS GEMM was not bound its tensors");
       check_extents(s);
@@ -541,6 +629,8 @@ namespace mptorch::gemm_mps
       const at::Tensor &idx = ctx.prec_idx ? *ctx.prec_idx : *ctx.c;
       std::vector<mptorch_mps::KernelArg> args{*ctx.a, *ctx.b, *ctx.c, mptorch_mps::KernelArg::params(g), idx};
       args.insert(args.end(), extra.begin(), extra.end());
+      if (counts != nullptr)
+        args.push_back(mptorch_mps::KernelArg::storage_at(counts));
       constexpr uint64_t tile = mptorch_mps::GEMM_TILE;
       mptorch_mps::launch_groups(source, tail_head(s, *ctx.c) + tail, args,
                                  (static_cast<uint64_t>(s.N) + tile - 1) / tile,
@@ -576,17 +666,19 @@ namespace mptorch::gemm_mps
   // gemm_kernel_source): gemm.metal, after the odd headers for the odd
   // carrier step's Args and after the fixed-point GEMM's header for its own.
   void MpsBackend::launch_source(const GemmShape &s, const std::string &args,
-                                 mptorch_mps::KernelSource source, const LaunchContext &ctx)
+                                 mptorch_mps::KernelSource source, const LaunchContext &ctx,
+                                 void *counts)
   {
-    launch_gemm(s, args, source, ctx, {});
+    launch_gemm(s, args, source, ctx, {}, counts);
   }
 
   void MpsBackend::launch_conv(const GemmShape &s, const std::string &args, const ConvGeom &geom,
-                               mptorch_mps::KernelSource source, const LaunchContext &ctx)
+                               mptorch_mps::KernelSource source, const LaunchContext &ctx,
+                               void *counts)
   {
     const std::string tail = args + "#define MPT_GATHERED 1\n#define MPT_CONV_PASS mptorch::gemm::ConvPass::" +
                              conv_pass_name(geom.pass) + "\n";
-    launch_gemm(s, tail, source, ctx, {mptorch_mps::KernelArg::params(geom)});
+    launch_gemm(s, tail, source, ctx, {mptorch_mps::KernelArg::params(geom)}, counts);
   }
 
   void MpsBackend::launch_block(const GemmShape &s, const std::string &args, const BlockOperand &a,

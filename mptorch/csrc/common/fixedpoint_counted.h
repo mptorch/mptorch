@@ -38,7 +38,110 @@ namespace mptorch::gemm
     return events::fixedpoint_thresholds<T>(p, c.is_signed);
   }
 
-#if !defined(__METAL_VERSION__)
+#if defined(__METAL_VERSION__)
+  // CountedFixedPointIntMac on Metal, which has no derived classes: the
+  // integer mac as a member, `m`, and the host's statements below with `m.`
+  // for `this->` (and the fused step's mantissa named `mant`), except one:
+  // the fused step's test of a huge product is on the words, as in
+  // FixedPointIntMac::step's Metal arm, since p_top can be a binary32
+  // subnormal, which the GPU's compare flushes.
+  template <class T, RoundMode RM, bool FUSED, bool WRAP>
+  struct CountedFixedPointIntMac
+  {
+    using value_t = T;
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+
+    FixedPointIntMac<T, RM, FUSED, WRAP> m;
+    events::EventThresholdsT<T> mul_th{};
+    mutable events::EventTally mul_tally{};
+    mutable events::EventTally acc_tally{};
+
+    uint32_t sum_bits(int64_t x, bool sticky, int sh, int64_t q) const
+    {
+      const int64_t top = fx_shl(m.hi, sh);
+      const int64_t bottom = m.acc_signed ? fx_shl(m.lo, sh) : -top;
+      uint32_t bits = 1u << events::CASTS;
+      bits |= uint32_t(x > top || (x == top && sticky) || x < bottom) << events::OVERFLOW;
+      bits |= uint32_t((x != 0 || sticky) && q == 0) << events::UNDERFLOW;
+      bits |= uint32_t(sticky || fx_shl(q, sh) != x) << events::INEXACT;
+      return bits;
+    }
+
+    int64_t step(int64_t s, T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
+    {
+      constexpr uint32_t NAN_SUM_BITS = (1u << events::CASTS) | (1u << events::NAN_RESULT);
+      if constexpr (!FUSED)
+      {
+        const T pq = m.mul(a, b, rng);
+        count_cast(mul_tally, events::MUL, events::event_bits<T>(a * b, pq, mul_th));
+        const word_t word = m.draw(rng);
+        if (s == FIXEDPOINT_NAN_SUM || pq != pq)
+        {
+          count_cast(acc_tally, events::ACC, NAN_SUM_BITS);
+          return FIXEDPOINT_NAN_SUM;
+        }
+        const int64_t p = static_cast<int64_t>(pq * m.p_scale); // an integer: pq is on M's grid
+        const int64_t x = fx_shl(s, m.sh_s) + fx_shl(p, m.sh_p);
+        const int64_t q = m.round_sum(x, false, m.sh_s, x < 0, word);
+        count_cast(acc_tally, events::ACC, sum_bits(x, false, m.sh_s, q));
+        return q;
+      }
+      else
+      {
+        const T p = a * b;
+        const word_t word = m.draw(rng);
+        if (s == FIXEDPOINT_NAN_SUM || p != p)
+        {
+          count_cast(acc_tally, events::ACC, NAN_SUM_BITS);
+          return FIXEDPOINT_NAN_SUM;
+        }
+        const word_t w = reinterpret_cast<const MPTORCH_THREAD word_t &>(p);
+        const bool p_neg = (w & F::SIGN_MASK) != 0;
+        const word_t mag = w & F::ABS_MASK;
+        const bool huge = mag >= reinterpret_cast<const MPTORCH_THREAD word_t &>(m.p_top);
+        if (huge && (!WRAP || mag >= F::INF_BITS))
+        {
+          const int64_t q = p_neg ? m.lo : m.hi;
+          const bool finite = mag < F::INF_BITS;
+          count_cast(acc_tally, events::ACC,
+                     (1u << events::CASTS) | (uint32_t(finite) << events::OVERFLOW) |
+                         (uint32_t(finite && q == 0) << events::UNDERFLOW) | (1u << events::INEXACT));
+          return q;
+        }
+        const int field = static_cast<int>(mag >> F::MAN_BITS);
+        const int64_t mant = static_cast<int64_t>(
+            field == 0 ? (mag & F::MAN_MASK) : ((mag & F::MAN_MASK) | (word_t(1) << F::MAN_BITS)));
+        const int e = (field == 0 ? 1 : field) - F::BIAS - F::MAN_BITS;
+        const int sh = e + m.acc_fl + m.guard;
+        int64_t pa;
+        bool sticky = false;
+        if (sh >= 0)
+          pa = sh >= 64 ? 0 : fx_shl(mant, sh);
+        else
+        {
+          const int d = -sh;
+          const int64_t kept = d >= 64 ? 0 : (mant >> d);
+          sticky = d >= 64 ? mant != 0 : (mant - (kept << d)) != 0;
+          pa = kept;
+        }
+        const uint64_t base = static_cast<uint64_t>(fx_shl(s, m.guard));
+        const uint64_t ux = !p_neg ? base + static_cast<uint64_t>(pa)
+                                   : base - static_cast<uint64_t>(pa) - (sticky ? 1u : 0u);
+        const int64_t x = static_cast<int64_t>(ux);
+        const bool neg = huge ? p_neg : x < 0;
+        const int64_t q = m.round_sum(x, sticky, m.guard, neg, word);
+        count_cast(acc_tally, events::ACC,
+                   huge ? (1u << events::CASTS) | (1u << events::OVERFLOW) | (1u << events::INEXACT) |
+                              (uint32_t(q == 0) << events::UNDERFLOW)
+                        : sum_bits(x, sticky, m.guard, q));
+        return q;
+      }
+    }
+
+    T value(int64_t s) const { return m.value(s); }
+  };
+#else
   template <class T, RoundMode RM, bool FUSED, bool WRAP>
   struct CountedFixedPointIntMac : FixedPointIntMac<T, RM, FUSED, WRAP>
   {
@@ -141,6 +244,7 @@ namespace mptorch::gemm
       }
     }
   };
+#endif
 
   // The counted twin of a FixedPointIntMac type.
   template <class Mac>
@@ -150,7 +254,7 @@ namespace mptorch::gemm
   struct counted_int_mac<FixedPointIntMac<T, RM, FUSED, WRAP>>
   {
     using type = CountedFixedPointIntMac<T, RM, FUSED, WRAP>;
-    static constexpr bool fused = FUSED;
+    static constexpr MPTORCH_CONSTANT bool fused = FUSED;
   };
 
   // FixedPointIntAccumulator through the positional contract: the same sum,
@@ -160,10 +264,13 @@ namespace mptorch::gemm
   {
     using mac_type = Mac;
     using value_t = typename Mac::value_t;
+#if !defined(__METAL_VERSION__)
     using tile_type = FixedPointIntTile;
-    static constexpr bool positional = true;
-    static constexpr bool int_result = true; // the kernels read the result as the Mac scales it
-    static constexpr int unroll = 4;
+#endif
+    static constexpr MPTORCH_CONSTANT bool positional = true;
+    // the kernels read the result as the Mac scales it
+    static constexpr MPTORCH_CONSTANT bool int_result = true;
+    static constexpr MPTORCH_CONSTANT int unroll = 4;
 
     Mac mac{};
     int64_t sum = 0;
@@ -177,6 +284,7 @@ namespace mptorch::gemm
     CUDA_HOST_DEVICE_INLINE void accumulate(value_t a, value_t b, int) { sum = mac.step(sum, a, b, rng); }
     CUDA_HOST_DEVICE_INLINE void end_slab(int64_t, int64_t) {}
     CUDA_HOST_DEVICE_INLINE value_t finalize() const { return mac.value(sum); }
+#if !defined(__METAL_VERSION__)
     CUDA_HOST_DEVICE_INLINE double finalize_wide() const { return mac.value64(sum); }
 
     static inline void accumulate(const FixedPointIntTileView &t, int64_t idx,
@@ -197,6 +305,7 @@ namespace mptorch::gemm
     {
       return m.value64(t.sums[static_cast<size_t>(idx)]);
     }
+#endif
   };
 
   // The Args of a counted fixed-point call: the Args its plan runs (the
@@ -205,14 +314,18 @@ namespace mptorch::gemm
   template <class Args>
   struct FixedPointCountingArgs
   {
-    static constexpr bool mixed = false;
-    static constexpr uint64_t draws_per_k_step = Args::draws_per_k_step;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = Args::draws_per_k_step;
 
     Args base{};
+#if defined(__METAL_VERSION__)
+    uint32_t counts = 0; // unused: see gemm_counted.h's Counting
+#else
     unsigned long long *counts = nullptr;
+#endif
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       if constexpr (std::is_same_v<Args, FixedPointSplitArgs>)
       {
@@ -245,5 +358,19 @@ namespace mptorch::gemm
     counting_flush_tally(m.acc_tally, events::ACC, in_range, counts);
   }
 #endif
-#endif // !__METAL_VERSION__
+
+#if defined(__METAL_VERSION__)
+  // The integer mac's two tallies, for gemm_counted.h's counting_tallies.
+  template <class T, RoundMode RM, bool FUSED, bool WRAP>
+  inline void counting_gather_mac(
+      const MPTORCH_THREAD CountedFixedPointIntMac<T, RM, FUSED, WRAP> &m,
+      MPTORCH_THREAD events::EventTally *t)
+  {
+    for (int e = 0; e < events::EVENTS; ++e)
+    {
+      t[events::MUL].n[e] += m.mul_tally.n[e];
+      t[events::ACC].n[e] += m.acc_tally.n[e];
+    }
+  }
+#endif
 } // namespace mptorch::gemm

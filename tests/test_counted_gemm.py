@@ -25,6 +25,10 @@ integer accumulator's, whose sum is classified on the integers. Their counts
 are held to the definition (`fixedpoint_gemm_reference`'s steps) with each
 cast classified on exact rationals: the product's as a cast of a carrier
 value, the sum's on its exact value.
+
+Every test runs on each backend. MPS is also held to the CPU word for word
+and count for count (`test_mps_is_the_cpu`), stochastic rounding included,
+since both draw their streams from the CPU generator.
 """
 
 import math
@@ -46,7 +50,7 @@ from mptorch.quant.ops._spec import _run_gemm
 
 from . import fixedpoint_gemm_reference as fxref
 from . import test_qconv_gemm as conv_refs
-from .markers import HAS_COUNTING, cuda_devices, float64_devices, requires_counting
+from .markers import HAS_COUNTING, cuda_devices, float64_devices, requires_counting, requires_mps
 from .test_accumulators import FAMILIES, FAMILIES64, _operands, _Reference
 from .test_event_counts import CASES
 
@@ -58,8 +62,7 @@ NAIVE, KAHAN, BLOCK, TREE = (
 )
 DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 ROLES = ("mul", "acc", "outer")
-# The counted GEMMs have CPU and CUDA kernels; MPS has none yet.
-counted_devices = ["cpu", *cuda_devices]
+counted_devices = ["cpu", *cuda_devices, pytest.param("mps", marks=requires_mps)]
 
 
 class _CountingReference(_Reference):
@@ -459,6 +462,24 @@ def _fx_mac(which, mode):
     return SplitMac(mul, acc, rounding=mode, overflow=overflow)
 
 
+def _fx_sr_mac(which):
+    """The mac of `FX[which]` under SR, its formats given 6 random bits."""
+    mul, acc, overflow = FX[which]
+    sr = FusedMac(
+        FixedPoint(acc.wl, acc.fl, is_signed=acc.is_signed, symmetric=acc.symmetric, prng_bits=6),
+        rounding=RoundMode.SR,
+        overflow=overflow,
+    )
+    if mul is not None:
+        sr = SplitMac(
+            FixedPoint(mul.wl, mul.fl, prng_bits=6),
+            sr.fma,
+            rounding=RoundMode.SR,
+            overflow=overflow,
+        )
+    return sr
+
+
 def _fx_operands(device, K=24):
     """Operands whose sums reach both ends of the formats and their steps."""
     g = torch.Generator().manual_seed(K)
@@ -494,20 +515,39 @@ def test_fixedpoint_counts_are_the_definitions(device, which, mode):
 def test_fixedpoint_paths_count_alike(device):
     """The integer accumulator, forced where the carrier path would run
     (the split op's `integer` argument), makes the same casts with the same
-    events; and a wide result (float64, an accumulate format wider than the
-    operands') is counted as any other."""
+    events."""
     mac = _fx_mac("carrier", RoundMode.RNE)
     a, b = _fx_operands(device)
     (c, counts), spec = _counted(mac, a, b)
     op, args = _counted_twin(spec)  # ty: ignore[not-iterable]
     ci, ni = op(a, b, False, False, *args[:-1], True)  # integer=True
     assert _same_values(ci, c) and torch.equal(ni, counts)
-    wide = SplitMac(FixedPoint(16, 8), FixedPoint(40, 8))
-    (cw, nw), spec = _counted(wide, a, b)
+
+
+_WIDE = SplitMac(FixedPoint(16, 8), FixedPoint(40, 8))
+
+
+@requires_counting
+@pytest.mark.parametrize("device", float64_devices)
+def test_a_wide_fixedpoint_result_is_counted(device):
+    """A wide result (float64, an accumulate format wider than the
+    operands') is counted as any other."""
+    a, b = _fx_operands(device)
+    (cw, nw), spec = _counted(_WIDE, a, b)
     assert cw.dtype is torch.float64
     assert _same(cw, _run_gemm(spec, a, b, False, False))
     expected = _fx_counts(a, b, FixedPoint(16, 8), FixedPoint(40, 8), RoundMode.RNE, False)
     assert torch.equal(nw.cpu(), expected)
+
+
+@requires_counting
+@requires_mps
+def test_on_mps_a_wide_counted_result_is_refused():
+    """MPS has no float64, so a counted call whose result would be wide
+    raises, as its twin does."""
+    a, b = _fx_operands("mps")
+    with pytest.raises(RuntimeError, match="the result is float64, which MPS does not have"):
+        _counted(_WIDE, a, b)
 
 
 @requires_counting
@@ -516,19 +556,7 @@ def test_fixedpoint_paths_count_alike(device):
 def test_fixedpoint_stochastic_rounding(device, which):
     """Under SR the result is the twin's under the same seed, and the casts'
     count does not depend on the draws."""
-    mul, acc, overflow = FX[which]
-    sr = FusedMac(
-        FixedPoint(acc.wl, acc.fl, is_signed=acc.is_signed, symmetric=acc.symmetric, prng_bits=6),
-        rounding=RoundMode.SR,
-        overflow=overflow,
-    )
-    if mul is not None:
-        sr = SplitMac(
-            FixedPoint(mul.wl, mul.fl, prng_bits=6),
-            sr.fma,
-            rounding=RoundMode.SR,
-            overflow=overflow,
-        )
+    sr = _fx_sr_mac(which)
     a, b = _fx_operands(device)
     torch.manual_seed(3)
     (c, counts), spec = _counted(sr, a, b)
@@ -561,11 +589,72 @@ def test_fixedpoint_conv(device, which):
     assert torch.equal(n.cpu(), total)
 
 
+# --- MPS against the CPU ------------------------------------------------------
+
+
+def _mps_calls():
+    """The counted calls `test_mps_is_the_cpu` runs: name -> (mac, kind)."""
+    calls: dict[str, tuple[Any, str]] = {}
+    for case in CASES_32:
+        kind, family, algorithm, block_size, with_outer = case
+        for mode in (RoundMode.RNE, RoundMode.RO, RoundMode.SR):
+            mac, _ = _mac(kind, FAMILIES[family], algorithm, mode, block_size, with_outer)
+            calls[f"{_id(case)}-{mode.name}"] = (mac, "gemm")
+    for which in FX:
+        calls[f"fixedpoint-{which}-RNE"] = (_fx_mac(which, RoundMode.RNE), "fixedpoint")
+        calls[f"fixedpoint-{which}-SR"] = (_fx_sr_mac(which), "fixedpoint")
+    for which, make in CONV_MACS.items():
+        for mode in (RoundMode.RNE, RoundMode.SR):
+            calls[f"conv-{which}-{mode.name}"] = (make(mode), "conv")
+    return calls
+
+
+MPS_CALLS = _mps_calls()
+
+
+def _mps_run(mac, kind, device):
+    """The counted call's results and counts on `device`, each call under
+    the same seed."""
+    if kind != "conv":
+        a, b = _operands(7, 40, 9, "cpu") if kind == "gemm" else _fx_operands("cpu")
+        torch.manual_seed(3)
+        (c, n), _ = _counted(mac, a.to(device), b.to(device))
+        return [(c.cpu(), n.cpu())]
+    counted, args = _counted_conv_twin(spec_for_mac(mac))  # ty: ignore[not-iterable]
+    size, kernel = (9, 7), (3, 2)
+    s, p, d = conv_refs._geometry(2, (2, 1), (1, 0), 1)
+    x, w = conv_refs._operands(2, 3, 5, 1, size, kernel, "cpu", torch.float32)
+    out = conv_refs._out(size, kernel, s, p, d)
+    dy = torch.randn(2, 5, *out, generator=torch.Generator().manual_seed(1))
+    results = []
+    passes = ((_FWD, w, x, out), (_IGRAD, w, dy, size), (_WGRAD, dy, x, kernel))
+    for conv_pass, a, b, extent in passes:
+        geometry = (tuple(extent), tuple(s), tuple(p), tuple(d), 1)
+        torch.manual_seed(3)
+        c, n = counted(a.to(device), b.to(device), conv_pass, *geometry, *args)
+        results.append((c.cpu(), n.cpu()))
+    return results
+
+
+@requires_counting
+@requires_mps
+@pytest.mark.parametrize("name", list(MPS_CALLS))
+def test_mps_is_the_cpu(name):
+    """MPS gives the CPU's results word for word and its counts, every
+    family, algorithm and conv pass, under SR too: both backends key their
+    streams on a seed from the CPU generator."""
+    mac, kind = MPS_CALLS[name]
+    cpu, mps = _mps_run(mac, kind, "cpu"), _mps_run(mac, kind, "mps")
+    for (c, n), (cm, nm) in zip(cpu, mps, strict=True):
+        assert _same(cm, c)
+        assert torch.equal(nm, n), f"\n{nm}\n!=\n{n}"
+
+
 @pytest.mark.skipif(HAS_COUNTING, reason="Built with MPTORCH_COUNTING=1.")
-@pytest.mark.parametrize("device", ["cpu", "meta"])
+@pytest.mark.parametrize("device", ["cpu", "meta", pytest.param("mps", marks=requires_mps)])
 def test_without_the_flag_the_ops_raise(device):
     """A build without MPTORCH_COUNTING=1 has no counted kernels: the ops
-    raise, naming the flag, on the CPU and the meta device alike."""
+    raise, naming the flag, on every device."""
     narrow, wide, _ = FAMILIES["binaryK"]
     a = torch.ones(2, 3, device=device)
     for mac in (SplitMac(narrow, wide), FusedMac(wide, accumulate_algorithm=KAHAN)):

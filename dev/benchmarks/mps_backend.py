@@ -7,6 +7,7 @@
     python3 dev/benchmarks/mps_backend.py odd-probe  # what the odd step's Metal primitives assume
     python3 dev/benchmarks/mps_backend.py odd-sweep [SEED]  # those primitives against the CPU's
     python3 dev/benchmarks/mps_backend.py bench-odd  # the odd ops against their default twins
+    python3 dev/benchmarks/mps_backend.py bench-counted  # the counted ops against their twins
 
 ``sweep`` runs ``binaryK_quantize``, ``superfp_quantize`` and
 ``fixedpoint_quantize`` on an MPS tensor and on a CPU one over every binary32
@@ -75,6 +76,20 @@ The 128 x 128 rows took 16.5 and 73 ms on MPS while the pack gave every
 tile one thread; a call with few tiles for their size now gives each a
 threadgroup (csrc/mps/block_entry.cpp's run_pack has the rule).
 
+``bench-counted`` times each counted op (gemm.metal under MPT_COUNTING)
+against its twin on MPS, the two alternated. On the M3 Pro, at 512^3 and
+1024^3, a counted op took its twin's time times:
+
+    binaryK split mac, NAIVE / KAHAN / BLOCK 32 / TREE 64   RNE 2.5-3.0x, SR 1.21-1.25x
+    binaryK fused mac, NAIVE                                RNE 2.2-2.4x, SR 1.22-1.23x
+    superfp split mac, NAIVE RNE                            1.83-1.88x
+    fixed point, RNE: carrier path / integer / fused        3.6-4.3x / 1.54-1.57x / 1.21-1.22x
+    conv 3x3 [8,64,32,32] fwd, binaryK split RNE            2.3-2.4x
+
+Each cast's classification and count is integer work of a fixed size,
+which weighs most beside the cheapest casts (binaryK's RNE fast path, the
+fixed-point carrier path) and least beside SR's draws.
+
 The GEMM kernel stages 16 x 16 tiles of A and B in threadgroup memory
 (gemm.metal says what that bought and what it did not). Before it did, one
 thread per element read its operands from device memory and the 1024^3 row
@@ -87,15 +102,17 @@ import re
 import struct
 import sys
 import time
+import warnings
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from mptorch import MXFP8_E4M3, NVFP4, AccumulateAlgorithm, BinaryK, ScaleRounding
-from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
+from mptorch import MXFP8_E4M3, NVFP4, AccumulateAlgorithm, BinaryK, FixedPoint, ScaleRounding
+from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode, SuperFP
 from mptorch.quant import (
+    FusedMac,
     SplitMac,
     binaryK_quantize,
     binaryK_quantize_,
@@ -106,6 +123,7 @@ from mptorch.quant import (
     fixedpoint_quantize,
     superfp_quantize,
 )
+from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import (
     binaryK_matmul,
     binaryK_matmul_fma,
@@ -117,6 +135,9 @@ from mptorch.quant.ops import (
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
 )
+from mptorch.quant.ops._conv import _FWD, _ConvOp
+from mptorch.quant.ops._counted import _counted_conv_twin, _counted_twin
+from mptorch.quant.ops._spec import _run_gemm
 
 CSRC = Path(__file__).resolve().parents[2] / "mptorch" / "csrc"
 CHUNK = 1 << 26
@@ -828,6 +849,81 @@ def bench_odd():
           f"{times[1] / times[0]:4.2f}x")  # fmt: skip
 
 
+def bench_counted():
+    """The counted ops (common/gemm_counted.h, gemm.metal under MPT_COUNTING)
+    against their twins on MPS: twin / counted ms and the ratio, the two
+    alternated, the best of five rounds each; DIFFER where the counted op's
+    result is not its twin's word for word. Needs a build with
+    MPTORCH_COUNTING=1."""
+    print("counted ops on MPS: twin / counted ms, ratio")
+    warnings.simplefilter("ignore", FormatRangeWarning)
+    b8, b12, b16 = BinaryK(8, 4), BinaryK(12, 6), BinaryK(16, 11)
+    sr8, sr12 = BinaryK(8, 4, prng_bits=8), BinaryK(12, 6, prng_bits=8)
+    A = AccumulateAlgorithm
+    macs: list[tuple[str, Any]] = []
+    for rm in (RoundMode.RNE, RoundMode.SR):
+        m, acc = (sr8, sr12) if rm is RoundMode.SR else (b8, b12)
+        macs += [
+            (f"binaryK NAIVE {rm.name}", SplitMac(m, acc, rounding=rm)),
+            (f"binaryK KAHAN {rm.name}", SplitMac(
+                m, acc, rounding=rm, accumulate_algorithm=A.KAHAN)),
+            (f"binaryK BLOCK 32 {rm.name}", SplitMac(
+                m, acc, rounding=rm, accumulate_algorithm=A.BLOCK, block_size=32, outer=b16)),
+            (f"binaryK TREE 64 {rm.name}", SplitMac(
+                m, acc, rounding=rm, accumulate_algorithm=A.TREE, block_size=64, outer=b16)),
+            (f"binaryK_fma NAIVE {rm.name}", FusedMac(acc, rounding=rm)),
+        ]  # fmt: skip
+    macs += [
+        # GEMMS' superfp formats, whose bottoms outrun binary32 (a warning)
+        ("superfp NAIVE RNE", SplitMac(SuperFP(3, 4, 1, 7), SuperFP(5, 5, 2, 15))),
+        ("fixedpoint carrier path RNE", SplitMac(FixedPoint(12, 6), FixedPoint(16, 6))),
+        ("fixedpoint integer RNE", SplitMac(FixedPoint(16, 12), FixedPoint(20, 4))),
+        ("fixedpoint_fma RNE", FusedMac(FixedPoint(10, 4))),
+    ]
+
+    def alternated(twin, counted, *args):
+        twin(*args), counted(*args)  # compiles both instantiations
+        t, c = float("inf"), float("inf")
+        for r in range(5):
+            for which in (0, 1) if r % 2 == 0 else (1, 0):
+                if which == 0:
+                    t = min(t, best_of(1, twin, *args))
+                else:
+                    c = min(c, best_of(1, counted, *args))
+        return t, c
+
+    for n in (512, 1024):
+        g = torch.Generator().manual_seed(0)
+        a = torch.randn(n, n, generator=g).to("mps")
+        b = torch.randn(n, n, generator=g).to("mps")
+        for label, mac in macs:
+            spec = spec_for_mac(mac)
+            op, args = _counted_twin(spec)  # ty: ignore[not-iterable]
+            twin = lambda x, y, spec=spec: _run_gemm(spec, x, y, False, False)  # noqa: E731
+            counted = lambda x, y, op=op, args=args: op(x, y, False, False, *args)[0]  # noqa: E731
+            torch.manual_seed(0)
+            ref = twin(a, b)
+            torch.manual_seed(0)
+            same = torch.equal(ref.view(torch.int32), counted(a, b).view(torch.int32))
+            t, c = alternated(twin, counted, a, b)
+            print(f"{label + f' {n}^3':36} {t:7.2f} / {c:7.2f} ms  {c / t:4.2f}x"
+                  f"{'' if same else '  DIFFER'}", flush=True)  # fmt: skip
+    # A convolution layer's forward pass, the conv ops' gathered GEMM.
+    g = torch.Generator().manual_seed(0)
+    x = torch.randn(8, 64, 32, 32, generator=g).to("mps")
+    w = torch.randn(64, 64, 3, 3, generator=g).to("mps")
+    spec = spec_for_mac(SplitMac(b8, b12))
+    conv, args = _counted_conv_twin(spec)  # ty: ignore[not-iterable]
+    geometry = ((32, 32), (1, 1), (1, 1), (1, 1), 1)
+    plain = _ConvOp(spec, None)
+    t, c = alternated(
+        lambda u, v: plain(_FWD, u, v, *geometry),
+        lambda u, v: conv(u, v, _FWD, *geometry, *args)[0],
+        w, x,
+    )  # fmt: skip
+    print(f"{'conv 3x3 [8,64,32,32] fwd':36} {t:7.2f} / {c:7.2f} ms  {c / t:4.2f}x")
+
+
 def bench_beyond_naive():
     """The ops past the NAIVE GEMMs and the out-of-place quantizers: the
     accumulate algorithms, a cross-family mac, the three conv passes, the
@@ -946,4 +1042,5 @@ if __name__ == "__main__":
         "odd-probe": odd_probe,
         "odd-sweep": odd_sweep,
         "bench-odd": bench_odd,
+        "bench-counted": bench_counted,
     }[sys.argv[1] if len(sys.argv) > 1 else "bench"]()
