@@ -20,9 +20,10 @@ Run from the repository root::
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py ops --device cuda
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py ops --device cpu --threads 1
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py layer --device cuda
+    .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py ops --device mps    # on a Mac
 
-Modes: ``ops`` times each row at n^3 (2048 on CUDA, 512 on the CPU by
-default), ~1 min on CUDA, ~3 min on one CPU thread; ``layer`` times a
+Modes: ``ops`` times each row at n^3 (2048 on CUDA, 1024 on MPS, 512 on the
+CPU by default), ~1 min on CUDA, ~3 min on one CPU thread; ``layer`` times a
 ``QLinear(1024, 1024)`` step on 4096 rows, ~1 min on CUDA. Each round runs
 every row once, in an order reversed every other round, and each row keeps
 its minimum.
@@ -93,12 +94,16 @@ def _timer(device: str) -> Callable[[Callable[[], object]], float]:
 
         return cuda
 
-    def cpu(f: Callable[[], object]) -> float:
+    def host(f: Callable[[], object]) -> float:
+        if device == "mps":
+            torch.mps.synchronize()
         t0 = time.perf_counter()
         f()
+        if device == "mps":
+            torch.mps.synchronize()
         return time.perf_counter() - t0
 
-    return cpu
+    return host
 
 
 def _alternated(
@@ -108,10 +113,12 @@ def _alternated(
     the order reversed every other round."""
     once = _timer(device)
     names = list(rows)
-    for name in names:  # warm-up: compiles, allocates, fills caches
+    for name in names:  # warm-up: compiles (Metal's kernels too), allocates, fills caches
         rows[name]()
     if device == "cuda":
         torch.cuda.synchronize()
+    elif device == "mps":
+        torch.mps.synchronize()
     best = dict.fromkeys(names, float("inf"))
     for r in range(rounds):
         for name in names if r % 2 == 0 else reversed(names):
@@ -182,7 +189,7 @@ def _op_rows(a: torch.Tensor, b: torch.Tensor, mode: RoundMode) -> dict[str, Cal
 
 
 def ops(args: argparse.Namespace) -> None:
-    n = args.n or (2048 if args.device == "cuda" else 512)
+    n = args.n or {"cuda": 2048, "mps": 1024}.get(args.device, 512)
     a, b = _operands(n, args.device)
     for label in args.modes:
         best = _alternated(_op_rows(a, b, MODES[label]), args.rounds, args.device)
@@ -243,7 +250,7 @@ def layer(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
     parser.add_argument("mode", choices=["ops", "layer"])
-    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
+    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda", "mps"])
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--n", type=int, default=None)
     parser.add_argument("--rounds", type=int, default=6)
