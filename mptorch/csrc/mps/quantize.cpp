@@ -31,6 +31,7 @@
 #include "launch_params.h"
 #include "metal_runtime.h"
 #include <ATen/ops/empty_like.h>
+#include <limits>
 #include <string>
 
 using at::Tensor;
@@ -120,9 +121,14 @@ namespace
     const mptorch_mps::ScaledQuantLaunch q{static_cast<uint64_t>(n), static_cast<uint64_t>(l.cols),
                                            static_cast<uint64_t>(l.block), static_cast<uint64_t>(l.per_row),
                                            seed};
+    // 32-bit indices when the last thread's last index, below n + 3, fits
+    // (scaled_quant.metal says why).
+    const bool index32 = n <= static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) - 3;
     mptorch_mps::launch(mptorch_mps::KernelSource::QuantizeScaled,
-                        quantize_tail(storage, rm, is_signed, prng_bits, format),
-                        {a_c, s_c, o, mptorch_mps::KernelArg::params(q)}, static_cast<uint64_t>((n + 3) / 4));
+                        quantize_tail(storage, rm, is_signed, prng_bits, format) +
+                            "using mpt_index_t = " + (index32 ? "uint32_t" : "uint64_t") + ";\n",
+                        {a_c, s_c, o, mptorch_mps::KernelArg::params(q)},
+                        static_cast<uint64_t>((n + 3) / 4));
     return o;
   }
 
