@@ -1096,3 +1096,124 @@ Worktrees outside the repository:
 - `../mptorch-m4base` (`6afa44a`) was M4's base.
 
 `git worktree remove` deletes them.
+
+## M7: AK's NEON palette tiles on the M3 Pro (at `714aa11`, AK's `64ac91e` in)
+
+No file changed except this report: M7 is verification and timing, with no
+proposal for the tile files (see "NEON layout" below).
+
+### Build and tests
+
+The extension built with the rest of the merged tree. `cpu/gemm_palette_lanes.cpp`
+compiled again with the build's flags plus `-Rpass=loop-vectorize
+-Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize`:
+- every cast loop vectorizes at width 4 (`lane_casts`' four, lines 87, 90,
+  96 and 102, four instantiations each: per column and per element, the
+  fixed 32-size tile and the run-time one);
+- so do the products' inner loop (line 67, nine) and the NaN reduction
+  (line 179, three);
+- the only loop that does not is `lane_products`' outer row loop (line 62,
+  "not beneficial"), as expected.
+
+Clang needs no pragma for this, as for the pointwise blocks (R2.0).
+
+| command | result |
+|---|---|
+| `pytest tests/test_cpu_simd.py tests/test_gemm_mixed_palette.py tests/test_palette_recipes.py` | 143 passed, 64 skipped (CUDA) |
+| `pytest tests/test_qmatmul.py -k palette` | 1 passed |
+| `pytest tests/test_carrier_rounding.py -k "palette or mixed"` (the odd palettes) | 132 passed, 130 skipped (CUDA, float64) |
+| `pytest tests/` on the merged tree | 27,364 passed, 16,701 skipped, 0 failed (M6b's run) |
+| `bash dev/benchmarks/check_native.sh` | `OK    sweeps/cpu_palette_tile_sweep.cpp`, `all native tools build` |
+
+`test_cpu_simd.py`'s settings on arm64 are `0` (the scalar loop), the
+default (NEON) and `avx2` (NEON again). Its palette cases agree word for
+word with the scalar loop.
+
+### The tile sweep under Apple clang
+
+Built as section 4.3 builds the others, with Homebrew's libomp for the
+standalone binary:
+
+```
+clang++ -O3 -std=c++20 -ffp-contract=off -DMPTORCH_FAST_CAST=1 -Xpreprocessor -fopenmp \
+    -I$(brew --prefix libomp)/include -L$(brew --prefix libomp)/lib -lomp -I mptorch/csrc \
+    dev/benchmarks/sweeps/cpu_palette_tile_sweep.cpp mptorch/csrc/cpu/gemm_palette_lanes.cpp \
+    mptorch/csrc/cpu/gemm_rne_tile.cpp -o cpu_palette_tile_sweep
+```
+
+| run | output | time (11 threads) |
+|---|---|---|
+| `cpu_palette_tile_sweep` | `isa neon, 9 formats, a format per lane`; `every word, one-step tiles, per element and per column: 0 mismatches`; `whole tiles, a palette of three per block: 0 mismatches (172032 of 196608 blocks ran whole)`; `PASS` | 2:36 |
+| `cpu_palette_tile_sweep control` | `83111807712 mismatches`; `PASS: the control mismatches, so the comparison can fail` | 2:33 |
+| `MPTORCH_CPU_SIMD=0 cpu_palette_tile_sweep` | `no lane tile on this CPU or build (isa none): nothing to check` | |
+
+### Timing (`dev/benchmarks/timing/cpu_palette_gemm.py`)
+
+AC power, no thermal warning before or after; each palette against its
+single-format twin, at 256^3 and 32 x 128 x 128 (the range over the two
+shapes), with the Ryzen's numbers from the tool's docstring in brackets:
+
+| | mac | one | columns | halves | rows | elements |
+|---|---|---|---|---|---|---|
+| 1 thread | split | 1.0x [1.0-1.1] | 1.5-1.6x [1.5] | 1.0x [1.1] | 1.0-1.1x [1.1] | 1.5x [1.5-1.6] |
+| | fused | 1.0-1.1x [1.1] | 1.5x [1.4] | 1.0-1.1x [1.1] | 1.1x [1.2] | 1.7x [1.5-1.6] |
+| 11 threads [16] | split | 1.0-1.2x [1.0-1.2] | 1.5-1.6x [1.3-1.5] | 1.0-1.1x [1.0-1.2] | 1.1x [1.1-1.3] | 1.4-1.5x [1.5-1.8] |
+| | fused | 1.0-1.1x [1.2] | 1.3-1.5x [1.4-1.5] | 1.1-1.2x [1.2-1.3] | 1.1x [1.2-1.3] | 1.4-1.7x [1.5-1.7] |
+| 1 thread, RO | split | 1.0x [1.0-1.1] | 1.3-1.4x [1.3-1.4] | 1.0x [1.0-1.1] | 1.2x [1.1-1.2] | 2.1x [2.2] |
+| | fused | 1.0-1.1x [1.1] | 1.6-1.7x [1.6] | 1.0-1.1x [1.1] | 1.2x [1.3] | 2.1-2.2x [2.4] |
+| 11 threads, RO | split | 1.0-1.1x | 1.3x | 1.0x | 1.1-1.2x | 1.8-1.9x |
+| | fused | 1.0-1.1x | 1.3-1.4x | 1.0x | 1.1-1.2x | 1.7-1.9x |
+
+The absolute times at 256^3 on one thread:
+- **under RNE:** the split twin takes 11.29 ms and its palettes
+  11.05-16.94; the fused twin 5.44 and its palettes 5.67-9.12;
+- **under RO:** the twins 14.96 and 7.49, and the palettes 15.22-31.61 and
+  7.72-16.56;
+- **`MPTORCH_CPU_SIMD=0`**, the scalar loop for twin and palette alike:
+  every map is 1.0x its twin, and the split twin takes 50.31 ms under RNE
+  and 112.61 under RO.
+
+So the palettes, which ran that scalar loop before AK, are now 2.8-4.6x
+faster under RNE and 3.2-7.5x under RO on one thread. The M3 Pro's ratios
+are within 0.1-0.2 of the Ryzen's:
+- the fused per-element map on one thread is a little slower (1.7x against
+  1.5-1.6x);
+- the odd macs' per-element maps are a little faster (2.1-2.2x against
+  2.2-2.4x).
+
+### NEON layout
+
+The handoff asks whether NEON prefers another layout. AA's single-format
+tiles kept NEON's product-only and fused tiles row by row, while the lane
+tiles run passes over a band of `LANE_BAND = 8` rows, sized for the Ryzen's
+L1 (12 KB of per-element constants for the split mac). The M3 Pro's L1 is
+128 KB, so I timed bands of 16 and 32 (the whole tile's 48 KB) and of 1
+(row by row). Each was a local one-line change in a worktree, the builds
+alternated through the tool, three rounds with the order rotated, on one
+thread, under RNE and RO.
+
+The per-element map against band 8:
+- **16 and 32:** 0.98-0.99x under RNE, and 1.00-1.01x under RO, whose odd
+  macs do not take the lane tiles;
+- **1 (row by row):** 1.02x for the split mac and **1.10x** for the fused
+  one.
+
+**Placement is as large as these effects.** The per-column map, which never
+reads the band, moved too: 0.94-0.95x (split) and 1.11x (fused) in the
+band-32 and band-1 builds, and 1.00x in band 16's. The per-column and
+per-element paths are inlined into one function per mac (`split_neon`,
+`fused_neon`), so a change to one moves the other's loops. R2.1 saw the
+same sensitivity: a 4% move with byte-identical objects.
+
+**No proposal.** Passes over a band suit the M3 Pro's lane tiles (row by
+row is 10% slower for the fused mac). The 1-2% that a wider band gains is
+within what code placement moves on this machine.
+
+### Open
+
+The worktrees are back on their commits' text:
+- `../mptorch-wide` and `../mptorch-m4base` are at `714aa11`, holding the
+  band experiments' builds;
+- `../mptorch-base` is at `85d1d31`.
+
+`git worktree remove` deletes all three.
