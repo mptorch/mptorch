@@ -360,6 +360,14 @@ What to expect:
   its own, as in any model. A layer's bias gradient, for example, is a sum
   over the batch, and can differ from eager's in the last bits, as a plain
   ``nn.Linear``'s does.
+- **Each operator stays a kernel of its own.** Inductor fuses PyTorch's
+  arithmetic around an mptorch operator, not through it, so compiled code
+  still makes one pass over memory per rounding. That matters only where
+  the roundings are most of the work, as in a study that rounds every
+  pointwise op and leaves the GEMMs to PyTorch. On GPT-2 small (eager, an
+  RTX 4060 laptop GPU), the quantizers take about 1% of the GPU time under
+  the presets, whose GEMMs are mptorch's, and 2-3% with E4M3 operands on
+  PyTorch's GEMMs.
 - **Recomputed operands are kept under stochastic rounding.** A layer can
   keep a raw operand and quantize it again in backward (``recompute_input``,
   ``recompute_weight``). Under stochastic rounding that replay sets the
