@@ -282,7 +282,7 @@ def _uncounted_reason(mac: Any) -> str:
     return "a cross-family mac"
 
 
-def _counting(tally: "_SiteTally | None", pass_: str) -> _Count:
+def _counting(tally: Any, pass_: str) -> _Count:
     """``pass_``'s counting into ``tally``, or ``None`` without a tally."""
     if tally is None:
         return None
@@ -302,13 +302,14 @@ def _counting(tally: "_SiteTally | None", pass_: str) -> _Count:
     return count
 
 
-def _counting_quant(q: Any, tally: "_SiteTally | None", slot: str) -> Any:
-    """A quantizer slot's value, counting its casts into ``tally`` when it is
-    a Quant of a family the recount reads; the value itself otherwise, and
-    without a tally."""
+def _counting_quant(q: Any, tally: Any, slot: str, pass_: str | None = None) -> Any:
+    """A quantizer slot's value, counting its casts into ``tally`` (under
+    ``pass_``, or the GemmFormats slot's own) when it is a Quant of a family
+    the recount reads; the value itself otherwise, and without a tally."""
     if tally is None or q is None:
         return q
-    pass_ = _SLOT_PASS.get(slot, slot.split("_")[0])
+    if pass_ is None:
+        pass_ = _SLOT_PASS[slot]
     if isinstance(q, Quant) and not q.inplace and isinstance(q.fmt, BinaryK | SuperFP | FixedPoint):
         return _CountingQuant(q, tally, pass_, slot, _fmt_label(q.fmt))
     what = "an in-place Quant" if isinstance(q, Quant) else f"a {type(q).__name__}"

@@ -32,6 +32,7 @@ from typing import Any, NamedTuple
 import torch
 
 from mptorch.number.base import _report_per_call
+from mptorch.quant.events import _CountingQuant
 
 from ._checks import (
     _BELOW_BINARY64,
@@ -450,7 +451,11 @@ def _round_result(
         stored = spec.result_stored[wide].get(dtype)
         if stored is not None:
             _report_per_call(*stored)
-        if t.is_contiguous():
+        if type(q) is _CountingQuant:
+            # simulate(events=True): out of place, to recount from the value
+            out = spec.plain_op(t, *spec.args)
+            q.count(t, out)
+        elif t.is_contiguous():
             spec.fresh_op(t, *spec.args)
             out = t
         else:

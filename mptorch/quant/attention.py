@@ -26,6 +26,7 @@ from mptorch.number import BlockFormat
 # `modules`, whose QMultiheadAttention imports this module, while they are
 # still loading.
 from . import norm, pointwise
+from .events import _uncounted
 from .mac import BlockMac, BlockQuant, FusedMac, Quant, SplitMac
 from .modules._opaque import _opaque_backward
 from .modules.format import QMatmulFormats
@@ -565,6 +566,7 @@ def _may_draw(step: Any) -> bool:
     callable mptorch does not know."""
     if step is None:
         return False
+    step = _uncounted(step)  # a slot simulate(events=True) counts reads as its Quant
     if isinstance(step, Quant | ScaledQuant | BlockQuant | SplitMac | FusedMac | BlockMac):
         return step.rounding.is_stochastic
     return True

@@ -203,7 +203,7 @@ class _CountedCall:
         op: Callable[..., Any],
         tail: tuple[Any, ...],
         conv: tuple[Callable[..., Any], tuple[Any, ...]] | None,
-        tally: _SiteTally,
+        tally: Any,
         pass_: str,
         labels: tuple[str, str, str],
     ):
@@ -244,15 +244,47 @@ class _CountingQuant:
 
     __slots__ = ("quant", "tally", "pass_", "role", "label")
 
-    def __init__(self, quant: Any, tally: _SiteTally, pass_: str, role: str, label: str):
+    def __init__(self, quant: Any, tally: Any, pass_: str, role: str, label: str):
         self.quant, self.tally, self.pass_, self.role, self.label = quant, tally, pass_, role, label
 
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        q = self.quant(x)
+    @property
+    def _spec(self) -> Any:
+        """The Quant's resolved cast, which `ops._spec._round_result` rounds a
+        computed result with (out of place, then `count`)."""
+        return self.quant._spec
+
+    def count(self, x: torch.Tensor, q: torch.Tensor) -> None:
+        """Add the casts ``x -> q`` to the tally, unless they replay."""
         if not _replaying:
             n = _recount(x, q, self.quant.fmt, self.quant.carrier)
             self.tally.add(self.pass_, self.role, self.label, n)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        q = self.quant(x)
+        self.count(x, q)
         return q
+
+
+def _uncounted(q: Any) -> Any:
+    """A slot's value as the code that reads its kind sees it: a counting
+    slot's Quant, any other value itself."""
+    return q.quant if type(q) is _CountingQuant else q
+
+
+class _Prefixed:
+    """A view of a tally whose roles are named under ``prefix``: a site's
+    part, an attention's ``qk`` product or its softmax for instance."""
+
+    __slots__ = ("tally", "prefix")
+
+    def __init__(self, tally: Any, prefix: str):
+        self.tally, self.prefix = tally, prefix
+
+    def add(self, pass_: str, role: str, label: str, n: torch.Tensor) -> None:
+        self.tally.add(pass_, f"{self.prefix}.{role}", label, n)
+
+    def gap(self, pass_: str, role: str, reason: str) -> None:
+        self.tally.gap(pass_, f"{self.prefix}.{role}", reason)
 
 
 class EventRow(NamedTuple):

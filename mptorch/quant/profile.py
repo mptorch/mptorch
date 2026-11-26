@@ -45,6 +45,7 @@ from torch._subclasses.fake_tensor import (
 )
 from torch.nn.modules.utils import _ntuple
 
+from ._counting import _counting_formats
 from .conv import _leading_padding
 from .convert import _REGISTRY
 from .events import EventReport, _SiteTally
@@ -1210,8 +1211,8 @@ def profile(
             :attr:`Profile.events`, as ``simulate(recipe, model,
             events=True)`` counts them; a converted layer's through a
             counting container rebuilt from the formats it was converted
-            with, swapped in for the pass (a layer whose formats were built
-            otherwise, or hold a palette, is listed as not counted). The
+            with, swapped in for the pass (a GEMM layer whose formats were
+            built otherwise, or hold a palette, is listed as not counted). The
             pass is a forward one: ``backward=True`` counts the backward's
             MACs from the forward's shapes, and runs no backward. It needs
             ``run=True``, since a fake tensor has no values. Default:
@@ -1301,13 +1302,29 @@ def profile(
     )
 
 
-def _counting_layers(model: nn.Module, state: _State) -> list[tuple[nn.Module, nn.Module]]:
-    """Give each converted GEMM layer a counting container for the pass,
-    rebuilt from the GemmFormats it was converted with, its site's counts in
-    ``state.tallies``; return the (layer, formats) pairs to put back."""
-    swapped = []
+# The kinds of the converted layers whose formats are an opt-in kind's
+# frozen value (QLayerNorm, QSoftmax, QGELU, ...).
+_OPT_IN_LAYERS = {
+    entry.qcls: entry.kind
+    for entry in _REGISTRY.values()
+    if entry.qcls is not None and entry.kind not in ("linear", "conv", "matmul")
+}
+
+
+def _counting_layers(model: nn.Module, state: _State) -> list[tuple[nn.Module, Any]]:
+    """Give each converted layer counting formats for the pass, its site's
+    counts in ``state.tallies``: a GEMM layer a container rebuilt from the
+    GemmFormats it was converted with, an opt-in kind's layer a counting copy
+    of its frozen formats; return the (layer, formats) pairs to put back."""
+    swapped: list[tuple[nn.Module, Any]] = []
     for name, module in model.named_modules():
         f = getattr(module, "formats", None)
+        opt_in = _OPT_IN_LAYERS.get(type(module))
+        if opt_in is not None and f is not None:
+            tally = state.tallies.setdefault((name, opt_in, None), _SiteTally())
+            swapped.append((module, f))
+            module.formats = _counting_formats(f, tally)
+            continue
         if isinstance(module, _CONVS):
             kind, build = "conv", "conv"
         elif isinstance(module, QMatmul):

@@ -14,15 +14,22 @@ run their ops' counted twins and whose quantizer slots recount their
 
 import pytest
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from mptorch import BinaryK, RoundMode, SuperFP
 from mptorch.quant import (
+    ActivationFormats,
+    AttentionFormats,
     BlockMac,
     GemmFormats,
+    NormFormats,
+    PointwiseFormats,
     Quant,
     Recipe,
+    ReductionFormats,
     ScaledQuant,
+    SoftmaxFormats,
     SplitMac,
     simulate,
 )
@@ -225,3 +232,134 @@ def test_profile_counts_a_converted_model_as_simulate_does():
     assert converted.get_submodule("0").formats is before
     with pytest.raises(RuntimeError, match="run=True"):
         profile(model, x, recipe=_recipe(), events=True, run=False)
+
+
+# --- the opt-in kinds ------------------------------------------------------------
+
+
+class _Transformerish(nn.Module):
+    """An embedding, a norm, an attention, an activation, a residual sum, a
+    softmax and a mean: every opt-in kind."""
+
+    def __init__(self, d=16):
+        super().__init__()
+        self.emb = nn.Embedding(20, d)
+        self.norm = nn.LayerNorm(d)
+        self.qkv = nn.Linear(d, 3 * d)
+        self.ff = nn.Linear(d, d)
+
+    def forward(self, ids):
+        x = self.emb(ids)
+        q, k, v = self.qkv(self.norm(x)).chunk(3, dim=-1)
+        h = F.scaled_dot_product_attention(q[:, None], k[:, None], v[:, None]).squeeze(1)
+        x = x + F.gelu(self.ff(h))
+        return F.softmax(x, -1).sum(-1).mean()
+
+
+def _opt_in_recipe(mode=RoundMode.RNE, carrier_rounding=RoundMode.RNE):
+    mac = SplitMac(E4M3, B16, rounding=mode)
+    q = Quant(BinaryK(8, 4, prng_bits=8), mode)
+    return Recipe(
+        linear=GemmFormats.uniform(mac, q),
+        activation=ActivationFormats.uniform(q),
+        elementwise=PointwiseFormats.uniform(q, carrier_rounding=carrier_rounding),
+        embedding=PointwiseFormats.uniform(q),
+        norm=NormFormats.uniform(mac, q),
+        softmax=SoftmaxFormats.uniform(mac, q),
+        reduction=ReductionFormats.uniform(mac, q),
+        attention=AttentionFormats.uniform(mac, q),
+    )
+
+
+def _run_ids(recipe, model, ids, events):
+    model.zero_grad()
+    torch.manual_seed(1)
+    with simulate(recipe, model, events=events) as sim:
+        y = model(ids)
+        y.backward()
+    return sim, y, [p.grad.clone() for p in model.parameters()]
+
+
+@requires_counting
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("device", devices)
+def test_every_opt_in_kind(device, mode):
+    """Every opt-in kind is counted, forward and backward, its sums through
+    the counted GEMMs and its slots recounted, and the words are the
+    uncounted simulate's: the fused pointwise ops' two passes give them."""
+    torch.manual_seed(0)
+    model = _Transformerish().to(device)
+    ids = torch.randint(0, 20, (2, 6), device=device)
+    recipe = _opt_in_recipe(mode)
+    _, y0, g0 = _run_ids(recipe, model, ids, events=False)
+    sim, y1, g1 = _run_ids(recipe, model, ids, events=True)
+    assert torch.equal(y0, y1) and all(torch.equal(a, b) for a, b in zip(g0, g1, strict=True))
+    report = sim.events()
+    assert not report.not_counted
+    rows = {(r.kind, r.pass_name, r.role): r.counts.casts for r in report.rows}
+    n = 2 * 6 * 16  # the activations' elements
+    for kind, role in (("embedding", "quant"), ("norm", "out"), ("softmax", "exp")):
+        assert rows[(kind, "fwd", role)] == n, (kind, role)
+    assert rows[("activation", "fwd", "out")] == n and rows[("activation", "bwd", "grad")] == n
+    assert (
+        rows[("elementwise", "fwd", "quant")] == n and ("elementwise", "bwd", "grad_quant") in rows
+    )
+    # its mean and its variance: a product with 1 per element each
+    assert rows[("norm", "fwd", "acc.mul")] == 2 * n
+    assert rows[("norm", "bwd", "bwd_acc.mul")] > 0
+    assert rows[("reduction", "fwd", "div")] == 1  # the mean of 12 sums
+    for part in ("qk", "pv"):
+        for pass_ in ("fwd", "igrad", "wgrad"):
+            assert rows[("attention", pass_, f"{part}.mul")] > 0
+    assert rows[("attention", "fwd", "softmax.exp")] == 2 * 6 * 6
+
+
+@requires_counting
+def test_an_elementwise_slot_is_recounted():
+    """``a * 3 + b`` under one PointwiseFormats: its slot's row is the recount
+    of each op's cast, on the carrier value before the rounding."""
+
+    class M(nn.Module):
+        def forward(self, a, b):
+            return a * 3.0 + b
+
+    q = Quant(E4M3)
+    recipe = Recipe(elementwise=PointwiseFormats(quant=q))
+    a, b = torch.randn(64) * 40, torch.randn(64)
+    model = M()
+    with simulate(recipe, model, events=True) as sim:
+        model(a, b)
+    (row,) = [r for r in sim.events().rows if r.role == "quant"]
+    m = q(a * 3.0)
+    expected = _recount(a * 3.0, m, E4M3) + _recount(m + b, q(m + b), E4M3)
+    assert list(row.counts) == expected.tolist()
+
+
+@requires_counting
+def test_round_to_odd_counts_through_the_two_passes():
+    """Rounded to odd, a counted pointwise op runs the two passes, whose
+    words are the fused op's."""
+    torch.manual_seed(0)
+    model = _Transformerish()
+    ids = torch.randint(0, 20, (2, 6))
+    recipe = _opt_in_recipe(carrier_rounding=RoundMode.RO)
+    _, y0, g0 = _run_ids(recipe, model, ids, events=False)
+    sim, y1, g1 = _run_ids(recipe, model, ids, events=True)
+    assert torch.equal(y0, y1) and all(torch.equal(a, b) for a, b in zip(g0, g1, strict=True))
+    assert any(r.kind == "elementwise" for r in sim.events().rows)
+
+
+@requires_counting
+def test_profile_counts_converted_opt_in_layers():
+    from mptorch.quant import convert, profile
+
+    torch.manual_seed(0)
+    model = nn.Sequential(nn.Linear(16, 16), nn.LayerNorm(16), nn.GELU(), nn.Softmax(-1))
+    x = torch.randn(4, 16)
+    recipe = _opt_in_recipe()
+    simulated = profile(model, x, recipe=recipe, events=True).events
+    converted = convert(model, recipe)[0]
+    counted = profile(converted, x, events=True).events
+    assert simulated is not None and counted is not None
+    assert str(simulated) == str(counted)
+    assert {r.kind for r in counted.rows} == {"linear", "norm", "activation", "softmax"}

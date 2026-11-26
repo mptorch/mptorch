@@ -380,7 +380,14 @@ three) and BLOCK's and TREE's outer format (``outer``), with the same results
 word for word, stochastic rounding included. Each quantizer slot that holds
 a :class:`~mptorch.quant.Quant` is recounted from its input and output,
 under the slot's name. An operand quantized again in backward (recompute)
-is counted once.
+is counted once. The kinds a recipe opts into are counted too, forward
+(``fwd``) and backward (``bwd``): an activation's, an arithmetic op's, an
+embedding's, a softmax's and a norm's slots are recounted, their sums run
+the counted GEMMs (a norm's under ``acc`` and ``bwd_acc``, as
+``acc.mul``, ``acc.acc``), and an attention's products count under ``qk``
+and ``pv`` and its softmax under ``softmax``. While counting, the fused
+pointwise and table ops run as two passes, so that the value before each
+rounding exists; the words are the same.
 
 The run below takes an MLP through one training step with E4M3 operands and
 E5M2 gradients, unscaled, then with the loss scaled by 1024:
@@ -401,12 +408,10 @@ The counts stay on the device until a report is made. The counted kernels
 are built with ``MPTORCH_COUNTING=1``; in a build without them every site is
 listed as not counted, and so are the palette, block, cross-family and
 round-to-odd macs and the quantizers that are not a ``Quant``
-(``EventReport.not_counted`` says which and why). The opt-in kinds (an
-activation, a norm, ...) are not counted, and events are counted in eager
-calls only, so ``sim.wrap()`` refuses. ``profile(..., events=True)`` counts
-the forward pass's events into ``Profile.events``, a converted layer's
-through a counting container rebuilt from the formats it was converted
-with.
+(``EventReport.not_counted`` says which and why). Events are counted in
+eager calls only, so ``sim.wrap()`` refuses. ``profile(..., events=True)``
+counts the forward pass's events into ``Profile.events``, a converted
+layer's through counting formats made from the ones it was converted with.
 
 Three models
 ------------

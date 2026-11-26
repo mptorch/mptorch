@@ -50,6 +50,7 @@ import torch.nn.functional as F
 from mptorch.number import BinaryK, FixedPoint, Number, RoundMode, SuperFP
 from mptorch.number.base import _report_per_call
 
+from .events import _uncounted
 from .mac import Quant, _as_quant
 from .modules._opaque import _opaque_backward
 from .ops._checks import _call_carrier, _checked_carrier
@@ -376,6 +377,7 @@ def _odd_reason(
     is rounded to odd again at 24 bits, which both bounds allow, and the cast
     then needs ``_odd_findings``' bound for binary32.
     """
+    quant = _uncounted(quant)  # a slot simulate(events=True) counts reads as its Quant
     if dtype is torch.float64 and not fused:
         return (
             "carrier_rounding=RoundMode.RO takes float32, float16 and bfloat16 operands, whose "

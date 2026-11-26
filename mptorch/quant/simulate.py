@@ -80,6 +80,7 @@ from torch.nn.modules.utils import _pair, _single, _triple
 from torch.overrides import TorchFunctionMode, resolve_name
 
 from . import attention, norm, pointwise, reduce
+from ._counting import _counting_formats
 from .convert import _REGISTRY
 from .events import EventReport, _SiteTally
 from .events import _report as _event_report
@@ -176,10 +177,6 @@ _OPT_IN_KINDS = (
 )
 
 
-# Why simulate(events=True) does not count an opt-in kind's sites.
-_OPT_IN_NOT_COUNTED = "events are counted in the linear, conv and matmul kinds"
-
-
 class _State:
     """Everything a call reads, built once from the model and the recipe."""
 
@@ -243,10 +240,11 @@ class _State:
                     continue
                 self.covered.setdefault(name, set()).add(kind)
                 if kind in _OPT_IN_KINDS:  # frozen formats, read as they are
-                    self.routes[(name, kind, site)] = _Route(gf, gf.label())
-                    if events:
+                    value = gf
+                    if events:  # or a counting copy (mptorch.quant._counting)
                         tally = self.tallies.setdefault((name, kind, site), _SiteTally())
-                        tally.gap("fwd", kind, _OPT_IN_NOT_COUNTED)
+                        value = _counting_formats(gf, tally)
+                    self.routes[(name, kind, site)] = _Route(value, gf.label())
                     continue
                 # a palette's container holds its map, and a counting one its
                 # site's counts, so each such route has its own
@@ -1119,7 +1117,8 @@ class simulate:
         events (bool): count the numeric events of the simulated products'
             casts (:mod:`mptorch.quant.events`), by site, pass and role, which
             :meth:`events` reports: each product runs its GEMM op's counted
-            twin, and each quantizer slot holding a ``Quant`` is recounted.
+            twin, and each quantizer slot holding a ``Quant`` is recounted,
+            the opt-in kinds' too (their sums through the counted GEMMs).
             It needs a build with ``MPTORCH_COUNTING=1`` (the report says so
             otherwise), runs in eager calls only, and gives each site a
             container of its own. Default: ``False``
