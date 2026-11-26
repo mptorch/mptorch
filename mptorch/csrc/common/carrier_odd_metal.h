@@ -342,6 +342,101 @@ namespace mptorch::gemm
       return mul_core(a, b);
     }
 
+    // Division and square root rounded to odd, for the pointwise ops (the
+    // GEMMs divide nowhere and take no root). Each has the three parts the
+    // primitives above have:
+    //
+    //   core   div: q = a / b, the unit's quotient, and r = fma(-q, b, a),
+    //          which has the sign of a - q * b and is zero exactly when q is
+    //          a / b; a / b - q then has the sign of r times b's, so the odd
+    //          fix of q takes a residual of r's magnitude with that sign.
+    //          sqrt: s = sqrt(x) and r = fma(-s, s, x), whose sign is that
+    //          of sqrt(x) - s. The fma rounds r once, which keeps its sign
+    //          and whether it is zero, so r need not be representable; q
+    //          and s need only be faithful (either neighbour of the exact
+    //          value), and the unit's are correctly rounded in safe math.
+    //   gate   a test on the bits that sends to the cold path a dividend or
+    //          radicand below 2^-79 (zero and subnormals included), an
+    //          infinite or NaN one, a negative radicand, and a quotient q
+    //          below 2^-126 or not finite (which catches a zero, infinite,
+    //          subnormal or NaN divisor too: the unit flushes a subnormal
+    //          one to zero). Inside, a - q * b is a multiple of 2^(E_a - 47),
+    //          since q's binade is at least E_a - E_b - 1, and x - s * s one
+    //          of 2^(E_x - 47): nonzero, either is at least 2^-126, so the
+    //          flush cannot reach r.
+    //   cold   the specials, answered from the bits; every other input
+    //          rescaled on its bits onto [1, 2) (a radicand onto [1, 4),
+    //          leaving an even exponent), run through the core, and scaled
+    //          back by descale, which rounds onto the subnormal grid to odd
+    //          and gives Omega past the top.
+    constant uint32_t TINY_RADICAND = 48u << 23; // 2^-79, the dividends' bound too
+    constant uint32_t NORMAL_WORD = 1u << 23;    // 2^-126
+
+    inline float div_core(float a, float b)
+    {
+      const float q = a / b;
+      const float r = metal::fma(-q, b, a);
+      return fix(q, float_of(word(r) ^ (word(b) & SIGN_BIT)));
+    }
+
+    inline float sqrt_core(float x)
+    {
+      const float s = metal::sqrt(x);
+      return fix(s, metal::fma(-s, s, x));
+    }
+
+    MPTORCH_ODD_COLD float div_cold(float a, float b)
+    {
+      const uint32_t wa = word(a), wb = word(b);
+      const uint32_t A = wa & ~SIGN_BIT, B = wb & ~SIGN_BIT;
+      const uint32_t sign = (wa ^ wb) & SIGN_BIT;
+      if (A > INF_WORD || B > INF_WORD)
+        return a + b; // a NaN
+      if (A == B && (A == 0 || A == INF_WORD))
+        return a / b; // 0 / 0 and inf / inf: IEEE's NaN
+      if (A == INF_WORD || B == 0)
+        return float_of(sign | INF_WORD); // a subnormal dividend over 0 included
+      if (A == 0 || B == INF_WORD)
+        return float_of(sign); // 0 over a subnormal divisor included
+      uint32_t sa, sb;
+      int ea, eb;
+      split(A, sa, ea);
+      split(B, sb, eb);
+      return descale(div_core(build(wa & SIGN_BIT, sa, 0), build(wb & SIGN_BIT, sb, 0)), ea - eb);
+    }
+
+    MPTORCH_ODD_COLD float sqrt_cold(float x)
+    {
+      const uint32_t w = word(x);
+      if ((w << 1) == 0 || w == INF_WORD)
+        return x; // +-0 and +inf are their own roots (IEEE's sqrt(-0) is -0)
+      if (w > INF_WORD)
+        // A NaN's root is a NaN, and so is a negative number's, a negative
+        // subnormal's included, which the unit would flush to -0.
+        return metal::sqrt((w & ~SIGN_BIT) > INF_WORD ? x : -1.0f);
+      uint32_t sig;
+      int e;
+      split(w, sig, e);
+      const int o = e & 1; // x = sig * 2^(o - 23) * 2^(e - o), with e - o even
+      return descale(sqrt_core(build(0u, sig, o)), (e - o) / 2);
+    }
+
+    inline float div(float a, float b)
+    {
+      const uint32_t A = word(a) & ~SIGN_BIT, Q = word(a / b) & ~SIGN_BIT;
+      const bool cold = in_gap(A, TINY_RADICAND, INF_WORD) | in_gap(Q, NORMAL_WORD, INF_WORD);
+      if (cold)
+        return div_cold(a, b);
+      return div_core(a, b);
+    }
+
+    inline float sqrt(float x)
+    {
+      if (in_gap(word(x), TINY_RADICAND, INF_WORD))
+        return sqrt_cold(x);
+      return sqrt_core(x);
+    }
+
     // The round-to-nearest operations that no format rounds next, written so
     // that the flush cannot reach them: x + y and x - y as IEEE binary32
     // gives them, subnormals included. add_rn negates y on its word.
