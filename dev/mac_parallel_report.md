@@ -1713,3 +1713,48 @@ shipped (eager 82.7 ms):
 So the batched graph still exceeds Metal's 31 buffers under Inductor's
 default fusion. It compiles three times faster than the loop's, and runs as
 fast as the compiled loop (66.7 ms in the baseline).
+
+## M9 follow-up: `580c512` (fewer copies of the running state) on MPS
+
+`test_flash_attention.py` and `test_attention.py`: 310 passed, 163 skipped
+(CUDA, float64); the 16 batched cases on MPS still equal the loop. AC
+power, no thermal warning.
+
+**The copies fell as the commit says** (one forward at 4x16x1024, 128 x 128
+tiles): `copy_` 4.3M elements, against 27.9M before. **The 128-tile gap
+barely moved.** Batched against loop, seven rounds, the report's method:
+
+| shape | tiles | fwd: before, now | fwd+bwd: before, now |
+|---|---|---|---|
+| 4x16x1024 | 64 | 1.000, 0.987 | 1.021, 1.010 |
+| 4x16x1024 | 128 | 1.065, 1.053 | 1.064, 1.056 |
+| 2x16x2048 | 64 | 0.860, 0.836 | 0.908, 0.898 |
+| 2x16x2048 | 128 | 1.042, 1.040 | 1.043, 1.033 |
+| 1x16x4096 | 64 | 0.648, 0.636 | 0.731, 0.729 |
+| 1x16x4096 | 128 | 0.985, 0.945 | 1.000, 0.974 |
+
+(The "before" ratios at 4096 are from the M9 table, three rounds; the rest
+from its seven-round recheck.)
+
+**Both paths are GPU-bound here, with no host syncs.** At 4x16x1024 with
+128 x 128 tiles, neither path dispatches `_local_scalar_dense`. The host
+finishes enqueuing in 1.5 ms (batched) and 3.3 ms (loop) of the 80.4 and
+76.0 ms, so the 4.4 ms difference is GPU work.
+
+**The remaining extra work is GEMM operand copies.** Grouped by caller
+(`TorchDispatchMode`, the copying ops' elements), batched against loop:
+
+| op, caller | batched | loop |
+|---|---|---|
+| `clone`, `ops/_spec.py:213 _packed` (a GEMM operand made contiguous) | 14.68M | 0 |
+| `clone`, `ops/_checks.py:243 _quantizer_operand` | 8.39M | 12.58M |
+| `add_` on a non-contiguous view, `attention.py:885 _batched_scores` (the causal bias) | 7.34M | 0 |
+| `copy_`, `attention.py:898 _retire` | 3.78M | 0 |
+
+So the batched path hands its GEMMs operands that are neither contiguous
+nor a transposed contiguous tensor, which `_packed` copies; in the loop no
+GEMM operand needed that copy. Laying the
+batched operands out so `_packed` passes them through (contiguous, or the
+transpose of a contiguous tensor) would likely close most of the gap. The
+non-contiguous causal-bias `add_` is the next largest. I did not try
+either, since `attention.py` is Linux's.
