@@ -7,7 +7,56 @@ untracked and local to Linux, and the Mac's copy of it is older than most of
 what follows. Phase letters (AI, AK, S, ...) are that plan's names; this
 document says what each one means wherever it uses one.
 
-## 1. In short
+## 0. Round 2 (2026-11-26): what to run now
+
+The first round's four commits are merged (`fc2caad`, `4d5e60a`, `482a291`,
+`9d481ce`; the merged Linux build is byte-identical to the one before).
+Linux has since committed, on top of them:
+
+| commit | what | touches Metal? |
+|---|---|---|
+| `7d879b9` | SP-1: the `__aarch64__` arm in `fixedpoint_word_call_v`, as M1 measured it; `fixedpoint_gemm.py ops --device mps` skips its wide row | no (`common/fixedpoint_gemm.h`'s host part); x86-64 and CUDA objects identical |
+| `5376e5f` | phase AI, step 1: `odd::div` and `odd::sqrt` on the host and CUDA (`common/carrier_odd_div_sqrt.h`); `_carrier_odd` op codes 3 and 4 on the CPU and CUDA | no (the new header is empty under `__METAL_VERSION__`) |
+| `73052e1` | phase AI: the fused pointwise and table ops on the CPU, CUDA and Meta, the Python that calls them, the CPU's vector blocks (NEON included) | `common/pointwise.h` is written as Metal but no root includes it yet |
+| the commit updating this file | this section, and M4's go-ahead | no |
+
+**Nothing here blocks Linux**, which now starts phase AK (vector tiles for
+the CPU palette GEMMs). Run the round in this order, one report section per
+task, as before:
+
+1. **R2.0, verification at the commit updating this file.** The first
+   arm64 build of AI's CPU code: `cpu/pointwise_*.cpp`, the host primitives
+   of `common/carrier_odd_div_sqrt.h` (`std::fma`, `std::frexp`,
+   `std::bit_cast` under Apple clang), and `cpu/pointwise_rne.cpp`'s NEON
+   blocks (its `#pragma GCC optimize` is GCC's; clang already defaults to
+   no-trapping-math, and Darwin to no-math-errno, which the square root's
+   vectorization needs: check that the NEON block loop vectorizes, for
+   example with `-Rpass=loop-vectorize` on that file, or by its time). Then:
+   - `tests/test_pointwise_fused.py` (its CPU cases; MPS skips),
+     `tests/test_cpu_simd.py` (the NEON blocks against the scalar loop,
+     under each `MPTORCH_CPU_SIMD` setting it runs), `test_carrier_rounding.py`,
+     `test_fake_kernels.py` (80 ops now), `test_pointwise.py`, `test_pwl.py`,
+     and the full suite;
+   - timing, AC power: `dev/benchmarks/timing/pointwise_ops.py --device cpu
+     --threads 1` and `--threads 11` (its `2pass` column is the path these
+     ops took before), and `--device mps` (the MPS ops still take the two
+     passes; this is M6b's base). The tool's glibc variables do not apply
+     on macOS.
+2. **R2.1, SP-1's rerun:** section 4.4 on `7d879b9`, against `85d1d31` and
+   `d612464`. The committed tree is now the report's "arm" build.
+3. **M4, the go-ahead is given** (section 7). It must be merged before Linux
+   starts S, which follows AK.
+4. **M6b** (section 9.2, with 9.3's list), now that SP-AI is delivered.
+
+M4 and M6b touch different files (M4 `common/fixedpoint_gemm.h`'s Metal
+arms and the fixed-point Metal path; M6b new Metal roots, the MPS entries,
+`setup.py`'s `embed_metal_sources`, the `_mps` declarations in
+`quant_ops.h`, and the lines 9.3 names in `mptorch/quant/pointwise.py` and
+the two test files, which Linux leaves alone meanwhile), so keep them in
+separate commits. Each shared hunk goes in the report, and Linux reruns
+`binary_identity.py` for every edit under `common/`.
+
+## 1. In short (the first round)
 
 **Where things stand.** The last Mac round passed at `137dc14` (phase T's
 step 6, the fixed-point GEMM on MPS). Since then Linux committed and pushed
@@ -33,10 +82,10 @@ this document assigns to the Mac with a sync point.
 | M1 | the verification round for the five commits above, the arm64 host timing of the new layouts, MPS timings | now, first | no |
 | M2 | phase AQ: why the fused `ScaledQuant` by blocks of 32 gains nothing in float32 on MPS | now | no |
 | M3 | phase AR: why `block_project` takes 2.2-4.2x `block_pack`'s time on MPS | now | no |
-| M4 | optional, only with the user's go-ahead: the fixed-point GEMM's new layouts on Metal | after M1 | must be merged before Linux starts S |
+| M4 | the fixed-point GEMM's new layouts on Metal (the user's go-ahead given 2026-11-26) | round 2 | must be merged before Linux starts S |
 | M5 | phase AJ's open question: what `torch.compile` does on MPS | now | no |
 | M6a | AI's pre-work: binary32 round-to-odd division and square root on Metal | now | no (an interface is fixed below) |
-| M6b | AI's MPS part: the fused pointwise, table and (if built) row-reduction ops on Metal | at SP-AI | yes |
+| M6b | AI's MPS part: the fused pointwise and table ops on Metal (no row-reduction kernel was built) | round 2 (SP-AI delivered) | yes |
 | M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | at SP-AK | yes |
 | M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | at SP-S | yes |
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | at SP-AL | yes |
@@ -125,8 +174,8 @@ timing. Lint any Python you change, as CI does:
 | point | Linux delivers | the Mac then does |
 |---|---|---|
 | **SP-0** (now) | the commit adding this file, pushed | M1 first; then M2, M3, M5 and M6a in any order; M4 only with the user's go-ahead |
-| **SP-1** | after M1's report: if the arm64 timing disagrees with the host's choice of modes (section 4.4), Linux adjusts `fixedpoint_word_call_v` and pushes | rerun section 4.4 on the new commit |
-| **SP-AI** | AI's ops on the CPU, CUDA and Meta, with `common/pointwise.h` (and `common/pwl.h`) written as valid Metal, the schemas, and tests with MPS parameters that skip without an MPS kernel; the interface of M6a's primitives confirmed | M6b; M6a's primitives merged into it |
+| **SP-1** (delivered, `7d879b9`) | after M1's report: if the arm64 timing disagrees with the host's choice of modes (section 4.4), Linux adjusts `fixedpoint_word_call_v` and pushes | rerun section 4.4 on the new commit |
+| **SP-AI** (delivered, `5376e5f` and `73052e1`) | AI's ops on the CPU, CUDA and Meta, with `common/pointwise.h` written as valid Metal (the tables' step is there too: no `common/pwl.h`), the schemas, and tests with MPS parameters that skip without an MPS kernel; the interface of M6a's primitives confirmed | M6b; M6a's primitives are already merged |
 | **SP-AK** | AK's palette tiles, NEON included, written on Linux and checked on x86 | M7 |
 | **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. **M4, if done, must be merged before Linux starts S**, since S wraps the GEMM policies, the fixed-point ones included |
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
@@ -418,10 +467,10 @@ call.
 **Do not touch** `block.metal`, `common/block_project.h` (the CPU, CUDA and
 Meta kernels share it) or any other header under `common/`.
 
-## 7. M4 (optional): the fixed-point GEMM's new layouts on Metal
+## 7. M4: the fixed-point GEMM's new layouts on Metal
 
-**Only with the user's go-ahead.** Not in the plan yet; Linux left it out of
-T's timing gate.
+**The user gave the go-ahead on 2026-11-26.** Run it in round 2 (section 0);
+Linux must have it merged before starting S.
 
 **Why.** On the host and CUDA, the fixed-point GEMM's casts now take a
 layout of their own (one unsigned range test of the word, then a straight
@@ -445,7 +494,13 @@ layout has to agree). All in `common/fixedpoint_gemm.h`, so:
   text unchanged;
 - keep each mode only where it measures faster on the M3 Pro (`ops --device
   mps`, the base being the commit before the change, alternated), as Linux
-  did per side;
+  did per side. The per-side choice is `fixedpoint_word_call_v`, whose arms
+  are now `__CUDA_ARCH__`, `__aarch64__` (`7d879b9`) and the rest: give
+  Metal an arm of its own **ahead of** the `__aarch64__` one
+  (`#elif defined(__METAL_VERSION__)`), so that the GPU's choice never
+  depends on what the Metal compiler predefines. Section 4.5's table is the
+  base to beat: under SR the carrier path takes 1.21x the binaryK split
+  mac, and under RZ, RU and RD 10-12x its own RNE time;
 - the gate: `tests/test_fixedpoint_mps.py` (257 cases, every mode, the
   subnormal-step formats `FixedPoint(12, 140)` and `FixedPoint(24, 135)`
   included), and the Metal flush rules of section 2.4: the line works on
@@ -548,6 +603,74 @@ and `common/pwl.h` written as valid Metal):
   fused variant in AI).
 
 Estimate on the Linux plan: 1-1.5 d, plus the table evaluation's Metal part.
+
+### 9.2a SP-1, decided (2026-11-26)
+
+Linux took M1's `__aarch64__` arm in `fixedpoint_word_call_v` as the report
+gives it (every deterministic mode but RNE on arm64), with the comment
+updated. `fixedpoint_gemm.py ops --device mps` now skips its wide row. Rerun
+section 4.4 on the commit that carries them; "arm" there is now "new".
+
+### 9.3 What Linux landed for SP-AI
+
+**M6a, merged (`482a291`), and its interface matched:** `float
+div(float a, float b)` and `float sqrt(float x)` in `mptorch::gemm::odd`
+(`common/carrier_odd_metal.h`), as the report says. `common/pointwise.h`
+calls them as `mptorch::gemm::odd::div` and `mptorch::gemm::odd::sqrt`. The
+host and CUDA twins are in a header of their own,
+`common/carrier_odd_div_sqrt.h`, whose body is empty under
+`__METAL_VERSION__`, so no odd root's text changed. Linux checked the
+hunk: no Linux unit includes `carrier_odd_metal.h` (ninja's dependency
+records), and the merged tree's build is byte-identical to the one before.
+
+**No `common/pwl.h`.** The table evaluation is `PwlStep` in
+`common/pointwise.h`, beside the arithmetic step (`ArithStep`); one set of
+loops takes either.
+
+**What `common/pointwise.h` holds for Metal** (written, never compiled; Linux
+compiles no Metal):
+- `rn::add/sub/mul/div/sqrt`'s Metal arm: the sum as `metal_sub_rn(x, -y)`,
+  `metal_sub_rn`, `metal_mul_rn`, `metal_div_rn`, and a root whose subnormal
+  radicand `m 2^-149` is taken as `sqrt(2m) * 2^-75` (a negative subnormal a
+  NaN). Check each against the CPU on subnormal-heavy inputs; nothing on
+  Linux has.
+- `floor_of`, `word_of`/`float_of` (`as_type`), `power_of_two`, `exponent_of`
+  have Metal arms; their binary64 overloads are host and CUDA only.
+- Two places need a Metal spelling: `PwlStep::e` is a plain `const T *`
+  (Metal needs `device const T *`), and `pointwise::offsets` takes the
+  geometry by a thread reference, so the kernel copies `PointwiseGeom` out of
+  its constant buffer first.
+- The casts (`BinaryKRound`, `SuperfpRound`, `FixedPointRound`) and their
+  `make_*_round` factories are `CUDA_HOST_DEVICE_INLINE`, so the GPU can build
+  them from literals as `gemm_backend.cpp`'s `args_source` builds the GEMM
+  policies.
+
+**The entries to copy:** `cpu/pointwise_kernel.h`'s `run_pointwise` and
+`run_pwl`, after each family's format checks (`cpu/pointwise_*.cpp`). The CPU
+draws its SR seed before the empty-result test, because the CPU quantizers
+do; mirror whatever the MPS quantizers do, since the reference is the
+quantizer on the step's result. Element j takes word j & 3 of Philox block
+j >> 2, as `quant_kernel_sr` does.
+
+**What to switch on once the kernels pass:**
+- `mptorch/quant/pointwise.py`'s `_FUSED_DEVICES` gains `"mps"` (it serves
+  `pwl._rounded` too). Round to odd on MPS then runs through the fused op
+  (`_odd_reason(..., fused=True)`), where today it raises (its two passes
+  compute in float64).
+- The skips: `tests/test_pointwise_fused.py`'s `DEVICES` ("no MPS kernel
+  yet") and `tests/test_carrier_rounding.py`'s `QUOTIENT_DEVICES` and
+  `QUOTIENT_ACCELERATORS` ("no Metal division or root rounded to odd yet").
+- The MPS `_carrier_odd` op gains op codes 3 and 4 (division and the root):
+  its Metal root calls `odd::div` and `odd::sqrt`, as M6a's scratch harness
+  did, and its entry passes `5` to `check_carrier_odd`, as the CPU and CUDA
+  entries do.
+
+**Not built** (decision AI-b): the row-reduction kernel. The CPU's vector
+loop (`cpu/pointwise_rne.cpp`, AVX-512, AVX2 and NEON) is new arm64 code for
+M1's kind of check: `tests/test_cpu_simd.py` holds it to the scalar loop.
+
+**Timing:** `dev/benchmarks/timing/pointwise_ops.py` has a `2pass` variant
+(the two passes spelled out) and a `pwl` row (`qpwl` over `silu_table()`).
 
 ## 10. M7, at SP-AK: the NEON palette tiles
 
