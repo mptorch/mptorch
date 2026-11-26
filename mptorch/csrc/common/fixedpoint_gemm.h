@@ -511,15 +511,22 @@ namespace mptorch::gemm
   // Which modes take the line, per side, as the shipped kernels measured
   // against the bitwise casts: on the device every deterministic mode (RZ
   // 0.24x the time, RU and RD 0.36-0.40x, RNA 0.66x, RO 0.78x in binary32,
-  // RNE 0.34x in binary64 and 0.65x in binary32 past the fast gate); on the
-  // host RU, RD and RZ (0.23-0.81x), where the shipped casts branch on the
-  // value's sign. On the host RNE and RNA measured 1.0-1.1x, and RO 1.24-1.28x
-  // on the carrier path (0.92x on the integer split), so they keep the
-  // shipped casts.
+  // RNE 0.34x in binary64 and 0.65x in binary32 past the fast gate). On an
+  // x86-64 host (GCC) RU, RD and RZ (0.23-0.81x), where the shipped casts
+  // branch on the value's sign; RNE and RNA measured 1.0-1.1x there, and RO
+  // 1.24-1.28x on the carrier path (0.92x on the integer split), so they keep
+  // the shipped casts. On an arm64 host (Apple clang) every deterministic
+  // mode but RNE: there the shipped RNA and RO casts cost what the directed
+  // ones do, and the line takes them to 0.29-0.30x on the carrier path and
+  // 0.66-0.68x on the integer split. RNE keeps the shipped cast on every
+  // host: on the line it made arm64's carrier path 5.4x slower, though the
+  // fast path comes first.
   template <RoundMode RM>
   inline constexpr bool fixedpoint_word_call_v =
 #if defined(__CUDA_ARCH__)
       fixedpoint_word_mode_v<RM>;
+#elif defined(__aarch64__)
+      fixedpoint_word_mode_v<RM> && RM != RoundMode::RNE;
 #else
       RM == RoundMode::RU || RM == RoundMode::RD || RM == RoundMode::RZ;
 #endif

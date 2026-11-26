@@ -55,6 +55,25 @@ thread 4,260, 5,241, 5,477, 2,764 and 4,929 (at 384^3). On 16 threads: 53
 336 ms (SR). Before the stochastic layouts (137dc14) SR was, on CUDA, 29.8
 (carrier), 37.3 (split), 28.9 (fused) and 27.3 (wide), and on one CPU thread
 9,846, 13,367, 10,974 and 8,280; the layer 401 ms.
+
+On an Apple M3 Pro (2026-11-26, macOS 26.7, at 1024^3; MPS has no wide row,
+since a wide result is float64), ps per mac step:
+
+=========================================  =====  =====  =====  =====  =====  =====  =====
+row                                        RNE    RNA    RU     RD     RZ     RO     SR
+=========================================  =====  =====  =====  =====  =====  =====  =====
+binaryK split, Binary16p9 into Binary16p12  10.4   17.8   82.1   82.2  109.9   16.8   62.2
+fixed point, the carrier path                5.0   24.5   48.4   48.4   57.8   25.3   75.3
+fixed point, integer accumulator, split     36.0   46.9   52.2   47.8   57.3   41.2   98.5
+fixed point, integer accumulator, fused     49.8   50.5   45.9   40.8   46.1   45.2   77.8
+=========================================  =====  =====  =====  =====  =====  =====  =====
+
+``layer`` there: plain 7.0 ms; binaryK 134 ms (RNE) and 784 ms (SR); fixed
+point 63 ms (RNE) and 993 ms (SR). On its CPU (one thread, 384^3, Apple
+clang), the carrier path takes 1,195 (RNE), 2,981 (RU), 2,299 (RD), 2,302
+(RZ) and 9,725 (SR), and with every deterministic mode but RNE on the
+GEMM's line (the arm64 host's choice) 3,211 (RNA) and 3,592 (RO), against
+11,095 and 12,093 through the shipped casts.
 """
 
 import argparse
@@ -143,7 +162,7 @@ def _op_rows(a: torch.Tensor, b: torch.Tensor, mode: RoundMode) -> dict[str, Cal
     def integer() -> object:  # the op's test hook: the integer accumulator on the same pair
         return spec.op(a, b, False, False, *spec.args, True)
 
-    return {
+    rows = {
         "binaryK split, Binary16p9 into Binary16p12": lambda: binaryK_matmul(
             a,
             b,
@@ -186,6 +205,9 @@ def _op_rows(a: torch.Tensor, b: torch.Tensor, mode: RoundMode) -> dict[str, Cal
             rounding_mode=mode,
         ),  # fmt: skip
     }
+    if a.device.type == "mps":  # a wide result is float64, which MPS does not have
+        del rows["fixed point, split into (40, 8), wide"]
+    return rows
 
 
 def ops(args: argparse.Namespace) -> None:
