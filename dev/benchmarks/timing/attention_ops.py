@@ -58,6 +58,7 @@ from mptorch.quant import AttentionFormats, Quant, SplitMac, qattention
 SHAPES = {
     "cpu": [(4, 8, 256), (2, 8, 1024)],
     "cuda": [(8, 8, 256), (4, 16, 1024), (1, 16, 4096)],
+    "mps": [(8, 8, 256), (4, 16, 1024), (1, 16, 4096)],
 }
 
 
@@ -85,15 +86,21 @@ def _call(variant: str):
     return lambda q, k, v: qattention(q, k, v, f, is_causal=True)
 
 
-def _timer(device: str, fn, n: int) -> float:
-    """Milliseconds per call of ``fn``, over ``n`` calls."""
+def _sync(device: str) -> None:
+    """Wait for the device's queued work, so that a timing covers it."""
     if device == "cuda":
         torch.cuda.synchronize()
+    elif device == "mps":
+        torch.mps.synchronize()
+
+
+def _timer(device: str, fn, n: int) -> float:
+    """Milliseconds per call of ``fn``, over ``n`` calls."""
+    _sync(device)
     t = time.perf_counter()
     for _ in range(n):
         fn()
-    if device == "cuda":
-        torch.cuda.synchronize()
+    _sync(device)
     return (time.perf_counter() - t) / n * 1e3
 
 

@@ -4,17 +4,17 @@
 // of one cast, read from its input x (a value of the carrier) and its result
 // q (a value of the format, in the carrier):
 //
-//   CASTS      every cast: the denominator
-//   OVERFLOW   x finite, and its magnitude past the largest finite value on
-//              x's side of zero, whatever it rounds to (an infinity, or the
-//              largest value under a saturating mode)
-//   UNDERFLOW  x finite and nonzero, and q zero
-//   SUBNORMAL  q nonzero and below the format's normal range: a binaryK
-//              subnormal under SUBNORMALS, a superfp supernormal; never
-//              under NORMALS or EXTENDED_NORMALS, nor for fixed point
-//   INEXACT    x not a NaN, and q a different value from x (-0 and +0 are
-//              one value)
-//   NAN        q a NaN, made by this cast or carried into it
+//   CASTS        every cast: the denominator
+//   OVERFLOWED   x finite, and its magnitude past the largest finite value
+//                on x's side of zero, whatever it rounds to (an infinity, or
+//                the largest value under a saturating mode)
+//   UNDERFLOWED  x finite and nonzero, and q zero
+//   SUBNORMAL    q nonzero and below the format's normal range: a binaryK
+//                subnormal under SUBNORMALS, a superfp supernormal; never
+//                under NORMALS or EXTENDED_NORMALS, nor for fixed point
+//   INEXACT      x not a NaN, and q a different value from x (-0 and +0 are
+//                one value)
+//   NAN_RESULT   q a NaN, made by this cast or carried into it
 //
 // A format's largest finite magnitude is the same on both sides of zero,
 // except for a signed fixed-point format that is not symmetric, whose
@@ -42,21 +42,16 @@
 #endif
 #endif
 
-// Darwin's <math.h> (which bit_helper.h's <cmath> has included by now)
-// defines OVERFLOW and UNDERFLOW, System V's matherr codes, which would
-// replace the two enumerators below.
-#if defined(__APPLE__) && !defined(__METAL_VERSION__)
-#undef OVERFLOW
-#undef UNDERFLOW
-#endif
-
 namespace mptorch::events
 {
+  // Not OVERFLOW, UNDERFLOW and NAN: <math.h> defines NAN, and Darwin's
+  // defines the other two as well (System V's matherr codes), which would
+  // replace the enumerators.
   enum Event : int32_t
   {
     CASTS = 0,
-    OVERFLOW = 1,
-    UNDERFLOW = 2,
+    OVERFLOWED = 1,
+    UNDERFLOWED = 2,
     SUBNORMAL = 3,
     INEXACT = 4,
     NAN_RESULT = 5,
@@ -216,8 +211,8 @@ namespace mptorch::events
     const bool x_finite = ax < F::INF_BITS;
     const bool x_nan = ax > F::INF_BITS;
     uint32_t bits = 1u << CASTS;
-    bits |= uint32_t(x_finite && ax > (negative ? t.neg_max : t.pos_max)) << OVERFLOW;
-    bits |= uint32_t(x_finite && ax != 0 && aq == 0) << UNDERFLOW;
+    bits |= uint32_t(x_finite && ax > (negative ? t.neg_max : t.pos_max)) << OVERFLOWED;
+    bits |= uint32_t(x_finite && ax != 0 && aq == 0) << UNDERFLOWED;
     bits |= uint32_t(aq != 0 && aq < t.normal_min) << SUBNORMAL;
     bits |= uint32_t(!x_nan && wq != wx && !(ax == 0 && aq == 0)) << INEXACT;
     bits |= uint32_t(aq > F::INF_BITS) << NAN_RESULT;

@@ -62,8 +62,8 @@ namespace mptorch::gemm
       const int64_t top = fx_shl(m.hi, sh);
       const int64_t bottom = m.acc_signed ? fx_shl(m.lo, sh) : -top;
       uint32_t bits = 1u << events::CASTS;
-      bits |= uint32_t(x > top || (x == top && sticky) || x < bottom) << events::OVERFLOW;
-      bits |= uint32_t((x != 0 || sticky) && q == 0) << events::UNDERFLOW;
+      bits |= uint32_t(x > top || (x == top && sticky) || x < bottom) << events::OVERFLOWED;
+      bits |= uint32_t((x != 0 || sticky) && q == 0) << events::UNDERFLOWED;
       bits |= uint32_t(sticky || fx_shl(q, sh) != x) << events::INEXACT;
       return bits;
     }
@@ -105,8 +105,8 @@ namespace mptorch::gemm
           const int64_t q = p_neg ? m.lo : m.hi;
           const bool finite = mag < F::INF_BITS;
           count_cast(acc_tally, events::ACC,
-                     (1u << events::CASTS) | (uint32_t(finite) << events::OVERFLOW) |
-                         (uint32_t(finite && q == 0) << events::UNDERFLOW) | (1u << events::INEXACT));
+                     (1u << events::CASTS) | (uint32_t(finite) << events::OVERFLOWED) |
+                         (uint32_t(finite && q == 0) << events::UNDERFLOWED) | (1u << events::INEXACT));
           return q;
         }
         const int field = static_cast<int>(mag >> F::MAN_BITS);
@@ -132,8 +132,8 @@ namespace mptorch::gemm
         const bool neg = huge ? p_neg : x < 0;
         const int64_t q = m.round_sum(x, sticky, m.guard, neg, word);
         count_cast(acc_tally, events::ACC,
-                   huge ? (1u << events::CASTS) | (1u << events::OVERFLOW) | (1u << events::INEXACT) |
-                              (uint32_t(q == 0) << events::UNDERFLOW)
+                   huge ? (1u << events::CASTS) | (1u << events::OVERFLOWED) | (1u << events::INEXACT) |
+                              (uint32_t(q == 0) << events::UNDERFLOWED)
                         : sum_bits(x, sticky, m.guard, q));
         return q;
       }
@@ -160,8 +160,8 @@ namespace mptorch::gemm
       const int64_t top = fx_shl(this->hi, sh);
       const int64_t bottom = this->acc_signed ? fx_shl(this->lo, sh) : -top;
       uint32_t bits = 1u << events::CASTS;
-      bits |= uint32_t(x > top || (x == top && sticky) || x < bottom) << events::OVERFLOW;
-      bits |= uint32_t((x != 0 || sticky) && q == 0) << events::UNDERFLOW;
+      bits |= uint32_t(x > top || (x == top && sticky) || x < bottom) << events::OVERFLOWED;
+      bits |= uint32_t((x != 0 || sticky) && q == 0) << events::UNDERFLOWED;
       bits |= uint32_t(sticky || fx_shl(q, sh) != x) << events::INEXACT;
       return bits;
     }
@@ -207,8 +207,8 @@ namespace mptorch::gemm
           const int64_t q = p_neg ? this->lo : this->hi;
           const bool finite = mag < F::INF_BITS;
           count_cast(acc_tally, events::ACC,
-                     (1u << events::CASTS) | (uint32_t(finite) << events::OVERFLOW) |
-                         (uint32_t(finite && q == 0) << events::UNDERFLOW) | (1u << events::INEXACT));
+                     (1u << events::CASTS) | (uint32_t(finite) << events::OVERFLOWED) |
+                         (uint32_t(finite && q == 0) << events::UNDERFLOWED) | (1u << events::INEXACT));
           return q; // the sum saturates on the product's side
         }
         // p = m * 2^e on the word
@@ -237,8 +237,8 @@ namespace mptorch::gemm
         // a huge finite product under wrap-around: x is the sum modulo 2^64,
         // and the exact sum is past the range
         count_cast(acc_tally, events::ACC,
-                   huge ? (1u << events::CASTS) | (1u << events::OVERFLOW) | (1u << events::INEXACT) |
-                              (uint32_t(q == 0) << events::UNDERFLOW)
+                   huge ? (1u << events::CASTS) | (1u << events::OVERFLOWED) | (1u << events::INEXACT) |
+                              (uint32_t(q == 0) << events::UNDERFLOWED)
                         : sum_bits(x, sticky, this->guard, q));
         return q;
       }
