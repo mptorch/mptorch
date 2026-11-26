@@ -782,6 +782,12 @@ per site, pass and role (quantizer slots recounted in Python).
   CUDA). Then drop the files from `PARTIAL_ENTRY_FILES` and put MPS into the
   two modules' `counted_devices`, with a `test_mps_is_the_cpu` holding
   results and counts to the CPU's.
+- The opt-in kinds count too (`mptorch/quant/_counting.py`, Python only,
+  pushed after `d72fa3d`): their slots are recounted with torch ops, and
+  their sums (norms, softmax, reductions, attention's products) run the
+  counted GEMMs, so they need nothing more on MPS than those ops.
+  `tests/test_simulate_events.py`'s opt-in tests then run on MPS through
+  the same `counted_devices`.
 - This changes `gemm.metal`'s text, so every GEMM kernel recompiles once;
   fold into it the comment the last round deferred for that reason (its
   header comment, naming the fixed-point ops among those it runs).
