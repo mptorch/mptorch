@@ -46,7 +46,29 @@
 // row is the word forms without B's and C's constants: what it costs to pick
 // StochasticA, B or C at run time, from constants the policy builds, in the
 // one SR instantiation each kernel has, 5-7%.
+//
+// The fixed-point rows (2026-11-25, RTX 4060, ps per mac step, min of 6
+// alternated rounds of 20 launches; the tree before is 137dc14's):
+//
+//                         carrier path  integer split  integer fused
+//   137dc14 (before)          31.67         38.34          28.95
+//   the GEMM's own SR cast    26.61         35.89          28.96
+//     (one range test, a straight
+//     line, the shipped cast
+//     inline for the rest)
+//   the same, the rest out    27.43         37.22          28.95
+//     of line (not kept)
+//   + the integer rounding    26.61         28.53          29.12
+//     from per-launch
+//     constants, split
+//   + the same, fused         26.61         28.52          23.66
+//     (shipped)
+//
+// Registers: the integer accumulator's split and fused SR kernels 80 and 79
+// before, 64 after; the carrier path 64 both. Every hash equal across the
+// builds, and the binaryK and superfp rows within 0.5%.
 
+#include "common/fixedpoint_gemm.h"
 #include "cuda/custom_matmul_kernel.cuh"
 
 #include <cstdio>
@@ -160,6 +182,32 @@ int main(int argc, char **argv)
   sf.acc = {10, 5, 8, 15};
   sf.acc_c = {true, SaturationMode::SAT_NONE, 8};
   run("superfp split", s, sf, reps);
+
+  // The fixed-point GEMM (common/fixedpoint_gemm.h): FixedPoint(16, 8)
+  // products into FixedPoint(16, 4) sums, 4 random bits each, StochasticA;
+  // the carrier path, the integer accumulator's split mac on the same pair,
+  // and its fused mac into FixedPoint(16, 4). A tree from before the fixed-
+  // point GEMM has none of these: build with -DMPTORCH_AB_NO_FIXEDPOINT.
+#if !defined(MPTORCH_AB_NO_FIXEDPOINT)
+  FixedPointSplitArgs fx;
+  fx.mul = {16, 8};
+  fx.mul_c = {true, false, 4};
+  fx.acc = {16, 4};
+  fx.acc_c = {true, false, 4};
+  run("fixed carrier", s, fx, reps);
+
+  FixedPointIntSplitArgs<false> fi;
+  fi.mul = fx.mul;
+  fi.mul_c = fx.mul_c;
+  fi.acc = fx.acc;
+  fi.acc_c = fx.acc_c;
+  run("fixed int split", s, fi, reps);
+
+  FixedPointIntArgs<true, false> ff;
+  ff.acc = {16, 4};
+  ff.acc_c = {true, false, 4};
+  run("fixed int fused", s, ff, reps);
+#endif
 
   CHECK(cudaFree(a));
   CHECK(cudaFree(b));

@@ -7,8 +7,10 @@
 //          shifts s of 1, 2, 3, 6 and 9 bits (those binary32 holds the sums
 //          of), in the six deterministic modes and under
 //          StochasticA, B and C with 0, 1, 3 and 6 random bits over every
-//          draw. Wrap-around is held to the cast into a format wide enough
-//          never to saturate, then reduced modulo 2^wl.
+//          draw, and, under SR, the split step's rounding from per-launch
+//          constants (fixedpoint_round_sr) too. Wrap-around is held to
+//          the cast into a format wide enough never to saturate, then
+//          reduced modulo 2^wl.
 //   fused  FixedPointIntMac's fused step, with its guard and sticky bits,
 //          against the shipped cast in binary64 on the exact sum
 //          s * 2^-fl + p, for random float32 products p from 29 binades
@@ -150,6 +152,16 @@ namespace
             wrap ? fixedpoint_wrap_code(q, f.wl, f.is_signed) : fixedpoint_saturate_code(q, lo, hi);
         bad += got != want;
         ++total;
+        if constexpr (RM == RoundMode::SR)
+        {
+          // the split step's rounding from per-launch constants
+          const auto c = make_fixedpoint_int_sr(s, sr_spec(n, variant));
+          const int64_t q2 = fixedpoint_round_sr(x, false, s, x < 0, r, c);
+          const int64_t got2 = wrap ? fixedpoint_wrap_code(q2, f.wl, f.is_signed)
+                                    : fixedpoint_saturate_code(q2, lo, hi);
+          bad += got2 != want;
+          ++total;
+        }
       }
     }
     char what[96];

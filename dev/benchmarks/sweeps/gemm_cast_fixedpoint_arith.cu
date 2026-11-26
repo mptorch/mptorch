@@ -32,7 +32,32 @@
 // the compiler keeps its two operations apart, which a handful of formats
 // over every input settles. Pass `all` (the default on CUDA) or `spot`.
 //
-// Exit status 0 when every admitted format matches on every input.
+// The `sr` modes check the GEMM's stochastic cast (fixedpoint_gemm.h's
+// cast_fixedpoint_stochastic_gemm) against the shipped one the elementwise
+// quantizers run (cast_fixedpoint_stochastic), whose results the test suite
+// holds to P3109's definition: every binary32 input, under each of a set of
+// draws, for a grid of formats (wl 2 to 24, signed, symmetric and unsigned,
+// fl from -100 to 130, a carrier-subnormal step included), N random bits
+// from 0 up to the carrier rule's bound (mag_bits + N <= 24), and the three
+// variants. The cast reads only R, the top N bits of the draw's mantissa,
+// so the draws are R's extremes, its two middle values and an odd and an
+// even value (every R for N <= 2), with the draw's other bits random.
+//   /tmp/fx_arith sr          # the grid: 216 formats, 3,240 cases, ~15 min
+//   /tmp/fx_arith sr-short    # six formats, the gate for a change, ~10 s
+//   /tmp/fx_arith sr-control  # the negative control: the GEMM's constants
+//                             # built for StochasticA under every variant;
+//                             # B and C must mismatch
+// On the host, `sr-short` runs over OpenMP threads (~10 min on 16). The
+// GEMM's cast is integer arithmetic, with no float operation a host
+// compiler could fuse or widen, so the GPU's run is the gate.
+//
+// Results (2026-11-25, RTX 4060 and the Ryzen 7940HS): `sr` 0 of 3,240
+// cases mismatch (15 min 24 s; a first, wider grid of 288 formats and 4,428
+// cases, 21 min, also 0); `sr-short` 0 on the GPU and on the host (9 min 45 s
+// on 16 threads); `sr-control` 1,941,258,420 mismatches.
+//
+// Exit status 0 when every admitted format matches on every input (in the
+// `sr` modes, every case; in `sr-control`, when B and C mismatch).
 #include "common/cast_fixedpoint.h"
 #include "common/fixedpoint_gemm.h"
 #include "common/modes.h"
@@ -151,8 +176,174 @@ static Counts run(const Fmt &f, const FixedPointParamsT<float> &p, const FixedPo
 }
 #endif
 
+// --- the stochastic cast ---------------------------------------------------------
+
+constexpr int MAX_DRAWS = 8;
+
+struct Draws
+{
+  int n;
+  uint32_t w[MAX_DRAWS];
+};
+
+struct SrCase
+{
+  FixedPointParamsT<float> p;
+  mptorch::gemm::FixedPointStochasticT<float> st;
+  int spec;
+  bool is_signed;
+};
+
+CUDA_HOST_DEVICE_INLINE unsigned long long sr_one(uint32_t bits, const SrCase &c, const Draws &d,
+                                                  uint32_t &first)
+{
+  const float x = bits_to_float(bits);
+  unsigned long long bad = 0;
+  for (int i = 0; i < d.n; ++i)
+  {
+    const uint32_t g = word_of(mptorch::gemm::cast_fixedpoint_stochastic_gemm(x, d.w[i], c.st, c.spec,
+                                                                              c.is_signed, c.p));
+    const uint32_t s = word_of(cast_fixedpoint_stochastic(x, d.w[i], c.spec, c.is_signed, c.p));
+    if (!same(g, s) && bad++ == 0)
+      first = bits;
+  }
+  return bad;
+}
+
+#if defined(__CUDACC__)
+__global__ void exhaustive_sr(SrCase c, Draws d, Counts *out)
+{
+  const uint64_t base = ((uint64_t)blockIdx.x * blockDim.x + threadIdx.x) * PER_THREAD;
+  unsigned long long bad = 0;
+  uint32_t first = 0;
+  for (int k = 0; k < PER_THREAD; ++k)
+    bad += sr_one((uint32_t)(base + k), c, d, first);
+  if (bad && atomicAdd(&out->fast_vs_bitwise, bad) == 0)
+    out->first_bad = first;
+}
+
+static Counts run_sr(const SrCase &c, const Draws &d)
+{
+  static Counts *dc = nullptr;
+  if (!dc)
+    CHECK(cudaMalloc(&dc, sizeof(Counts)));
+  CHECK(cudaMemset(dc, 0, sizeof(Counts)));
+  exhaustive_sr<<<(unsigned)((1ull << 32) / (256 * PER_THREAD)), 256>>>(c, d, dc);
+  CHECK(cudaDeviceSynchronize());
+  Counts h;
+  CHECK(cudaMemcpy(&h, dc, sizeof(Counts), cudaMemcpyDeviceToHost));
+  return h;
+}
+#else
+static Counts run_sr(const SrCase &c, const Draws &d)
+{
+  unsigned long long bad = 0;
+  uint32_t first = 0xFFFFFFFFu;
+#pragma omp parallel for schedule(static) reduction(+ : bad) reduction(min : first)
+  for (int64_t hi = 0; hi < (1 << 16); ++hi)
+  {
+    uint32_t mine = 0xFFFFFFFFu;
+    for (uint32_t lo = 0; lo < (1u << 16); ++lo)
+      bad += sr_one((uint32_t)(((uint64_t)hi << 16) | lo), c, d, mine);
+    first = mine < first ? mine : first;
+  }
+  return Counts{bad, 0, 0, first};
+}
+#endif
+
+// R's extremes, its middle values and an odd and an even one (every R for
+// N <= 2), each at the top N bits of the mantissa, with the draw's other bits
+// from a fixed LCG: the cast must ignore them.
+static Draws draws_for(int n)
+{
+  static uint64_t lcg = 0x2545F4914F6CDD1Dull;
+  auto next = [&] {
+    lcg = lcg * 6364136223846793005ull + 1442695040888963407ull;
+    return (uint32_t)(lcg >> 32);
+  };
+  Draws d{};
+  const uint32_t top = n == 0 ? 0u : (1u << n) - 1u;
+  std::vector<uint32_t> rs;
+  if (n <= 2)
+    for (uint32_t r = 0; r <= top; ++r)
+      rs.push_back(r);
+  else
+    rs = {0u, 1u, top / 2u, top / 2u + 1u, top - 1u, top, 5u};
+  for (uint32_t r : rs)
+  {
+    const uint32_t low = 23 - n >= 32 ? 0u : next() & ((1u << (23 - n)) - 1u);
+    const uint32_t high = next() & 0xFF800000u; // sign and exponent bits, ignored too
+    d.w[d.n++] = high | (n == 0 ? 0u : r << (23 - n)) | low;
+  }
+  return d;
+}
+
+static int sr_main(const char *mode)
+{
+  const bool shortrun = !std::strcmp(mode, "sr-short");
+  const bool control = !std::strcmp(mode, "sr-control");
+  std::vector<Fmt> fmts;
+  if (shortrun || control)
+    fmts = {{8, 4, true, false}, {16, 8, true, true}, {16, 4, true, false},
+            {12, -20, false, false}, {9, 125, false, false}, {10, 127, true, false}};
+  else
+    for (int wl : {2, 8, 12, 16, 23, 24})
+      for (int fl : {-100, -20, 0, 3, 8, 16, 40, 120, 125, 126, 127, 130})
+        for (int kind = 0; kind < 3; ++kind)
+        {
+          const bool is_signed = kind != 2, symmetric = kind == 1;
+          const int mag = wl - (is_signed ? 1 : 0);
+          if (mag - fl > 127 || -fl < -149 || (is_signed && wl < 2) || mag < 1)
+            continue;
+          fmts.push_back({wl, fl, is_signed, symmetric});
+        }
+  int cases = 0, bad = 0;
+  unsigned long long control_bc = 0;
+  for (const Fmt &f : fmts)
+  {
+    const int mag = f.wl - (f.is_signed ? 1 : 0);
+    const auto p = make_fixedpoint_params<float>(f.wl, f.fl, f.is_signed, f.symmetric);
+    for (int n : {0, 1, 2, 4, 8, 12, 16, 23})
+    {
+      if (mag + n > 24 || ((shortrun || control) && n != 0 && n != 1 && n != 4))
+        continue;
+      const Draws d = draws_for(n);
+      for (int variant = 0; variant < 3; ++variant)
+      {
+        SrCase c{p, {}, sr_spec(n, variant), f.is_signed};
+        c.st = mptorch::gemm::make_fixedpoint_stochastic<float>(p, f.is_signed, control ? sr_spec(n, 0) : c.spec);
+        const Counts r = run_sr(c, d);
+        ++cases;
+        if (control)
+        {
+          if (variant != 0)
+            control_bc += r.fast_vs_bitwise;
+          continue;
+        }
+        if (r.fast_vs_bitwise)
+        {
+          ++bad;
+          std::printf("wl=%2d fl=%4d %-9s N=%2d %c: %llu mismatches over %d draws (one at word 0x%08x)\n",
+                      f.wl, f.fl, f.is_signed ? (f.symmetric ? "symmetric" : "signed") : "unsigned", n,
+                      "ABC"[variant], r.fast_vs_bitwise, d.n, r.first_bad);
+        }
+      }
+    }
+  }
+  if (control)
+  {
+    std::printf("%d cases, StochasticB and C under A's constants: %llu mismatches (the control: some must)\n",
+                cases, control_bc);
+    return control_bc == 0 ? 1 : 0;
+  }
+  std::printf("%zu formats, %d cases (format, N, variant); %d cases mismatch\n", fmts.size(), cases, bad);
+  return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
+  if (argc > 1 && !std::strncmp(argv[1], "sr", 2))
+    return sr_main(argv[1]);
 #if defined(__CUDACC__)
   bool spot = argc > 1 && !std::strcmp(argv[1], "spot");
 #else

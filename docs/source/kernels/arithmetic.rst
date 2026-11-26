@@ -602,6 +602,32 @@ The second block's exact sum, 40, fits int8, and the wrapped sums reach it.
 The saturated sum stops at 127 after the second term, and the last two terms
 take it to -33.
 
+**Cost.** Per mac step, with ``FixedPoint(16, 8)`` products into
+``FixedPoint(16, 4)`` sums, against a BinaryK split mac (``Binary16p9`` into
+``Binary16p12``, formats whose casts take the fast path), on an RTX 4060
+laptop GPU at :math:`2048^3` and a Ryzen 7940HS at :math:`512^3`
+(``dev/benchmarks/timing/fixedpoint_gemm.py``, 2026-11-25):
+
+==============================  =========  =========  ===========  ===========
+mac                             CUDA, RNE  CUDA, SR   1 CPU, RNE   1 CPU, SR
+==============================  =========  =========  ===========  ===========
+BinaryK split                   7.5 ps     20.3 ps    0.41 ns      8.2 ns
+fixed point, the carrier path   4.1 ps     23.1 ps    0.56 ns      10.1 ns
+integer accumulator, split      13.5 ps    26.4 ps    5.4 ns       9.7 ns
+integer accumulator, fused      20.1 ps    23.6 ps    9.8 ns       6.3 ns
+==============================  =========  =========  ===========  ===========
+
+- The carrier path is the cheapest mac under RNE on CUDA. On the CPU it runs
+  a scalar loop the compiler vectorizes, at 1.4 times the BinaryK mac's
+  vector tiles.
+- A wide result costs about what a narrow one does: 8.6 ps a step on CUDA
+  under RNE into ``FixedPoint(40, 8)``.
+- The directed modes run the carrier path's bitwise casts: ``RZ`` takes
+  35.6 ps a step on CUDA.
+- On an M3 Pro's GPU the integer accumulator takes 7 to 10 times the
+  carrier path under RNE, since Apple GPUs emulate 64-bit integer
+  arithmetic.
+
 Palettes: a format per output element
 -------------------------------------
 

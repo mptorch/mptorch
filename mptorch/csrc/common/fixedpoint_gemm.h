@@ -29,8 +29,10 @@
 // this header's integer rounding to the shipped casts.
 //
 // cast_fixedpoint.h is not changed, so that the elementwise quantizers'
-// objects are what they were; the fast RNE cast below is this header's own.
-// The header is valid Metal, like the other common/ headers.
+// objects are what they were; the fast RNE cast below is this header's own,
+// and so is the stochastic cast's layout for the K-loop (host and CUDA), as
+// is the integer accumulator's stochastic rounding from per-launch
+// constants. The header is valid Metal, like the other common/ headers.
 
 #include "cast_fixedpoint.h"
 #include "gemm_policy.h"
@@ -121,6 +123,187 @@ namespace mptorch::gemm
   }
 #endif
 
+#if !defined(__METAL_VERSION__)
+  // --- the GEMM's stochastic cast (host and CUDA) ----------------------------------
+
+  // cast_fixedpoint_stochastic's result, with its common case laid out for a
+  // GEMM's K-loop: a value from the step 2^-fl up to (not including)
+  // 2^shift_exp, the format's range, takes one unsigned compare of its word
+  // and a straight line of integer operations, from constants built once per
+  // launch; every other input (zero, a value under the step or past the
+  // range, an infinity, a NaN, an unsigned format's negative input, any input
+  // of a format whose step is a carrier subnormal) is the shipped cast's,
+  // which it calls. The straight line is that cast's word form: the draw R
+  // added at the bit `sh` = MAN_BITS - exp_diff - N, the variant's constants
+  // below it (stochastic.h's sr_word_constants at s = sh, built here from
+  // per-launch flags), the bits below sh + N cleared, and the result clamped
+  // to the range on the words, which orders two values of one sign as their
+  // magnitudes. The carrier rule (mag_bits + N at most the carrier's
+  // precision) keeps sh at or above 0 across the range. Each call takes one
+  // draw, as the shipped cast does, so the streams are unchanged.
+  // dev/benchmarks/sweeps/gemm_cast_fixedpoint_arith.cu's `sr` mode holds it
+  // to cast_fixedpoint_stochastic over every binary32 input.
+  //
+  // Metal keeps the shipped cast (fixedpoint_policy_cast), so this is the
+  // host's and CUDA's only.
+  template <class T>
+  struct FixedPointStochasticT
+  {
+    using word_t = typename FloatTraits<T>::word_t;
+    word_t wmask;   // ABS_MASK signed, all ones unsigned (a negative word is past the range)
+    word_t lo;      // the step's word, 2^-fl
+    word_t span;    // the range's words, [lo, lo + span); 0 turns the line off
+    int base;       // sh = base - the exponent field: MAN_BITS - N + BIAS - fl
+    int bits;       // N
+    int rshift;     // R = (draw & MAN_MASK) >> rshift: MAN_BITS - N
+    word_t or_mask; // all ones when the variant adds half a unit below the draw (B, C)
+    word_t or_less; // 1 for C at N = 0, whose constant is half a unit less one
+    word_t tie;     // 1 for C at N >= 1: R's lowest bit comes off on a tie
+    word_t pos_max; // the largest magnitude on each side, as a word
+    word_t neg_max;
+  };
+
+  // The constants for the format p describes and a spec (stochastic.h).
+  template <class T>
+  CUDA_HOST_DEVICE_INLINE FixedPointStochasticT<T> make_fixedpoint_stochastic(
+      const MPTORCH_THREAD FixedPointParamsT<T> &p, bool is_signed, int spec)
+  {
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    FixedPointStochasticT<T> st{};
+    const int n = sr_spec_bits(spec);
+    const int variant = sr_spec_variant(spec);
+    st.wmask = is_signed ? F::ABS_MASK : ~word_t(0);
+    st.bits = n;
+    st.rshift = F::MAN_BITS - n;
+    st.base = F::MAN_BITS - n + F::BIAS - p.fl;
+    st.or_mask = variant != 0 ? ~word_t(0) : word_t(0);
+    st.or_less = variant == 2 && n == 0 ? word_t(1) : word_t(0);
+    st.tie = variant == 2 && n >= 1 ? word_t(1) : word_t(0);
+    const T top = p.max_val;
+    const T bottom = -p.min_val; // 0 for an unsigned format
+    st.pos_max = reinterpret_cast<const MPTORCH_THREAD word_t &>(top);
+    st.neg_max = reinterpret_cast<const MPTORCH_THREAD word_t &>(bottom);
+    // The line reads the exponent field as the binade, so the step must be a
+    // carrier normal; otherwise every input takes the shipped cast.
+    const word_t step = sr_field_word<T>(-p.fl);
+    const word_t hi = sr_field_word<T>(p.shift_exp);
+    const bool normal_step = -p.fl + F::BIAS >= 1;
+    st.lo = step;
+    st.span = normal_step && hi > step ? hi - step : word_t(0);
+    return st;
+  }
+
+  template <class T>
+  CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic_gemm(T x, typename FloatTraits<T>::word_t draw,
+                                                            const MPTORCH_THREAD FixedPointStochasticT<T> &st,
+                                                            int spec, bool is_signed,
+                                                            const MPTORCH_THREAD FixedPointParamsT<T> &p)
+  {
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    const word_t w = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);
+    if ((w & st.wmask) - st.lo >= st.span)
+      return cast_fixedpoint_stochastic(x, draw, spec, is_signed, p);
+    const word_t mag = w & F::ABS_MASK;
+    const word_t sign = w & F::SIGN_MASK;
+    const int sh = st.base - static_cast<int>(mag >> F::MAN_BITS);
+    const word_t r = (draw & F::MAN_MASK) >> st.rshift;
+    const word_t half = (word_t(1) << sh) >> 1; // half a unit of bit sh; 0 at sh = 0
+    const word_t on = half != 0 ? word_t(1) : word_t(0);
+    const word_t or_v = (half - (st.or_less & on)) & st.or_mask;
+    const word_t t = mag + (r << sh) + or_v - (r & st.tie & on);
+    word_t q = t & (~word_t(0) << (sh + st.bits));
+    const word_t bound = sign != 0 ? st.neg_max : st.pos_max;
+    q = q > bound ? bound : q;
+    const word_t out = q | sign;
+    return reinterpret_cast<const MPTORCH_THREAD T &>(out);
+  }
+
+  // One draw and the cast, as fixedpoint_policy_cast draws under SR.
+  template <class T>
+  CUDA_HOST_DEVICE_INLINE T fixedpoint_policy_stochastic(T x, const MPTORCH_THREAD FixedPointStochasticT<T> &st,
+                                                         int spec, bool is_signed,
+                                                         const MPTORCH_THREAD FixedPointParamsT<T> &p,
+                                                         MPTORCH_THREAD PhiloxEngine &rng)
+  {
+    if constexpr (std::is_same_v<T, float>)
+      return cast_fixedpoint_stochastic_gemm(x, rng(), st, spec, is_signed, p);
+    else
+      return cast_fixedpoint_stochastic_gemm(x, rng.next64(), st, spec, is_signed, p);
+  }
+
+  // The policies' member: the constants under SR, nothing otherwise. The
+  // members are [[no_unique_address]], so that under the other modes they
+  // take no storage and the policies' layouts, and their kernels, are what
+  // they were.
+  struct FixedPointNoStochastic
+  {
+  };
+  template <class T, RoundMode RM>
+  using FixedPointStochasticMember =
+      std::conditional_t<RM == RoundMode::SR, FixedPointStochasticT<T>, FixedPointNoStochastic>;
+
+  // The integer accumulator's rounding under SR, with constants built once
+  // per launch: a step's sum has the same s bits below the accumulate grid
+  // every time (the split mac's sh_s, the fused mac's guard), so
+  // fixedpoint_round's decision is the word form on the magnitude. When
+  // s >= N, the draw goes at bit s - N with stochastic.h's sr_word_constants
+  // for that bit below it, and the magnitude is shifted down by s. A sticky
+  // part (the fused mac's, whose s = N + 1 puts the draw one bit above the
+  // guard bit) moves nothing but StochasticC's tie, which a sticky value is
+  // past; a negative sum's magnitude takes its integer part one lower, the
+  // sticky part complemented. When s < N (the split mac only, never sticky),
+  // X = frac * 2^(N - s) is an integer, the three variants agree, and the
+  // magnitude rounds away iff X + R >= 2^N.
+  // dev/benchmarks/sweeps/fixedpoint_int_sweep.cpp holds it to
+  // fixedpoint_round (`round`, every exact sum) and the fused step to its
+  // references (`fused`).
+  struct FixedPointIntSr
+  {
+    int n;         // N
+    int sd;        // s - N, the draw's lowest bit, when s >= N
+    bool short_s;  // s < N
+    uint64_t or_v; // sr_word_constants(sd, N, variant)
+    uint64_t tie;
+  };
+
+  CUDA_HOST_DEVICE_INLINE FixedPointIntSr make_fixedpoint_int_sr(int s, int spec)
+  {
+    FixedPointIntSr c{};
+    c.n = sr_spec_bits(spec);
+    c.short_s = s < c.n;
+    c.sd = c.short_s ? 0 : s - c.n;
+    if (!c.short_s)
+      sr_word_constants<uint64_t>(c.sd, c.n, sr_spec_variant(spec), c.or_v, c.tie);
+    return c;
+  }
+
+  // x + eps rounded to the grid s bits up, under SR, from the constants
+  // above, as fixedpoint_round rounds it (eps > 0 exactly when `sticky`).
+  CUDA_HOST_DEVICE_INLINE int64_t fixedpoint_round_sr(int64_t x, bool sticky, int s, bool neg, uint64_t r,
+                                                      const MPTORCH_THREAD FixedPointIntSr &c)
+  {
+    if (s == 0)
+      return x;
+    const uint64_t m = neg ? uint64_t(0) - static_cast<uint64_t>(x) - (sticky ? 1u : 0u)
+                           : static_cast<uint64_t>(x);
+    uint64_t qm;
+    if (!c.short_s)
+      qm = (m + (r << c.sd) + c.or_v - (sticky ? uint64_t(0) : (r & c.tie))) >> s;
+    else
+    {
+      const uint64_t frac = m & ((uint64_t(1) << s) - 1);
+      qm = (m >> s) + (((frac << (c.n - s)) + r) >> c.n);
+    }
+    return neg ? -static_cast<int64_t>(qm) : static_cast<int64_t>(qm);
+  }
+
+  template <RoundMode RM>
+  using FixedPointIntSrMember =
+      std::conditional_t<RM == RoundMode::SR, FixedPointIntSr, FixedPointNoStochastic>;
+#endif
+
   // A fixed-point format's cast in the carrier, in mode RM, as the float
   // policies round: the fast path under RNE where the gate admits it, the
   // shipped bitwise casts otherwise, and under SR one draw from `rng`.
@@ -172,6 +355,9 @@ namespace mptorch::gemm
     int spec;
     FixedPointParamsT<T> params;
     FixedPointFast fast;
+#if !defined(__METAL_VERSION__)
+    [[no_unique_address]] FixedPointStochasticMember<T, RM> sr;
+#endif
 
     FixedPointMultiplierT() = default;
     CUDA_HOST_DEVICE_INLINE FixedPointMultiplierT(const MPTORCH_THREAD FixedPointWidths &w,
@@ -181,10 +367,18 @@ namespace mptorch::gemm
     {
       if constexpr (std::is_same_v<T, float>)
         fast = make_fixedpoint_fast(w.wl, w.fl, c.is_signed, params);
+#if !defined(__METAL_VERSION__)
+      if constexpr (RM == RoundMode::SR)
+        sr = make_fixedpoint_stochastic<T>(params, c.is_signed, c.prng_bits);
+#endif
     }
 
     CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
     {
+#if !defined(__METAL_VERSION__)
+      if constexpr (RM == RoundMode::SR)
+        return fixedpoint_policy_stochastic<T>(a * b, sr, spec, is_signed, params, rng);
+#endif
       return fixedpoint_policy_cast<T, RM>(a * b, is_signed, spec, params, fast, rng);
     }
   };
@@ -199,6 +393,9 @@ namespace mptorch::gemm
     int spec;
     FixedPointParamsT<T> params;
     FixedPointFast fast;
+#if !defined(__METAL_VERSION__)
+    [[no_unique_address]] FixedPointStochasticMember<T, RM> sr;
+#endif
 
     FixedPointAdderT() = default;
     CUDA_HOST_DEVICE_INLINE FixedPointAdderT(const MPTORCH_THREAD FixedPointWidths &w,
@@ -208,10 +405,18 @@ namespace mptorch::gemm
     {
       if constexpr (std::is_same_v<T, float>)
         fast = make_fixedpoint_fast(w.wl, w.fl, c.is_signed, params);
+#if !defined(__METAL_VERSION__)
+      if constexpr (RM == RoundMode::SR)
+        sr = make_fixedpoint_stochastic<T>(params, c.is_signed, c.prng_bits);
+#endif
     }
 
     CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine &rng) const
     {
+#if !defined(__METAL_VERSION__)
+      if constexpr (RM == RoundMode::SR)
+        return fixedpoint_policy_stochastic<T>(x, sr, spec, is_signed, params, rng);
+#endif
       return fixedpoint_policy_cast<T, RM>(x, is_signed, spec, params, fast, rng);
     }
   };
@@ -406,13 +611,24 @@ namespace mptorch::gemm
     double out_scale64;
 #endif
     bool wide; // the result is stored as float64 (the kernels' wide store)
+#if !defined(__METAL_VERSION__)
+    [[no_unique_address]] FixedPointIntSrMember<RM> isr; // the rounding's SR constants
+#endif
 
     CUDA_HOST_DEVICE_INLINE int64_t round_sum(int64_t x, bool sticky, int s, bool neg,
                                               word_t word) const
     {
       const int n = RM == RoundMode::SR ? sr_spec_bits(spec) : 0;
       const uint64_t r = RM == RoundMode::SR ? fixedpoint_draw_bits<T>(word, n) : 0;
+#if !defined(__METAL_VERSION__)
+      int64_t q;
+      if constexpr (RM == RoundMode::SR)
+        q = fixedpoint_round_sr(x, sticky, s, neg, r, isr);
+      else
+        q = fixedpoint_round<RM>(x, sticky, s, neg, r, n, sr_spec_variant(spec));
+#else
       const int64_t q = fixedpoint_round<RM>(x, sticky, s, neg, r, n, sr_spec_variant(spec));
+#endif
       if constexpr (WRAP)
         return fixedpoint_wrap_code(q, acc_wl, acc_signed);
       else
@@ -701,6 +917,10 @@ namespace mptorch::gemm
       m.out_scale64 = fx_pow2<double>(-acc.fl);
 #endif
       m.wide = wide;
+#if !defined(__METAL_VERSION__)
+      if constexpr (RM == RoundMode::SR)
+        m.isr = make_fixedpoint_int_sr(FUSED ? m.guard : m.sh_s, acc_c.prng_bits);
+#endif
       return m;
     }
 
