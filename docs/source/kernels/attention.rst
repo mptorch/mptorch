@@ -267,6 +267,15 @@ quantizers, with 128 x 128 tiles (``dev/benchmarks/timing/flash_attention.py``):
   :math:`L = 1024` it is faster than the standard path in the same recipe
   (0.44 of its time at 4,096, 0.57 with the backward), since it skips the
   causal tiles.
+- **CUDA graphs.** ``torch.compile(fn, fullgraph=True,
+  backend="cudagraphs")`` records flash's kernels and replays them, which
+  saves the launches' host time and changes no word, forward or backward.
+  The batched path then runs another 1.09-1.17 times faster, after a compile
+  of a few seconds. Under stochastic rounding each call still draws its own
+  random bits. Inductor, the default backend, generates kernels of its own
+  for the elementwise steps. They round some results differently, by about
+  an ulp of binary32, and the compile's time and memory grow with the
+  sequence's length.
 - **CPU time.** Flash is faster than the standard path, by 1.2-2.6x on 16
   threads and 1.7-3.8x on one. It works on cache-sized tiles, skips the
   causal tiles, and makes no passes over the whole score matrix. Batching
