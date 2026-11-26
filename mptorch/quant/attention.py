@@ -882,8 +882,21 @@ def _batched_scores(formats, qa, kj, scale, mask, causal, rows, first, cols):
             n = crossing[-1][1] - start
             r = torch.arange(start, start + n, device=s.device)[:, None]
             c = torch.arange(cols[0], cols[1], device=s.device)[None, :]
-            s[..., :n, :] += _bias(r >= c, s)
+            s[..., :n, :].add_(_bias(r >= c, s))  # in place: `+=` on a slice writes it back
     return s
+
+
+def _retire(full: torch.Tensor, active: torch.Tensor, lo: int, start: int) -> torch.Tensor:
+    """Copy rows ``[lo, start)`` of a running state into ``full``, which holds
+    every row, and return the rows from ``start`` on.
+
+    ``active`` holds rows ``lo`` onwards. Under a causal mask the key tiles
+    reach fewer query tiles as they go, so the rows they no longer reach are
+    final: each is copied out once, and the steps update the rest out of
+    place, as the loop does, instead of writing the whole suffix back at
+    every key tile."""
+    full[..., lo:start, :].copy_(active[..., : start - lo, :])
+    return active[..., start - lo :, :]
 
 
 def _flash_forward_batched(formats, q, k, v, mask, scale, causal):
@@ -902,27 +915,33 @@ def _flash_forward_batched(formats, q, k, v, mask, scale, causal):
     acc = None if sm is None else sm._specs[0]
     out_quant = None if formats.pv is None else formats.pv.output_quant
     batch, ev = q.shape[:-2], v.size(-1)
-    m = torch.full((*batch, nq, 1), float("-inf"), dtype=c, device=q.device)
-    total = torch.zeros((*batch, nq, 1), dtype=c, device=q.device)
-    o = torch.zeros((*batch, nq, ev), dtype=c, device=q.device)
+    shapes = ((*batch, nq, 1), (*batch, nq, 1), (*batch, nq, ev))
+    full = [torch.empty(shape, dtype=c, device=q.device) for shape in shapes]
+    m = torch.full(shapes[0], float("-inf"), dtype=c, device=q.device)
+    total = torch.zeros(shapes[1], dtype=c, device=q.device)
+    o = torch.zeros(shapes[2], dtype=c, device=q.device)
+    lo = 0  # the first row m, total and o hold
     for j, cc in enumerate(cols):
         first = _reached(rows, causal, cc)
         if first is None:
             break  # every later key tile is above the diagonal of every query tile
         start = rows[first][0]
+        if start > lo:
+            m, total, o = [
+                _retire(f, t, lo, start) for f, t in zip(full, (m, total, o), strict=True)
+            ]
+            lo = start
         s = _batched_scores(formats, qa, kq[j], scale, mask, causal, rows, first, cc)
-        m_old = m[..., start:, :]
-        m_new = torch.maximum(m_old, s.amax(-1, keepdim=True))
+        m_new = torch.maximum(m, s.amax(-1, keepdim=True))
         safe = m_new.masked_fill(m_new.isneginf(), 0.0)
         p = _step(sm, "exp", torch.exp(_step(sm, "sub", s - safe)))
-        alpha = norm._r(fl.rescale, torch.exp(m_old - safe))
-        total[..., start:, :] = norm._r(
-            fl.combine, alpha * total[..., start:, :] + norm._total(acc, p, (p.dim() - 1,))
-        )
-        o[..., start:, :] = norm._r(
-            fl.combine, alpha * o[..., start:, :] + pv_fwd(_quantized(pv, "a_quant", p), vq[j])
-        )
-        m[..., start:, :] = m_new
+        alpha = norm._r(fl.rescale, torch.exp(m - safe))
+        total = norm._r(fl.combine, alpha * total + norm._total(acc, p, (p.dim() - 1,)))
+        o = norm._r(fl.combine, alpha * o + pv_fwd(_quantized(pv, "a_quant", p), vq[j]))
+        m = m_new
+    for f, t in zip(full, (m, total, o), strict=True):
+        f[..., lo:, :].copy_(t)
+    m, total, o = full
     dead = total == 0
     o = _step(sm, "div", o / total.masked_fill(dead, 1.0))
     if out_quant is not None:
@@ -974,7 +993,9 @@ def _flash_backward_batched(formats, saved, out, grad, mask, scale, causal, dtyp
     dout_p = _quantized(pv, "agrad_quant", g) if need_s else None
     dout_v = _quantized(pv, "bgrad_quant", g) if need_v else None
     batch = out.shape[:-2]
+    dq_full = torch.empty((*batch, n_queries, e), dtype=c, device=g.device)
     dq = torch.zeros((*batch, n_queries, e), dtype=c, device=g.device)
+    lo = 0  # the first row dq holds
     dk = [torch.zeros((*batch, b - a, e), dtype=c, device=g.device) for a, b in cols]
     dv = [torch.zeros((*batch, b - a, out.size(-1)), dtype=c, device=g.device) for a, b in cols]
     for j, cc in enumerate(cols):
@@ -982,6 +1003,9 @@ def _flash_backward_batched(formats, saved, out, grad, mask, scale, causal, dtyp
         if first is None:
             break
         start = rows[first][0]
+        if start > lo:
+            dq = _retire(dq_full, dq, lo, start)
+            lo = start
         s = _batched_scores(formats, qa, kq[j], scale, mask, causal, rows, first, cc)
         lse_r = lse[..., start:, :]
         p = torch.exp(s - lse_r.masked_fill(lse_r.isneginf(), 0.0))
@@ -998,14 +1022,15 @@ def _flash_backward_batched(formats, saved, out, grad, mask, scale, causal, dtyp
         ds = _scores_grad(formats, ds, scale)
         if need_q:
             dq_j = qk_agrad(_quantized(qk, "agrad_quant", ds), kq[j])
-            dq[..., start:, :] = norm._r(fl.combine, dq[..., start:, :] + dq_j)
+            dq = norm._r(fl.combine, dq + dq_j)
         if need_k:
             ds_k = _quantized(qk, "bgrad_quant", ds)
             for prod in _per_tile(qk_bgrad, ds_k, qa[..., start:, :], rows, first, fl.block_q):
                 dk[j] = norm._r(fl.combine, dk[j] + prod.mT)
+    dq_full[..., lo:, :].copy_(dq)
     q_dtype, k_dtype, v_dtype = dtypes
     return (
-        _stored(dq, q_dtype) if need_q else None,
+        _stored(dq_full, q_dtype) if need_q else None,
         _stored(torch.cat(dk, -2), k_dtype) if need_k else None,
         _stored(torch.cat(dv, -2), v_dtype) if need_v else None,
     )
