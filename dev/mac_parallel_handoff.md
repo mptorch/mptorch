@@ -98,7 +98,7 @@ this document assigns to the Mac with a sync point.
 | M6a | AI's pre-work: binary32 round-to-odd division and square root on Metal | now | no (an interface is fixed below) |
 | M6b | AI's MPS part: the fused pointwise and table ops on Metal (no row-reduction kernel was built) | round 2 (SP-AI delivered) | yes |
 | M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | after M6b (SP-AK delivered, `64ac91e`) | yes |
-| M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | at SP-S | yes |
+| M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | now (SP-S delivered, `d72fa3d`) | yes |
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | at SP-AL | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
@@ -735,23 +735,56 @@ included, with results word for word the scalar loop's.
 
 ## 11. M8, at SP-S: the counting variant of `gemm.metal`
 
-**What S is.** Numeric event counters: opt-in GEMM and conv ops
-(`MPTORCH_COUNTING=1`) that count, per rounding role (a split mac's product,
-its sum, ...), events such as underflow to zero, saturation and subnormal
-results, reported per layer through `simulate` and `profile`. Linux builds
-the policy wrappers (`common/event_counts.h`, valid Metal), the CPU and CUDA
-kernels and the Python.
+**What S is.** Numeric event counters: twelve opt-in ops (`MPTORCH_COUNTING=1`)
+that run a single-format GEMM or conv pass word for word as its twin and also
+return an int64 `[3, 6]` tensor of its casts' events (roles mul, acc, outer;
+events casts, overflow, underflow, subnormal, inexact, nan), and
+`simulate(..., events=True)` / `profile(..., events=True)`, which report them
+per site, pass and role (quantizer slots recounted in Python).
 
-**The Mac's part** (the plan's decision S-d: parity):
-- `mps/gemm.metal` under `MPT_COUNTING`: each thread's counts reduced over
-  its threadgroup into a per-threadgroup row of a partial-counts buffer
-  (Metal has no 64-bit atomics on every GPU), summed by the entry point;
-- the MPS entries of the counted ops and their `mps_ops.cpp` lines;
-- tests: results **and** counts equal the CPU's, in every family and mode
-  the counted ops cover;
-- this edit changes `gemm.metal`'s text, so every GEMM kernel recompiles
-  once; fold into it the comment the last round deferred for that reason
-  (its header comment, naming the fixed-point ops among those it runs).
+**What Linux built** (`d72fa3d`, on top of M6b and M7's reports):
+- `common/event_counts.h` (valid Metal: the classifier on the words, so an
+  Apple GPU's subnormal flush cannot reach it), `common/gemm_counted.h`
+  (`Counted<Policy, ROLE>`, `count_cast`, `PositionalNaiveAccumulator`,
+  `Counting<Acc>`, `CountingArgs<Base, ALG>`), `common/fixedpoint_counted.h`
+  (`CountedFixedPointIntMac`, a copy of the integer mac's `step` that counts;
+  `PositionalFixedPointIntAccumulator`; `FixedPointCountingArgs`), the host
+  drivers `common/gemm_counted_host.h` and `common/fixedpoint_counted_host.h`.
+- Entries in `cpu/`, `cuda/` and `meta/custom_{matmul,conv}_counted_entry.cpp`;
+  `tests/test_entry_copies.py` lists them in `PARTIAL_ENTRY_FILES` without
+  MPS. The counted units are `*_counted{,_f64}` in `cpu/inst` and `cuda/inst`.
+- Tests: `tests/test_counted_gemm.py` (results equal the twins', counts equal
+  references, every family, algorithm, mode, layout and conv pass; fixed
+  point on both paths), `tests/test_simulate_events.py`. Both use
+  `counted_devices = ["cpu", *cuda_devices]` for now.
+
+**The Mac's part** (S-d: parity):
+- **Build on the Mac with `MPTORCH_COUNTING=1`** first, CPU only, and run
+  the two test modules: the CPU counted kernels have never been built under
+  Apple clang (the task flush uses `__atomic_fetch_add`, not
+  `std::atomic_ref`, for older libc++).
+- **Metal spellings** of what the host and CUDA use and Metal lacks:
+  `Counting<Acc>` and `CountedFixedPointIntMac` are derived classes (Metal has
+  none), the kernels test `requires { Accumulator::counting; }`, and
+  `CountingArgs::Builder` is a function object already. `gemm_counted.h` and
+  `fixedpoint_counted.h` keep their host and CUDA statements verbatim in
+  each `#else`, so Linux's objects stay identical; Linux reruns
+  `binary_identity.py` on any edit under `common/`.
+- `mps/gemm.metal` under `MPT_COUNTING`: each thread's tallies (the
+  `Counted` policies' `tally`, the int mac's `mul_tally`/`acc_tally`) for
+  in-range threads only, reduced over the threadgroup into a per-threadgroup
+  row of a partial-counts buffer (Metal has no 64-bit atomics on every
+  GPU), summed by the entry point. NAIVE counts through the positional
+  contract there too, since the padded steps would count casts.
+- The twelve MPS entries (`mps/custom_{matmul,conv}_counted_entry.cpp`, the
+  CPU text with the MPS backend), their `mps_ops.cpp` lines, and the MPS
+  declarations in `quant_ops.h` (a sync point: Linux added only CPU and
+  CUDA). Then drop the files from `PARTIAL_ENTRY_FILES` and put MPS into the
+  two modules' `counted_devices`, with a `test_mps_is_the_cpu` holding
+  results and counts to the CPU's.
+- This changes `gemm.metal`'s text, so every GEMM kernel recompiles once;
+  fold into it the comment the last round deferred for that reason (its
+  header comment, naming the fixed-point ops among those it runs).
 
 Estimate on the Linux plan: 1 d plus the round.
 
