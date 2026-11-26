@@ -394,18 +394,8 @@ def test_a_nan_passes_through_the_host_primitives_whole(dtype, op):
 
 # --- division and the square root ------------------------------------------------
 
-# The MPS _carrier_odd op has no division or root yet: it refuses op codes 3
-# and 4.
-_NO_METAL_QUOTIENT = pytest.mark.skip(reason="the MPS _carrier_odd has no op codes 3 and 4 yet")
-QUOTIENT_DEVICES = [
-    "cpu",
-    *cuda_devices,
-    pytest.param("mps", marks=[requires_mps, _NO_METAL_QUOTIENT]),
-]
-QUOTIENT_ACCELERATORS = [
-    *cuda_devices,
-    pytest.param("mps", marks=[requires_mps, _NO_METAL_QUOTIENT]),
-]
+QUOTIENT_DEVICES = ["cpu", *cuda_devices, pytest.param("mps", marks=requires_mps)]
+QUOTIENT_ACCELERATORS = [*cuda_devices, pytest.param("mps", marks=requires_mps)]
 
 
 def _ro_sqrt(x: Fraction, dtype: torch.dtype) -> Fraction:

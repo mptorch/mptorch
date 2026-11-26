@@ -30,6 +30,7 @@
 #include "../quant_ops.h"
 #include "launch_params.h"
 #include "metal_runtime.h"
+#include "quantize_tail.h"
 #include <ATen/ops/empty_like.h>
 #include <limits>
 #include <string>
@@ -60,15 +61,10 @@ namespace
                                     round_mode, op);
   }
 
-  // The tail of an instantiation: the storage type, the round mode, the
-  // sign and the random bits, then the family's format lines.
-  std::string quantize_tail(const char *storage, int64_t rm, bool is_signed, int64_t prng_bits,
-                            const std::string &format)
-  {
-    return std::string("using mpt_storage_t = ") + storage + ";\n#define MPT_ROUND_MODE " +
-           mptorch_mps::metal_round_mode(rm) + "\n#define MPT_IS_SIGNED " + (is_signed ? "true" : "false") +
-           "\n#define MPT_PRNG_BITS " + std::to_string(static_cast<int>(prng_bits)) + "\n" + format;
-  }
+  using mptorch_mps::binaryK_format_lines;
+  using mptorch_mps::fixedpoint_format_lines;
+  using mptorch_mps::quantize_tail;
+  using mptorch_mps::superfp_format_lines;
 
   // Launches quantize.metal over the contiguous `a` into `o`, which is `a`
   // itself for the in-place ops, with the instantiation's family and format
@@ -139,47 +135,6 @@ namespace
     Tensor o = at::empty_like(a_c);
     quantize_into(op, a_c, o, round_mode, is_signed, prng_bits, format);
     return o;
-  }
-
-  // The format lines of a binaryK, a superfp and a fixed-point
-  // instantiation; MPT_FORMATS selects the family in quantize.metal.
-  std::string binaryK_format_lines(int64_t K, int64_t P, int64_t bias, bool is_signed,
-                                   int64_t saturation_mode, int64_t subnormals_mode)
-  {
-    // P3109's widths, narrowed to int and converted as the CPU kernel
-    // converts them: P - 1 stored mantissa bits, and the exponent field takes
-    // the remaining bits after the sign bit, if there is one.
-    const int K_ = static_cast<int>(K), P_ = static_cast<int>(P);
-    const int man_bits = P_ - 1;
-    const int exp_bits = is_signed ? K_ - P_ : K_ - P_ + 1;
-    const bool extended = static_cast<SubnormalsMode>(subnormals_mode) == SubnormalsMode::EXTENDED_NORMALS;
-    return "#define MPT_FORMATS 0\n#define MPT_SUBNORMALS SubnormalsMode(" +
-           std::to_string(subnormals_mode) +
-           ")\ninline BinaryKParams mpt_params()\n{\n    return make_binaryK_params<float>(" +
-           std::to_string(man_bits) + ", " + std::to_string(exp_bits) + ", " +
-           std::to_string(static_cast<int>(bias)) + ", " + (is_signed ? "true" : "false") +
-           ", SaturationMode(" + std::to_string(saturation_mode) + "), " +
-           (extended ? "true" : "false") + ");\n}\n";
-  }
-
-  std::string superfp_format_lines(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
-                                   int64_t bias, int64_t saturation_mode)
-  {
-    return "#define MPT_FORMATS 1\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
-           "inline SuperfpParams mpt_params()\n{\n    return make_superfp_params<float>(" +
-           std::to_string(static_cast<int>(man_bits)) + ", " + std::to_string(static_cast<int>(exp_bits)) +
-           ", " + std::to_string(static_cast<int>(normal_binades)) + ", " +
-           std::to_string(static_cast<int>(bias)) + ", SaturationMode(" +
-           std::to_string(saturation_mode) + "));\n}\n";
-  }
-
-  std::string fixedpoint_format_lines(int64_t wl, int64_t fl, bool is_signed, bool symmetric)
-  {
-    return "#define MPT_FORMATS 2\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
-           "inline FixedPointParams mpt_params()\n{\n    return make_fixedpoint_params<float>(" +
-           std::to_string(static_cast<int>(wl)) + ", " + std::to_string(static_cast<int>(fl)) +
-           ", " + (is_signed ? "true" : "false") + ", " + (symmetric ? "true" : "false") +
-           ");\n}\n";
   }
 
 } // namespace

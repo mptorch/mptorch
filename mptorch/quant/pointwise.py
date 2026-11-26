@@ -529,7 +529,7 @@ _FUSED: dict[str, Callable[..., torch.Tensor]] = {
     "superfp_quantize": torch.ops.mptorch.superfp_pointwise.default,
     "fixedpoint_quantize": torch.ops.mptorch.fixedpoint_pointwise.default,
 }
-_FUSED_DEVICES = frozenset(("cpu", "cuda"))
+_FUSED_DEVICES = frozenset(("cpu", "cuda", "mps"))
 # The op codes: the tensor first, and, for a number first, the op with its
 # operands in their order (n + x and n * x are x + n and x * n).
 _CODE = {"add": 0, "sub": 1, "mul": 2, "div": 3, "sqrt": 4}

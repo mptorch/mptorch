@@ -30,9 +30,10 @@ namespace mptorch_mps
 
   // Which kernel source follows the tail, and so which kernel is launched.
   // The two odd carrier step sources also put odd.metal, the odd headers,
-  // between the prelude and the tail, and the fixed-point GEMM's puts
-  // fixedpoint.metal there. New sources go at the end, since the cache key
-  // starts with the source's number.
+  // between the prelude and the tail, the fixed-point GEMM's puts
+  // fixedpoint.metal there, and the fused pointwise ops' pointwise.metal.
+  // New sources go at the end, since the cache key starts with the source's
+  // number.
   enum class KernelSource
   {
     Gemm,          // gemm.metal's mpt_gemm
@@ -45,6 +46,7 @@ namespace mptorch_mps
     QuantizeScaled, // scaled_quant.metal's mpt_quantize_scaled
     BlockProject,   // block_project.metal's mpt_block_project
     GemmFixedPoint, // gemm.metal's mpt_gemm, after fixedpoint.metal: a fixed-point Args
+    Pointwise,      // pointwise_kernel.metal's mpt_pointwise, after pointwise.metal
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as

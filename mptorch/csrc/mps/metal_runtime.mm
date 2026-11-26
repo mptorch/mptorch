@@ -38,6 +38,8 @@ namespace mptorch_mps
         return metal_sources::scaled_quant;
       case KernelSource::BlockProject:
         return metal_sources::block_project;
+      case KernelSource::Pointwise:
+        return metal_sources::pointwise_kernel;
       default:
         return metal_sources::block;
       }
@@ -45,7 +47,8 @@ namespace mptorch_mps
 
     // What comes between the prelude and the tail: the odd headers for the
     // odd carrier step's kernels, the fixed-point GEMM's header for its
-    // kernels, and nothing for the others.
+    // kernels, the fused pointwise ops' headers for theirs, and nothing for
+    // the others.
     const char *kernel_head(KernelSource s)
     {
       switch (s)
@@ -55,6 +58,8 @@ namespace mptorch_mps
         return metal_sources::odd;
       case KernelSource::GemmFixedPoint:
         return metal_sources::fixedpoint;
+      case KernelSource::Pointwise:
+        return metal_sources::pointwise;
       default:
         return "";
       }
@@ -80,6 +85,8 @@ namespace mptorch_mps
         return "mpt_quantize_scaled";
       case KernelSource::BlockProject:
         return "mpt_block_project";
+      case KernelSource::Pointwise:
+        return "mpt_pointwise";
       default:
         return "mpt_block_unpack";
       }

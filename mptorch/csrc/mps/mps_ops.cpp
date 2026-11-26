@@ -11,7 +11,8 @@
 // the cross-family ops (custom_matmul_cross_entry.cpp), the conv ops
 // (custom_conv_entry.cpp), the block GEMM (custom_matmul_block_entry.cpp),
 // the elementwise block ops (block_entry.cpp), the odd ops
-// (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp) and the test-only
+// (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp), the fused
+// pointwise and table ops (pointwise_entry.cpp) and the test-only
 // _carrier_odd (carrier_odd_entry.cpp). There are two exceptions. The
 // test-only _stochastic_cast has no Metal kernel and raises
 // (stochastic_cast_entry.cpp). narrow_float64
@@ -77,6 +78,12 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_matmul_binaryK_fma_odd", TORCH_FN(binaryK_matmul_fma_odd_mps));
   m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_mps));
   m.impl("_carrier_odd", TORCH_FN(carrier_odd_mps));
+  m.impl("binaryK_pointwise", TORCH_FN(binaryK_pointwise_mps));
+  m.impl("superfp_pointwise", TORCH_FN(superfp_pointwise_mps));
+  m.impl("fixedpoint_pointwise", TORCH_FN(fixedpoint_pointwise_mps));
+  m.impl("binaryK_pwl", TORCH_FN(binaryK_pwl_mps));
+  m.impl("superfp_pwl", TORCH_FN(superfp_pwl_mps));
+  m.impl("fixedpoint_pwl", TORCH_FN(fixedpoint_pwl_mps));
   m.impl("_stochastic_cast", TORCH_FN(stochastic_cast_mps));
   m.impl("custom_matmul_binaryK_mixed_odd", TORCH_FN(binaryK_matmul_mixed_odd_mps));
   m.impl("custom_matmul_superfp_mixed_odd", TORCH_FN(superfp_matmul_mixed_odd_mps));

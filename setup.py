@@ -294,7 +294,9 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
     ``block.metal``, ``odd.metal``, ``carrier_odd.metal``,
     ``scaled_quant.metal``, which includes ``quantize.metal``,
-    ``block_project.metal`` and ``fixedpoint.metal``) is therefore flattened here, its quoted
+    ``block_project.metal``, ``fixedpoint.metal``, ``pointwise.metal`` and
+    ``pointwise_kernel.metal``, which includes ``quantize.metal`` too) is
+    therefore flattened here, its quoted
     ``#include``\\ s replaced by the files they name, recursively and once
     each, with ``#line`` directives so a compile error names the header and
     line it is in. ``odd.metal``, which the
@@ -305,8 +307,9 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     since the header it includes includes ``block_decode.h``, which the
     prelude holds, and so is ``fixedpoint.metal``, which the fixed-point
     GEMM's kernels compile between the prelude and their instantiation, as
-    the odd ones compile ``odd.metal``. The shared headers under ``csrc/common`` are what the
-    prelude includes, so the kernels are
+    the odd ones compile ``odd.metal``, and ``pointwise.metal``, which the
+    fused pointwise ops' kernel compiles there. The shared headers under
+    ``csrc/common`` are what the prelude includes, so the kernels are
     compiled from the same casts the CPU and CUDA backends are, and a change
     to one of them reaches the GPU at the next build.
 
@@ -349,10 +352,16 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
         "scaled_quant",
         "block_project",
         "fixedpoint",
+        "pointwise",
+        "pointwise_kernel",
     )
     for root in roots:
         lines: list[str] = []
-        seen = set(prelude_seen) if root in ("odd", "block_project", "fixedpoint") else set()
+        seen = (
+            set(prelude_seen)
+            if root in ("odd", "block_project", "fixedpoint", "pointwise")
+            else set()
+        )
         flatten(mps_dir / f"{root}.metal", seen, lines)
         if root == "prelude":
             prelude_seen = seen

@@ -332,11 +332,33 @@ namespace mptorch::pointwise
   }
 #endif
 
-  // `e` holds the segments + 1 entries in the carrier.
+#if defined(__METAL_VERSION__)
+  // x < y for binary32 values, decided on the words, false when either is a
+  // NaN: the GPU's compare flushes a subnormal operand to zero, so `x < lo`
+  // would read a subnormal x as 0. A word's order is its magnitude's, negated
+  // for a negative value (-0 and +0 are both 0).
+  inline int32_t metal_order(float x)
+  {
+    const int32_t w = as_type<int32_t>(x);
+    return w >= 0 ? w : -(w & 0x7FFFFFFF);
+  }
+  inline bool metal_less(float x, float y)
+  {
+    const uint32_t ax = as_type<uint32_t>(x) & 0x7FFFFFFFu, ay = as_type<uint32_t>(y) & 0x7FFFFFFFu;
+    return ax <= 0x7F800000u && ay <= 0x7F800000u && metal_order(x) < metal_order(y);
+  }
+#endif
+
+  // `e` holds the segments + 1 entries in the carrier (on Metal, in the
+  // GPU's memory).
   template <class T>
   struct PwlStep
   {
+#if defined(__METAL_VERSION__)
+    device const T *e;
+#else
     const T *e;
+#endif
     int32_t segments;
     T lo, hi, scale;
     int32_t tails;
@@ -345,8 +367,13 @@ namespace mptorch::pointwise
     CUDA_HOST_DEVICE_INLINE T interpolate(T x) const
     {
       T xi = x;
+#if defined(__METAL_VERSION__)
+      if (tails == TAILS_CLAMP)
+        xi = metal_less(x, lo) ? lo : (metal_less(hi, x) ? hi : x);
+#else
       if (tails == TAILS_CLAMP)
         xi = x < lo ? lo : (x > hi ? hi : x);
+#endif
       const T u = rn::mul(rn::sub(xi, lo), scale);
       T fi = u != u ? T(0) : floor_of(u);
       const T top = T(segments - 1);
@@ -355,8 +382,13 @@ namespace mptorch::pointwise
       const int32_t i = static_cast<int32_t>(fi);
       const T e0 = e[i], e1 = e[i + 1];
       T y = rn::add(e0, rn::mul(f, rn::sub(e1, e0)));
+#if defined(__METAL_VERSION__)
+      if (tails == TAILS_RELU && (metal_less(x, lo) || metal_less(hi, x)))
+        y = metal_less(T(0), x) ? x : T(0);
+#else
       if (tails == TAILS_RELU && (x < lo || x > hi))
         y = x > T(0) ? x : T(0);
+#endif
       return y;
     }
 

@@ -41,6 +41,7 @@ from mptorch import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    FixedPoint,
     ScaleRounding,
     SuperFP,
     bfp,
@@ -48,7 +49,9 @@ from mptorch import (
 from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import (
     FusedMac,
+    PWLTable,
     QLinear,
+    Quant,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_quantize,
@@ -1323,3 +1326,146 @@ def test_the_odd_step_does_not_flush():
     default: dict[str, Any] = dict(fmt, carrier_rounding=RoundMode.RNE)
     ref, got = _on_both(lambda x, y: binaryK_matmul(x, y, **default), a, one)
     assert ref.item() == 2.0**-137 and got.item() == 0.0
+
+
+# --------------------------------------------------------------------------
+# The fused pointwise and table ops
+# --------------------------------------------------------------------------
+
+# A NaN step is any NaN, as the docs state the fused ops: the GPU's float
+# unit hands a NaN operand's step out as its canonical NaN, where the CPU's
+# keeps the payload, as CUDA's arithmetic does (_assert_same_words).
+#
+# Formats whose values reach binary32's subnormals, so that a step whose
+# result is one shows in the cast: binaryK with its subnormal step at 2^-130,
+# a superfp whose supernormal floor is 2^-126, a fixed point of step 2^-125,
+# and a wide binaryK whose last bits are near binary32's.
+_POINTWISE_FORMATS = {
+    "binaryK-12-5-bias127": BinaryK(12, 5, bias=127, prng_bits=6),
+    "superfp-3-4-1-bias22": SuperFP(3, 4, 1, 22, prng_bits=6),
+    "fixedpoint-8-125": FixedPoint(8, 125, prng_bits=6),
+    "binaryK-28-20": BinaryK(28, 20, prng_bits=3),
+}
+
+
+def _pointwise_operands() -> tuple[torch.Tensor, torch.Tensor]:
+    """Operand pairs whose sums, differences, products, quotients and roots
+    land among binary32's subnormals and near 2^-126 as well as elsewhere:
+    subnormals of both signs against values near 1, near 2^-126 and large;
+    values near 2^-126 against each other (their differences are
+    subnormal); random words; and the specials."""
+    g = torch.Generator().manual_seed(5)
+    sub = _subnormal_words()
+    n = sub.numel()
+    near = torch.ldexp(1 + torch.rand(n, generator=g), torch.randint(-128, -122, (n,), generator=g))
+    near = near * torch.where(torch.rand(n, generator=g) < 0.5, -1.0, 1.0)
+    scale = torch.ldexp(torch.ones(n), torch.randint(-30, 30, (n,), generator=g))
+    wide = torch.randn(n, generator=g) * scale
+    words = _words(torch.float32)[: 2 * n]
+    a = torch.cat([sub, near, near, wide, words[:n]])
+    b = torch.cat([wide, wide, near.flip(0), sub, words[n:]])
+    return a, b
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("carrier_rounding", [RoundMode.RNE, RoundMode.RO], ids=lambda m: m.name)
+@pytest.mark.parametrize("fmt", list(_POINTWISE_FORMATS))
+def test_pointwise_ops_on_subnormals(fmt, carrier_rounding, rounding_mode):
+    """Every op of the fused pointwise ops (common/pointwise.h's codes: a + b,
+    a - b, a * b, a / b, sqrt(a), y - a, y / a), its step to nearest and
+    rounded to odd, on subnormal-heavy operands: the step goes through
+    bit_helper.h's exact spellings or carrier_odd_metal.h's primitives, which
+    the GPU's flush does not reach, so every word is the CPU's."""
+    spec = Quant(_POINTWISE_FORMATS[fmt], rounding_mode)._spec
+    assert spec is not None
+    family = spec.name.removesuffix("_quantize")
+    op = getattr(torch.ops.mptorch, f"{family}_pointwise").default
+    a, b = _pointwise_operands()
+    cr = carrier_rounding.value
+    for code in range(7):
+        if code == 4:  # sqrt
+            fn = lambda x, y, code=code: op(x.abs(), None, None, code, cr, *spec.args)  # noqa: E731
+        elif code in (5, 6):  # a number first
+            fn = lambda x, y, code=code: op(x, None, 2.0**-130, code, cr, *spec.args)  # noqa: E731
+        else:
+            fn = lambda x, y, code=code: op(x, y, None, code, cr, *spec.args)  # noqa: E731
+        ref, got = _on_both(fn, a, b)
+        _assert_same_words(ref, got, nan_payloads=False)
+
+
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name
+)
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=str)
+def test_pointwise_ops_on_every_16_bit_word(dtype, rounding_mode):
+    """Every word of the 16-bit dtypes as the first operand, against a
+    spread of second operands, for each op: the loads and stores are the
+    quantizers'."""
+    spec = Quant(_POINTWISE_FORMATS["binaryK-28-20"], rounding_mode)._spec
+    assert spec is not None
+    op = torch.ops.mptorch.binaryK_pointwise.default
+    a = _words(dtype)
+    b = a[torch.randperm(a.numel(), generator=torch.Generator().manual_seed(6))]
+    for code in range(7):
+        y, number = (None, None) if code == 4 else ((None, 0.37) if code in (5, 6) else (b, None))
+        fn = lambda x, y=y, code=code, number=number: op(  # noqa: E731
+            x, None if y is None else y.to(x.device), number, code, 0, *spec.args
+        )
+        ref, got = _on_both(fn, a)
+        _assert_same_words(ref, got, nan_payloads=False)
+
+
+# Tables whose tails meet subnormal inputs: clamped at 0 (a negative
+# subnormal is below the range), relu tails from a tiny positive end (a
+# positive subnormal is below it, and its relu is itself), extended, and the
+# 1/sqrt table, whose reduction reads the exponent field.
+_POINTWISE_TABLES = {
+    "clamp-at-0": (PWLTable(0.0, 2.0, (0.0, 1.0, 0.5, 2.0), tails="clamp"), 1),
+    "relu-from-2^-120": (PWLTable(2.0**-120, 1.0, (0.0, 0.25, 1.0), tails=torch.relu), 2),
+    "extend": (PWLTable(-1.0, 1.0, (0.0, 2.0**-127, -(2.0**-126), 1.0)), 0),
+    "rsqrt": (PWLTable.rsqrt(16), 0),
+}
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("table", list(_POINTWISE_TABLES))
+@pytest.mark.parametrize("fmt", list(_POINTWISE_FORMATS))
+def test_pwl_ops_on_subnormals(fmt, table, rounding_mode):
+    """The fused table ops on subnormal-heavy inputs: the range and relu
+    tests compare on the words on Metal (common/pointwise.h's metal_less),
+    since the GPU's compare would read a subnormal as zero."""
+    spec = Quant(_POINTWISE_FORMATS[fmt], rounding_mode)._spec
+    assert spec is not None
+    family = spec.name.removesuffix("_quantize")
+    op = getattr(torch.ops.mptorch, f"{family}_pwl").default
+    t, tails = _POINTWISE_TABLES[table]
+    a, _ = _pointwise_operands()
+    if table == "rsqrt":
+        a = a.abs()
+    ref, got = _on_both(
+        lambda x: op(x, t._entries(x.device, torch.float32), t.lo, t.hi, tails, table == "rsqrt",
+                     *spec.args),
+        a,
+    )  # fmt: skip
+    _assert_same_words(ref, got, nan_payloads=False)
+
+
+def test_pointwise_ops_strided_and_broadcast():
+    """A transposed operand, a broadcast one, and a geometry the host copies
+    (more than six dimensions after merging), on both backends."""
+    spec = Quant(_POINTWISE_FORMATS["binaryK-12-5-bias127"], RoundMode.SR)._spec
+    assert spec is not None
+    op = torch.ops.mptorch.binaryK_pointwise.default
+    g = torch.Generator().manual_seed(8)
+    x = torch.randn(40, 30, generator=g)
+    y = torch.randn(30, generator=g)
+    w = torch.randn(*([2] * 8), generator=g)
+    v = torch.randn(*([2, 1] * 4), generator=g)
+    for fn, tensors in [
+        (lambda p, q: op(p.t(), q.t(), None, 0, 0, *spec.args), (x, x)),
+        (lambda p, q: op(p, q, None, 3, 0, *spec.args), (x, y)),
+        (lambda p, q: op(p, q, None, 2, 0, *spec.args), (w, v)),
+    ]:
+        ref, got = _on_both(fn, *tensors)
+        _assert_same_words(ref, got, nan_payloads=False)

@@ -1,5 +1,6 @@
 // _carrier_odd on an Apple GPU: common/carrier_odd_metal.h's binary32
-// round-to-odd primitives applied elementwise by mps/carrier_odd.metal.
+// round-to-odd primitives (all five op codes, as on the CPU and CUDA) applied
+// elementwise by mps/carrier_odd.metal.
 // tests/test_carrier_rounding.py compares the results with an exact
 // reference and with the CPU's op, word for word. A test-only op, in
 // binary32 only, since MPS has no float64.
@@ -18,7 +19,7 @@ Tensor carrier_odd_mps(Tensor a, Tensor b, Tensor c, int64_t op)
 #if defined(MPTORCH_NO_ODD)
   mptorch::gemm::odd_unavailable("_carrier_odd");
 #else
-  mptorch::gemm::check_carrier_odd(a, b, c, op);
+  mptorch::gemm::check_carrier_odd(a, b, c, op, 5);
   Tensor a_c = a.contiguous(), b_c = b.contiguous(), c_c = c.contiguous();
   Tensor o = at::empty_like(a_c);
   if (o.numel() == 0)

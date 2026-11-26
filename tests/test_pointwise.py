@@ -597,12 +597,25 @@ def test_the_two_passes_keep_their_round_to_odd_bounds():
 
 
 @requires_mps
-def test_round_to_odd_and_binary64_fail_on_mps():
-    x = torch.ones(3, device="mps")
+def test_round_to_odd_runs_and_binary64_fails_on_mps():
+    """Round to odd runs the fused op on MPS, which gives the CPU's words; a
+    binary64 carrier needs float64 tensors, which MPS does not have."""
+    x = torch.linspace(-2.0, 3.0, 11)
+    y = torch.linspace(0.1, 5.0, 11)
+    q = Quant(BinaryK(8, 4, prng_bits=6), R.SR)
+    for f in (qadd, qsub, qmul, qdiv):
+        torch.manual_seed(3)
+        want = f(x, y, q, carrier_rounding=R.RO)
+        torch.manual_seed(3)
+        got = f(x.to("mps"), y.to("mps"), q, carrier_rounding=R.RO)
+        assert torch.equal(got.cpu(), want), f.__name__
+    assert torch.equal(
+        qsqrt(y.to("mps"), Quant(P8), carrier_rounding=R.RO).cpu(),
+        qsqrt(y, Quant(P8), carrier_rounding=R.RO),
+    )
+    m = torch.ones(3, device="mps")
     with pytest.raises((TypeError, RuntimeError)):
-        qadd(x, x, Quant(P8), carrier_rounding=R.RO)
-    with pytest.raises((TypeError, RuntimeError)):
-        qadd(x, x, Quant(P8), carrier=torch.float64)
+        qadd(m, m, Quant(P8), carrier=torch.float64)
 
 
 # --- the result is rounded in place, the inputs never ------------------------------------

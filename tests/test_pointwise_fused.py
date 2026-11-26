@@ -62,12 +62,20 @@ FORMATS = {
     "superfp_wide": SuperFP(19, 6, 40, 31, prng_bits=4),
     "fixedpoint_wide": FixedPoint(20, 10, prng_bits=3),
 }
-# The MPS kernels of these ops are not written yet.
-DEVICES = [
-    "cpu",
-    *cuda_devices,
-    pytest.param("mps", marks=[requires_mps, pytest.mark.skip(reason="no MPS kernel yet")]),
-]
+DEVICES = ["cpu", *cuda_devices, pytest.param("mps", marks=requires_mps)]
+
+
+def _reference_device(device: str) -> str:
+    """Where a test computes its reference: the device itself, except MPS,
+    whose own arithmetic flushes binary32 subnormals (2^-140 is among the
+    operands). The MPS ops return the CPU's words, so there the reference is
+    the CPU's two passes."""
+    return "cpu" if device == "mps" else device
+
+
+def _to(t, device):
+    return None if t is None else t.to(device)
+
 
 # (a's shape, b's shape, or None for a number operand)
 LAYOUTS = {
@@ -178,15 +186,16 @@ def _operands(layout, op, dtype, device):
 @pytest.mark.parametrize("family", list(FORMATS))
 def test_a_fused_op_is_its_operation_then_its_quantizer(device, dtype, mode, op, family):
     spec = _spec(FORMATS[family], mode)
+    r = _reference_device(device)
     for layout in LAYOUTS:
         a, b, number = _operands(layout, op, dtype, device)
         torch.manual_seed(11)
-        want = _two_pass(op, a, b, number, spec, device)
-        after_want = torch.rand(3, device=device)
+        want = _two_pass(op, a.to(r), _to(b, r), number, spec, r)
+        after_want = torch.rand(3, device=r)
         torch.manual_seed(11)
         got = _fused(op, a, b, number, spec)
-        after_got = torch.rand(3, device=device)
-        assert _same(got, want), (layout, got, want)
+        after_got = torch.rand(3, device=r)
+        assert _same(got.to(r), want), (layout, got, want)
         assert torch.equal(after_got, after_want), layout  # the generator is where it was
 
 
@@ -215,7 +224,8 @@ def test_strided_operands_are_read_where_they_are(device, dtype, op):
         got = _fused(op, a, b, number, spec)
         want = _fused(op, a.contiguous(), None if b is None else b.contiguous(), number, spec)
         assert _same(got, want)
-        assert _same(got, _two_pass(op, a, b, number, spec, device))
+        r = _reference_device(device)
+        assert _same(got.to(r), _two_pass(op, a.to(r), _to(b, r), number, spec, r))
 
 
 def _odd_reference(op: int, a, b, number, spec, device) -> torch.Tensor:
@@ -252,13 +262,14 @@ def _odd_reference(op: int, a, b, number, spec, device) -> torch.Tensor:
 @pytest.mark.parametrize("family", list(FORMATS))
 def test_round_to_odd_rounds_the_exact_result(device, dtype, mode, op, family):
     spec = _spec(FORMATS[family], mode)
+    r = _reference_device(device)
     for layout in LAYOUTS:
         a, b, number = _operands(layout, op, dtype, device)
         torch.manual_seed(12)
-        want = _odd_reference(op, a, b, number, spec, device)
+        want = _odd_reference(op, a.to(r), _to(b, r), number, spec, r)
         torch.manual_seed(12)
         got = _fused(op, a, b, number, spec, R.RO)
-        assert _same(got, want), (layout, got, want)
+        assert _same(got.to(r), want), (layout, got, want)
 
 
 _PHASE_OPS = {ADD: "add", SUB: "sub", MUL: "mul", DIV: "div", SQRT: "sqrt"}
@@ -275,12 +286,13 @@ def test_binary32_round_to_odd_is_the_float64_odd_step(device, dtype, op):
     odd: the C++ primitives give it, before the cast."""
     a = _values((40, 30), dtype, device, 6, positive=op == SQRT)
     b = None if op == SQRT else _values((40, 30), dtype, device, 7)
-    want = _odd_step(_PHASE_OPS[op], a, b, a, False)
+    r = _reference_device(device)  # the odd step's float64, which MPS does not have
+    want = _odd_step(_PHASE_OPS[op], a.to(r), _to(b, r), a.to(r), False)
     x = a.float()
     y = x if b is None else b.float()
     code = {ADD: 1, SUB: 1, MUL: 2, DIV: 3, SQRT: 4}[op]
     got = torch.ops.mptorch._carrier_odd(x, -y if op == SUB else y, x, code)
-    assert _same(got, want)
+    assert _same(got.to(r), want)
 
 
 # --- what the ops refuse -----------------------------------------------------------
@@ -360,12 +372,15 @@ def test_the_pointwise_ops_run_one_fused_op(device, family):
     q = Quant(FORMATS[family], R.SR)
     x = _values((4, 5), torch.float32, device, 8, positive=True)
     y = _values((5,), torch.float32, device, 9)
+    wide: dict[str, Any] = (
+        {} if device == "mps" else {"carrier": torch.float64}
+    )  # MPS has no float64
     calls = [
         lambda: qadd(x, y, q),
         lambda: qsub(0.5, x, q),
-        lambda: qmul(x, 3, q, carrier=torch.float64),
+        lambda: qmul(x, 3, q, **wide),
         lambda: qdiv(2.0, x, q, carrier_rounding=R.RO),
-        lambda: qsqrt(x, q, carrier=torch.float64, carrier_rounding=R.RO),
+        lambda: qsqrt(x, q, **wide, carrier_rounding=R.RO),
     ]
     for call in calls:
         with _Ops() as ops:
@@ -435,20 +450,21 @@ def test_a_fused_table_is_its_evaluation_then_its_quantizer(device, dtype, mode,
     spec = _spec(FORMATS[family], mode)
     t = TABLES[table]
     c = _carrier(dtype)
+    r = _reference_device(device)
     for shape, view in [((31, 33), None), ((33, 31), "t"), ((0, 4), None), ((), None)]:
         x = _table_input(table, shape, dtype, device, len(shape))
         if view == "t":
             x = x.t()
         torch.manual_seed(13)
-        y = pwl._evaluate(t, x.to(c)).contiguous()
+        y = pwl._evaluate(t, x.to(r).to(c)).contiguous()
         want = spec.plain_op(y, *spec.args).to(dtype)
-        after_want = torch.rand(3, device=device)
+        after_want = torch.rand(3, device=r)
         torch.manual_seed(13)
         got = _table_op(spec)(
             x, t._entries(x.device, c), t.lo, t.hi, _TAILS[table], table == "rsqrt", *spec.args
         )
-        after_got = torch.rand(3, device=device)
-        assert _same(got, want), (shape, got, want)
+        after_got = torch.rand(3, device=r)
+        assert _same(got.to(r), want), (shape, got, want)
         assert torch.equal(after_got, after_want)
 
 

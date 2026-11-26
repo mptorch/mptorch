@@ -954,7 +954,7 @@ at::Tensor fixedpoint_conv_fma_mps(at::Tensor a, at::Tensor b, int64_t conv_pass
 // The fused pointwise and table ops (common/pointwise.h): one carrier
 // operation, or a table's evaluation, and the elementwise quantizer's cast,
 // in one pass. CPU in cpu/pointwise_{binaryK,superfp,fixedpoint}.cpp, CUDA
-// in cuda/pointwise_entry.cpp.
+// in cuda/pointwise_entry.cpp, MPS in mps/pointwise_entry.cpp.
 at::Tensor binaryK_pointwise_cpu(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
 at::Tensor superfp_pointwise_cpu(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
 at::Tensor fixedpoint_pointwise_cpu(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
@@ -967,3 +967,9 @@ at::Tensor fixedpoint_pwl_cpu(at::Tensor x, at::Tensor entries, double lo, doubl
 at::Tensor binaryK_pwl_cuda(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
 at::Tensor superfp_pwl_cuda(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
 at::Tensor fixedpoint_pwl_cuda(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
+at::Tensor binaryK_pointwise_mps(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
+at::Tensor superfp_pointwise_mps(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
+at::Tensor fixedpoint_pointwise_mps(at::Tensor a, std::optional<at::Tensor> b, std::optional<double> scalar, int64_t op, int64_t carrier_rounding, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
+at::Tensor binaryK_pwl_mps(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode);
+at::Tensor superfp_pwl_mps(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode);
+at::Tensor fixedpoint_pwl_mps(at::Tensor x, at::Tensor entries, double lo, double hi, int64_t tails, bool rsqrt, int64_t wl, int64_t fl, int64_t prng_bits, bool is_signed, bool symmetric, int64_t round_mode);
