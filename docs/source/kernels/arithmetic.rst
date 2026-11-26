@@ -498,6 +498,45 @@ Beyond what the formats keep, the carrier adds little. On a GPU binary64
 also costs time (see :doc:`calling`, "Performance notes"), in addition to the
 float64 copies of the operands and the result.
 
+Exact accumulation
+------------------
+
+Some FP8 dot-product units sum their products exactly, in a fixed-point
+register wide enough for every product (a Kulisch accumulator), and round
+only the result. The binary64 carrier gives the same sums for the narrower
+formats. With ``FusedMac(None, carrier=torch.float64)`` no format rounds a
+product or a sum, and binary64 rounds none of them while each partial sum
+fits in its 53 bits:
+
+- **The bound.** Take a format whose smallest positive value is
+  :math:`2^{-s}` and whose largest is :math:`M`. Its products are multiples
+  of :math:`2^{-2s}` no larger than :math:`M^2`. A sum of :math:`K` of them
+  is exact in binary64, in any order, while :math:`K M^2 2^{2s} \le 2^{53}`.
+- **E4M3** (:math:`s = 9`, :math:`M = 448`): the products span 36 bits, so
+  the sums are exact on any data for :math:`K \le 2^{17}`. PyTorch's own
+  float64 matmul gives the same sums there.
+- **E5M2** (:math:`s = 16`, :math:`M = 57344`): the products span 64 bits,
+  more than binary64 holds. The sums are exact only on data whose products
+  span at most :math:`53 - \log_2 K` bits. In the run, data spread over 20
+  binades makes every sum inexact. Formats with a wider range, such as
+  float16 and bfloat16, are further out still.
+- **Rounding the exact sum once.** In a float32 GEMM, ``carrier=torch.float64``
+  narrows the result to binary32 before an output rounding rounds it again.
+  The second rounding changes a few results in :math:`10^7` (the run's last
+  line). Float64 operands keep the exact sum until the output rounding.
+- MPS has no binary64, so these exact sums need the CPU or CUDA.
+- No mac sums in a finite fixed-point register, one with a fixed binary
+  point that saturates or drops the bits below it: the fixed-point GEMM
+  (below) takes fixed-point formats only.
+
+.. literalinclude:: ../../snippets/exact_accumulation.py
+   :language: python
+   :caption: docs/snippets/exact_accumulation.py
+
+.. literalinclude:: ../../snippets/exact_accumulation.out
+   :language: text
+   :caption: output
+
 Fixed-point macs
 ----------------
 

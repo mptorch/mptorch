@@ -27,6 +27,11 @@ checks their values against ``tests/test_binaryk_p3109.py``'s ``_project``, a
 transcription of the projection in IEEE P3109 (arXiv:2606.04028) that shares no
 code with the kernels.
 
+A fifth section holds the binary64 carrier's sums of E4M3 products to their
+exact values. E4M3 values are multiples of 2^-9, so an int64 product of the
+scaled operands is the exact dot product, the value a wide fixed-point
+accumulator would hold. Each partial sum fits binary64 while K <= 2^17.
+
 The last section covers the narrower tensor. ``carrier=torch.float64`` widens
 the operands in Python, runs the binary64 kernel and narrows each result back
 to their dtype with one rounding, through the ``narrow_float64`` op. The op
@@ -43,6 +48,7 @@ field, and for float32 the hardware conversion. A float32 layer naming
 binary64 is then held to the float64 layer it widens to.
 """
 
+import dataclasses
 import math
 import warnings
 from fractions import Fraction
@@ -51,7 +57,7 @@ import pytest
 import torch
 from torch import nn
 
-from mptorch import BinaryK, FormatRangeWarning, RoundMode, SaturationMode
+from mptorch import E4M3, BinaryK, FormatRangeWarning, RoundMode, SaturationMode
 from mptorch.quant import FusedMac, QLinear, Quant, SplitMac, binaryK_gemm_formats, qmatmul
 from tests.markers import float64_devices
 from tests.test_binaryk_p3109 import _project
@@ -301,6 +307,35 @@ def test_formats_on_binary64s_edges_are_exact(device, K, P, bias):
         want = _project(x, K, P, True, rm, SaturationMode.SAT_NONE, bias)
         same = (got == want) & (torch.signbit(got) == torch.signbit(want))
         assert bool((same | (got.isnan() & want.isnan())).all()), rm.name
+
+
+# --- exact sums of E4M3 products ----------------------------------------------
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("K", [4096, 1 << 17])
+def test_the_binary64_carrier_sums_e4m3_products_exactly(device, K):
+    """A binary64 sum of E4M3 products is the exact dot product, on any data.
+
+    The products are multiples of 2^-18 below 448^2, under 2^17.6, so every
+    partial sum of up to 2^17 of them fits binary64's 53 bits, whatever the
+    order. The operands cover the format's whole range, saturating at its
+    largest value and reaching its subnormals. binary32 does not hold those
+    sums, which is the control: a GEMM that summed in binary32 would fail."""
+    gen = torch.Generator().manual_seed(K)
+    fmt = dataclasses.replace(E4M3, saturation=SaturationMode.SAT_FINITE)
+
+    def values(*shape):
+        x = torch.randn(*shape, generator=gen, dtype=F64)
+        spread = torch.empty(*shape, dtype=F64).uniform_(-12, 12, generator=gen)
+        return Quant(fmt)(x * torch.exp2(spread))
+
+    a, b = values(16, K), values(K, 16)
+    exact = (a * 2**9).long() @ (b * 2**9).long()  # in units of 2^-18, below 2^53
+    out = _silent(lambda: qmatmul(a.to(device), b.to(device), FusedMac(None, carrier=F64)))
+    assert torch.equal(out.cpu() * 2**18, exact.double())
+    in_binary32 = qmatmul(a.float().to(device), b.float().to(device), FusedMac(None))
+    assert not torch.equal(in_binary32.cpu().double() * 2**18, exact.double())
 
 
 # --- a narrower tensor in binary64 --------------------------------------------

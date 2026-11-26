@@ -1,0 +1,4 @@
+E4M3 over ±12 binades, K = 4096: binary64   0 of 256 sums inexact, binary32 256 of 256 sums inexact
+E5M2 over ± 4 binades, K = 4096: binary64   0 of 256 sums inexact, binary32 256 of 256 sums inexact
+E5M2 over ±20 binades, K = 4096: binary64 256 of 256 sums inexact, binary32 256 of 256 sums inexact
+rounded to E4M3 through binary32: 4 of 16,777,216 differ
