@@ -874,28 +874,225 @@ down from 10-12x. These rows are what `fixedpoint_gemm.py`'s M3 Pro table
 and `docs/source/kernels/arithmetic.rst`'s cost paragraph could take. Both
 are Linux's.
 
-## Round 2's commits, so far
+## M6b: the fused pointwise and table ops on MPS (at `ba9d01d`, rebased on `502eb15`)
+
+### What was built
+
+The six ops (`binaryK_pointwise`, `superfp_pointwise`,
+`fixedpoint_pointwise` and their `_pwl` siblings) on an Apple GPU, the MPS
+`_carrier_odd`'s op codes 3 and 4, and the switch that sends
+`mptorch.quant.pointwise`'s calls on MPS to them.
+
+**The kernel.** One kernel source, `KernelSource::Pointwise`, compiles from
+three parts:
+- `mps/pointwise.metal`, the head: `common/carrier_odd.h` (so
+  `carrier_odd_metal.h`'s primitives, division and the root included),
+  `common/pointwise.h` and `mps/pointwise_params.h`, flattened against the
+  prelude's headers as `fixedpoint.metal` is;
+- the instantiation's lines;
+- `mps/pointwise_kernel.metal`, which includes `quantize.metal`.
+
+The design choices:
+- **The cast is `quantize.metal`'s `quantize_one`.** That is the MPS
+  quantizer's own cast, under the quantizer's own tail. `quantize_tail` and
+  the three format-line builders moved from `quantize.cpp` into
+  `mps/quantize_tail.h`, unchanged, so the quantizers' tails, and their
+  kernels' text, are byte-identical.
+- **The step is `common/pointwise.h`'s `ArithStep` or `PwlStep`** (`MPT_PWL`
+  in the tail).
+- **The op, the carrier rounding, the number operand and a table's
+  constants are launch parameters** (`PointwiseLaunch`), as the CPU's step
+  takes them, so a format compiles once for all seven ops and both carrier
+  roundings.
+- **The geometry is `PointwiseGeom`, a constant buffer** copied into the
+  thread, since `pointwise::offsets` takes a thread reference. It is
+  size-asserted at 240 bytes on the host. `make_geom(..., device=true)`
+  keeps a non-flat geometry under 2^31 elements.
+- **Each thread takes four elements**, element j taking word j & 3 of
+  Philox block j >> 2, as `quantize.metal` does. The index type is 32 bits
+  when every index fits, as in M2.
+- **The entry (`mps/pointwise_entry.cpp`) is the CPU entries' body in their
+  order:** the format checks and the canonical round mode; then the
+  operands' checks, the result and the geometry; under SR the seed from the
+  CPU generator, drawn before the empty test; then the launch.
+- **No `PointwiseLaunch` in `launch_params.h`.** The prelude includes that
+  header, and adding a struct there would have changed every kernel's
+  source.
+
+**`mptorch/quant/pointwise.py`:** `_FUSED_DEVICES` gains `"mps"` (it serves
+`pwl._rounded` too). So `qadd`, `qsub`, `qmul`, `qdiv`, `qsqrt` and the
+table call sites run one fused op on MPS, and round to odd runs there,
+where it raised before.
+
+### Two Metal arms in `common/pointwise.h` (for `binary_identity.py`)
+
+Both are behind `#if defined(__METAL_VERSION__)`, with the host and CUDA
+statements verbatim in the `#else`:
+1. **`PwlStep::e` is `device const T *` on Metal.**
+2. **The table's range and relu tests compare on the words.** I added
+   `metal_less` and `metal_order`, Metal-only, ahead of `PwlStep`, and they
+   are used in `interpolate`'s clamp (`x < lo`, `x > hi`) and its relu tails
+   (`x < lo || x > hi`, `x > 0`). The GPU's compare flushes a subnormal
+   operand to zero. So under clamp tails at `lo = 0`, a negative subnormal
+   was not clamped. Under relu tails with a positive `lo`, a positive
+   subnormal's relu became 0 instead of itself.
+
+The rest of the header's Metal text, Linux's, needed no change:
+- the `rn::` arms;
+- the casts' factories (unused, since the kernel casts with
+  `quantize_one`);
+- `floor_of`, `word_of`, `float_of`, `power_of_two` and `exponent_of`.
+
+The `rn::add` arm's `metal_sub_rn(x, -y)` relies on negation keeping a
+subnormal. A GPU probe confirmed it: `-x` flips the sign bit, subnormals
+and NaN payloads included, while `0.0f - x` and the compares flush. Torch's
+own MPS `neg` keeps subnormals too, and its `+` flushes them.
+
+### The MPS `_carrier_odd`
+
+`mps/carrier_odd.metal` gains `MPT_ODD_OP` 3 (`odd::div`) and 4
+(`odd::sqrt`), M6a's primitives. `mps/carrier_odd_entry.cpp` passes `5` to
+`check_carrier_odd`, as the CPU and CUDA entries do.
+
+### Tests
+
+These are the shared test lines, with the reason for each:
+- **`tests/test_pointwise_fused.py`:**
+  - `DEVICES` loses its skip.
+  - The references move to the CPU on MPS (`_reference_device`): the
+    two passes' torch operations on MPS flush binary32 subnormals, and
+    2^-140 is among the operands. The MPS ops return the CPU's words, so
+    the references are the CPU's two passes, the odd step's float64 (which
+    MPS lacks), and `pwl._evaluate`.
+  - The generator checks read the generator the ops draw from (the CPU's
+    on MPS). They are unchanged on the CPU and CUDA.
+  - `test_the_pointwise_ops_run_one_fused_op` drops its
+    `carrier=torch.float64` calls on MPS.
+- **`tests/test_carrier_rounding.py`:** `QUOTIENT_DEVICES` and
+  `QUOTIENT_ACCELERATORS` lose their MPS skip.
+- **`tests/test_pointwise.py`:** `test_round_to_odd_and_binary64_fail_on_mps`
+  pinned the old refusal. It becomes
+  `test_round_to_odd_runs_and_binary64_fails_on_mps`: RO on MPS gives the
+  CPU's words for add, sub, mul, div (under SR) and sqrt, and a binary64
+  carrier still fails.
+- **`tests/test_mps.py`, new section "The fused pointwise and table ops"**,
+  every case against the CPU op word for word:
+  - every op, both carrier roundings and every mode, on operands built so
+    that sums, differences, products, quotients and roots land among
+    binary32's subnormals and near 2^-126;
+  - formats that reach them (binaryK `(12, 5)` at bias 127, superfp
+    `(3, 4, 1)` at bias 22, `FixedPoint(8, 125)`, binaryK `(28, 20)`);
+  - every 16-bit word of float16 and bfloat16 as the first operand;
+  - tables clamped at 0, with relu tails from 2^-120, extended, and the
+    1/sqrt table;
+  - strided, broadcast and over-six-dimension geometries.
+
+  The new tests accept any NaN where the CPU has one. The GPU's float unit
+  hands a NaN step out as its canonical NaN, where the CPU keeps the
+  operand's payload. This is the payload exception the docs state for the
+  fused ops ("A NaN is a NaN, whatever its payload"), and CUDA behaves the
+  same.
+
+| check | result |
+|---|---|
+| `pytest tests/test_pointwise_fused.py -k mps` | **3,105 passed**, 1,026 skipped (`MPS has no float64 tensors`) |
+| `pytest tests/test_carrier_rounding.py -k mps` | 380 passed (the 75 quotient cases included), 321 skipped (float64) |
+| `pytest tests/test_mps.py -k "pointwise or pwl"` | **223 passed** |
+| negative control: the Metal arms replaced by the GPU's plain operations (my two compares, and `rn::add`/`rn::mul` as `x + y`, `x * y`), rebuilt | 173 of the 223 fail, 62 of the 72 clamp/relu table cases among them; restored afterwards |
+| `pytest tests/` | **27,364 passed, 16,701 skipped, 0 failed**, in 7:56, and the same on the tree rebased on `502eb15` (phase AK's tiles in). The `no MPS kernel yet` (4,131) and quotient (75) skips are gone; the MPS skips left are float64's and the tests' own rules (R2.0's list) |
+| lint: `ruff check`, `ruff format --check`, `ty check mptorch` | pass |
+
+**Host objects under Apple clang:** compared with M4's build (`cmp` over
+326 objects), only `mps/quantize.o`, `mps/metal_runtime.o`,
+`mps/carrier_odd_entry.o` and `mps/mps_ops.o` differ, plus the new
+`mps/pointwise_entry.o`. Every CPU and Meta object is byte-identical:
+`cpu/pointwise_*.o` and `meta/pointwise_meta.o`, which include
+`pointwise.h`, and every unit that includes `quant_ops.h`.
+
+### Timing
+
+`pointwise_ops.py --device mps`, with R2.0's scratch fix for its timer.
+4096 x 4096, AC power, no thermal warning. ms, with R2.0's two-pass base
+beside:
+
+| float32, forward | torch | before (two passes) | fused rne | fused sr | `2pass` column |
+|---|---|---|---|---|---|
+| add | 1.53 | 2.51 | **1.68** | 1.59 | 2.56 |
+| mul | 1.53 | 2.57 | 1.67 | 1.59 | 2.55 |
+| div | 1.52 | 2.54 | 1.62 | 1.61 | 2.50 |
+| sqrt | 1.02 | 2.05 | **1.06** | 1.06 | 2.01 |
+| pwl (`qpwl`, `silu_table()`) | 1.02 (SiLU) | 24.23 | **1.46** | 1.69 | 24.26 |
+
+| bfloat16, forward | torch | before | fused rne | fused sr |
+|---|---|---|---|---|
+| add | 0.77 | 4.85 | **0.91** | 1.06 |
+| sqrt | 0.51 | 3.53 | 0.76 | 1.00 |
+| pwl | 0.52 | 25.69 | **1.49** | 1.72 |
+
+The fused ops cost 1.0-1.2x torch's own op in float32 and 1.2-1.5x in
+bfloat16 under RNE. That is 1.5-1.9x faster than the two passes in float32
+and 4.7-5.3x in bfloat16. A table is 16-17x faster. With backward, float32
+add, mul, div and sqrt take about 1 ms less (8.74 against 9.64 for add).
+The ops that do not fuse (exp, gelu, silu) are unchanged.
+
+Round to odd costs nothing on MPS (a scratch timing of `qadd`, `qmul`,
+`qdiv` and `qsqrt` at the same size): 1.65-1.68 ms against 1.63-1.67 under
+RNE, and 1.05 against 1.06 for the root. The tool drops `ro` (and `f64`)
+on MPS because RO used to raise there.
+
+### Files
+
+Mac-owned:
+- new: `mptorch/csrc/mps/pointwise.metal`, `pointwise_kernel.metal`,
+  `pointwise_entry.cpp`, `pointwise_params.h`, `quantize_tail.h`;
+- changed: `quantize.cpp` (the builders moved out), `carrier_odd.metal`,
+  `carrier_odd_entry.cpp`, `metal_runtime.h`, `metal_runtime.mm`,
+  `mps_ops.cpp`, and `tests/test_mps.py`.
+
+Shared, the hunks as described above:
+- `mptorch/csrc/common/pointwise.h` (the two Metal arms);
+- `setup.py` (`embed_metal_sources` gains `pointwise` and `pointwise_kernel`,
+  the first flattened against the prelude's headers, and the docstring says
+  so);
+- `mptorch/csrc/quant_ops.h` (the six `_mps` declarations and the comment
+  naming the MPS file);
+- `mptorch/quant/pointwise.py` (`_FUSED_DEVICES`);
+- `tests/test_pointwise_fused.py`, `tests/test_carrier_rounding.py` and
+  `tests/test_pointwise.py`.
+
+## Round 2's commits
 
 | task | commit | files | shared? |
 |---|---|---|---|
 | R2.0, R2.1 | none | | |
-| M4 | the commit "MPS: the fixed-point GEMM's K-loop layouts on Metal" | `mptorch/csrc/common/fixedpoint_gemm.h` | yes: **Linux reruns `binary_identity.py`** (expected: no host or CUDA object moves; under Apple clang none did) |
-| this report | the commit after it | `dev/mac_parallel_report.md` | |
+| M4 | `e72a53b` MPS: the fixed-point GEMM's K-loop layouts on Metal | `mptorch/csrc/common/fixedpoint_gemm.h` | yes: merged; Linux's `binary_identity.py` IDENTICAL |
+| R2.0, R2.1, M4's report | `ba9d01d` | `dev/mac_parallel_report.md` | |
+| M6b | the commit "MPS: the fused pointwise and table ops" | the files listed under M6b | yes: `common/pointwise.h` needs **`binary_identity.py`** (expected: nothing moves; under Apple clang nothing did) |
+| this report's M6b section | the commit after it | `dev/mac_parallel_report.md` | |
 
-M6b comes next, in commits of its own.
+**What Linux is asked to do.** Linux has already merged M4 (its
+`binary_identity.py` run was IDENTICAL), fixed `pointwise_ops.py`'s timer on
+MPS, and taken M4's numbers into the docs (`502eb15`). What is left:
+1. Rerun `binary_identity.py` for M6b's `common/pointwise.h`.
+2. `dev/benchmarks/timing/pointwise_ops.py`'s `ro` variant can now run on
+   MPS. The tool still drops it there; `f64` still cannot run.
+3. Update the text that still says the fused ops run on the CPU and CUDA
+   only:
+   - `docs/source/kernels/pointwise.rst`: the round-to-odd paragraph
+     ("On the CPU and CUDA the fused ops ...", and "Elsewhere (MPS) the two
+     passes compute it in float64 ..."), "One pass" ("On the CPU and CUDA,
+     ...", and "and MPS run the two passes"), and "What a table costs";
+   - `mptorch/quant/pointwise.py`'s docstrings of the `carrier_rounding`
+     argument ("on the CPU and CUDA, any float operands; elsewhere float32,
+     float16 and bfloat16 ones") and of `qsqrt` ("with a `Quant` slot on
+     the CPU and CUDA the fused op computes it"). On MPS the fused op now
+     computes both, in binary32.
 
-**What Linux is asked to do:**
-1. Rerun `binary_identity.py` for M4's header and merge it before starting
-   S. The host and CUDA token changes are listed under "What changed"
-   above.
-2. Fix `dev/benchmarks/timing/pointwise_ops.py`'s timer on MPS (R2.0's
-   diff).
-3. If wanted, take M4's MPS rows into `fixedpoint_gemm.py`'s docstring
-   and `docs/source/kernels/arithmetic.rst`'s "Fixed-point macs".
+   M6b's tables above give the MPS costs.
 
 Worktrees outside the repository:
-- `../mptorch-base` (`85d1d31`) and `../mptorch-wide` (now `6afa44a`
-  with the logical-form experiment) serve R2.1 and M4;
-- `../mptorch-m4base` (`6afa44a`) is M4's base, and M6b's.
+- `../mptorch-base` (`85d1d31`) and `../mptorch-wide` (`6afa44a` with the
+  logical-form experiment) served R2.1 and M4;
+- `../mptorch-m4base` (`6afa44a`) was M4's base.
 
-`git worktree remove` deletes each once it is no longer needed.
+`git worktree remove` deletes them.
