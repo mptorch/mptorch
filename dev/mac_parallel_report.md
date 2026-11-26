@@ -1595,3 +1595,121 @@ one opaque dispatch: Inductor fuses only the torch operations between them.
   for math / rne / sr, which take 0.45 / 4.68 / 19.12 ms synchronized. It
   also has no MPS shapes (it falls back to the CPU's).
 - If AL's tools time flash on MPS, the numbers above are the base.
+
+## M9: AL step 2 on MPS (at `99232dc`)
+
+The batched path gives the loop's words on MPS in every case. It is faster
+than the loop where the tiles are many or the products cheap, and 4-6.5%
+slower at 128 x 128 tiles with the baseline's simulated products. No file
+changed but this report.
+
+The flag-on build (`MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1`) rebuilt
+the counted units for `36f0c44`'s rename (`OVERFLOWED`, `UNDERFLOWED`) under
+Apple clang without the `#undef`, and their tests are in the suite below.
+
+### 1. Tests on MPS
+
+| command | result |
+|---|---|
+| `pytest tests/test_flash_attention.py` | 91 passed, 45 skipped (CUDA); 43 cases on MPS, among them the 16 of `test_the_batched_path_is_the_loop` (four recipes x four masks, both geometries in each), all passed |
+| `pytest tests/test_attention.py` | 219 passed, 118 skipped (CUDA, and float64 on MPS) |
+| `pytest tests/test_simulate_events.py` | 21 passed, 7 skipped (CUDA) |
+| `pytest tests/test_profile.py` | 45 passed |
+| `pytest tests/` | 28,327 passed, 17,120 skipped, 0 failed (8 min) |
+
+`test_what_the_batched_path_takes` has no device parameter (it runs once).
+No batched case differed, so there is no first-differing tensor to report.
+
+### 2. The baseline again
+
+The baseline's script, shapes, formats and method (section "M9's
+baseline"), with a column per block size for the loop forced
+(`mock.patch.object(attention, "_batchable", lambda f: (False, False))`).
+Under RNE these formats batch both passes (`_batchable` returns `(True,
+True)`); under SR they batch neither, so the SR columns are the control. AC
+power, no thermal warning before or after. ms, and against the standard
+path in the same mode:
+
+Forward:
+
+| shape | std RNE | flash 64 | loop 64 | flash 128 | loop 128 | std SR | flash 64 SR | flash 128 SR |
+|---|---|---|---|---|---|---|---|---|
+| 8x8x256 | 9.4 | 6.7 (0.71x) | 7.3 (0.78x) | 7.2 (0.77x) | 7.0 (0.75x) | 37.7 | 25.3 (0.67x) | 28.3 (0.75x) |
+| 4x16x1024 | 141.7 | 82.8 (0.58x) | 83.1 (0.59x) | 80.2 (0.57x) | 75.8 (0.53x) | 601.1 | 330.8 (0.55x) | 330.7 (0.55x) |
+| 1x16x4096 | 563.2 | 312.1 (0.55x) | 481.9 (0.86x) | 295.3 (0.52x) | 299.8 (0.53x) | 2470.3 | 1480.0 (0.60x) | 1274.9 (0.52x) |
+
+Forward and backward, RNE:
+
+| shape | std | flash 64 | loop 64 | flash 128 | loop 128 |
+|---|---|---|---|---|---|
+| 8x8x256 | 24.6 | 20.9 (0.85x) | 21.4 (0.87x) | 22.6 (0.92x) | 22.2 (0.90x) |
+| 4x16x1024 | 375.4 | 260.9 (0.70x) | 259.6 (0.69x) | 255.4 (0.68x) | 240.2 (0.64x) |
+| 1x16x4096 | 1483.6 | 998.1 (0.67x) | 1365.3 (0.92x) | 944.5 (0.64x) | 944.3 (0.64x) |
+
+**The control holds.** The SR columns are the baseline's within 1-2%
+(330.8 against 333.2 ms, 1480.0 against 1485.8, 1274.9 against 1286.6), and
+the forced loop is the baseline's flash within 1%.
+
+**Where batching pays.** At 1x16x4096 with 64 x 64 tiles (2,080 tile
+pairs), the batched forward takes 312.1 ms against the loop's 481.9 (1.54x),
+and forward and backward 998.1 against 1365.3 (1.37x). The 170 ms saved
+is most of the loop overhead the baseline estimated there (about 230 ms, at
+0.11 ms per tile step). With
+128 x 128 tiles, or at L = 1,024, there are too few tile pairs for it to
+show.
+
+**Where it costs.** With 128 x 128 tiles the batched path is slower than
+the loop. Rechecked over seven rounds, batched against loop:
+
+| shape | tiles | fwd | fwd+bwd |
+|---|---|---|---|
+| 4x16x1024 | 64 | 82.9 / 82.9 (1.000) | 261.1 / 255.7 (1.021) |
+| 4x16x1024 | 128 | 80.2 / 75.4 (1.065) | 255.7 / 240.4 (1.064) |
+| 2x16x2048 | 64 | 159.2 / 185.0 (0.860) | 503.4 / 554.6 (0.908) |
+| 2x16x2048 | 128 | 149.4 / 143.3 (1.042) | 477.9 / 458.2 (1.043) |
+
+A lead, from counting the dispatched ops (`TorchDispatchMode`) of one
+forward at 4x16x1024, 128 x 128 tiles. The batched path makes 521 ops
+against the loop's 1,332 (24 GEMMs against 108), but it moves more data:
+`copy_` writes 27.9M elements (the loop's none), `clone` 23.1M against
+12.6M, `add_` 8.4M against none, and its `slice`s and `transpose`s cover
+72.3M and 33.6M elements against 12.6M and 4.2M (views, which the copies
+then read strided). With 36 tile pairs there are only about 3 ms of
+launches to save at the baseline's 0.11 ms per step, so the extra copies
+evidently cost more than that here (I did not time them apart). Writing the running state in place, or
+keeping the suffix of tiles contiguous, might remove the difference. I did
+not try: `attention.py` is Linux's.
+
+### 3. The tool
+
+`flash_attention.py --device mps --recipes carrier torch --lengths 512 1024
+2048` (`[1, 8, L, 64]`, causal, 128 x 128 tiles, the tool's own method), ms;
+no `[differs]` mark anywhere:
+
+| recipe | L | fwd: standard / loop / flash | fwd+bwd: standard / loop / flash |
+|---|---|---|---|
+| carrier | 512 | 2.49 / 2.92 / 2.34 | 5.52 / 7.20 / 5.94 |
+| carrier | 1024 | 8.90 / 8.89 / 6.10 | 20.19 / 22.47 / 17.93 |
+| carrier | 2048 | 34.23 / 28.92 / 20.93 | 79.44 / 79.39 / 59.73 |
+| torch | 512 | 1.06 / 1.64 / 1.62 | 1.98 / 3.39 / 3.44 |
+| torch | 1024 | 3.58 / 3.90 / 3.86 | 6.99 / 10.38 / 10.41 |
+| torch | 2048 | 14.28 / 12.38 / 12.33 | 26.58 / 36.32 / 36.41 |
+
+With the carrier recipe, whose products are cheap (`FusedMac(None)`), the
+batched path runs the forward 1.25-1.46x faster than the loop, and from
+L = 1,024 faster than the standard path, as on CUDA. The `torch` recipe
+keeps the loop, as designed, so its two flash columns agree.
+
+### 4. Compile, short
+
+Inductor at 4x16x1024, flash 64 x 64, forward, RNE, on the batched path as
+shipped (eager 82.7 ms):
+
+| config | result |
+|---|---|
+| default | fails after 6.5 s: "number of constant buffers exceeds maximum supported (31)" |
+| `max_fusion_size = 2` | compiles in 5.0 s (the loop's took 16.5); 67.8 ms (1.22x faster); words equal eager's |
+
+So the batched graph still exceeds Metal's 31 buffers under Inductor's
+default fusion. It compiles three times faster than the loop's, and runs as
+fast as the compiled loop (66.7 ms in the baseline).
