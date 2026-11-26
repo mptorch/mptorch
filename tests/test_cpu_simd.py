@@ -2,8 +2,9 @@
 
 ``cpu/gemm_rne_tile.cpp`` runs a binaryK RNE GEMM's packed tiles through a
 vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
-it, and ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
-(``carrier_rounding=RoundMode.RO``); ``MPTORCH_CPU_SIMD``, read when the
+it, ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
+(``carrier_rounding=RoundMode.RO``), and ``cpu/pointwise_rne.cpp`` for the
+fused pointwise ops (``qadd`` and its siblings); ``MPTORCH_CPU_SIMD``, read when the
 extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
 So each case here runs in an interpreter per setting, and their results must
 agree bit for bit, NaNs included. The cases are the tiles'
@@ -116,6 +117,40 @@ _CASES = textwrap.dedent(
         if ODD:
             out["odd-conv-split"] = oconv(x)
             out["odd-conv-fused"] = ofconv(x)
+    # the fused pointwise ops' vector blocks (cpu/pointwise_rne.cpp): every
+    # op, tensor and number operands, several blocks and a ragged tail, and a
+    # broadcast operand and formats that keep the scalar loop
+    from mptorch.quant import Quant, qadd, qdiv, qmul, qsqrt, qsub
+
+    specials = [0.0, -0.0, 1e-41, -1e-41, 1e-30, 3e38, -3e38, float("inf"),
+                float("-inf"), float("nan"), 65504.0, 1e5, 2.0**-20]
+    g = torch.Generator().manual_seed(10)
+    x0, y0 = torch.randn(3001, generator=g) * 3, torch.randn(3001, generator=g) * 3
+    for i, v in enumerate(specials):
+        x0[(i * 37) % x0.numel()] = v
+        y0[(i * 53) % y0.numel()] = v
+    for dtype in (torch.float32, torch.float16, torch.bfloat16):
+        x, y = x0.to(dtype), y0.to(dtype)
+        for k, p in [(8, 4), (16, 11), (12, 7), (6, 3), (24, 16)]:
+            if p > precision[dtype]:
+                continue
+            q = Quant(BinaryK(k, p))
+            key = f"pointwise-{dtype}-{k}p{p}"
+            out[key + "-add"] = qadd(x, y, q)
+            out[key + "-sub"] = qsub(x, y, q)
+            out[key + "-mul"] = qmul(x, y, q)
+            out[key + "-div"] = qdiv(x, y, q)
+            out[key + "-sqrt"] = qsqrt(x, q)
+            out[key + "-add-number"] = qadd(x, 0.7, q)
+            out[key + "-rsub"] = qsub(0.3, x, q)
+            out[key + "-rdiv"] = qdiv(0.3, x, q)
+            out[key + "-broadcast"] = qmul(x[:3000].view(30, 100), y[:100], q)
+        out[f"pointwise-{dtype}-unsigned"] = qadd(
+            x.abs(), y.abs(), Quant(BinaryK(8, 4, is_signed=False))
+        )
+        out[f"pointwise-{dtype}-normals"] = qadd(
+            x, y, Quant(BinaryK(8, 4, subnormals=SubnormalsMode.NORMALS))
+        )
     torch.save(out, sys.argv[1])
     """
 )

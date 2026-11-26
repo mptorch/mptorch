@@ -556,4 +556,33 @@ TORCH_LIBRARY(mptorch, m)
         "int[] padding, int[] dilation, int groups, "
         "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
         "int round_mode, int fma_prng_bits, bool wrap) -> Tensor", seeded);
+  // The fused pointwise ops (common/pointwise.h): op 0 to 6 is a + b, a - b,
+  // a * b, a / b, sqrt(a), scalar - a or scalar / a, in the carrier, to
+  // nearest or, with carrier_rounding RoundMode::RO, rounded to odd, then
+  // the elementwise quantizer's cast; b broadcasts against a, and a number
+  // operand is `scalar`. Each op then takes its elementwise twin's format
+  // arguments.
+  m.def("binaryK_pointwise(Tensor a, Tensor? b, float? scalar, int op, int carrier_rounding, "
+        "int K, int P, int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode, int subnormals_mode) -> Tensor", seeded);
+  m.def("superfp_pointwise(Tensor a, Tensor? b, float? scalar, int op, int carrier_rounding, "
+        "int man_bits, int exp_bits, int normal_binades, int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode) -> Tensor", seeded);
+  m.def("fixedpoint_pointwise(Tensor a, Tensor? b, float? scalar, int op, int carrier_rounding, "
+        "int wl, int fl, int prng_bits, bool is_signed, bool symmetric, "
+        "int round_mode) -> Tensor", seeded);
+  // The fused table ops (common/pointwise.h's PwlStep): a PWLTable at x in
+  // the carrier, `entries` its values at the knots of [lo, hi] in x's
+  // carrier, tails 0 (extend), 1 (clamp) or 2 (relu), and `rsqrt` for a
+  // table of 1/sqrt over [1, 4) with its reduction; then the elementwise
+  // quantizer's cast. Each op takes its elementwise twin's format arguments.
+  m.def("binaryK_pwl(Tensor x, Tensor entries, float lo, float hi, int tails, bool rsqrt, "
+        "int K, int P, int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode, int subnormals_mode) -> Tensor", seeded);
+  m.def("superfp_pwl(Tensor x, Tensor entries, float lo, float hi, int tails, bool rsqrt, "
+        "int man_bits, int exp_bits, int normal_binades, int bias, int prng_bits, bool is_signed, "
+        "int round_mode, int saturation_mode) -> Tensor", seeded);
+  m.def("fixedpoint_pwl(Tensor x, Tensor entries, float lo, float hi, int tails, bool rsqrt, "
+        "int wl, int fl, int prng_bits, bool is_signed, bool symmetric, "
+        "int round_mode) -> Tensor", seeded);
 }

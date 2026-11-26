@@ -38,7 +38,7 @@ from mptorch.quant.pointwise import (
     qsqrt,
     qsub,
 )
-from tests.markers import available_devices, float64_devices, requires_mps
+from tests.markers import available_devices, float64_devices, requires_cuda, requires_mps
 from tests.test_carrier_rounding import _ro as _ro_carrier
 
 R = RoundMode
@@ -560,29 +560,40 @@ def test_a_result_narrower_than_its_format_is_refused():
 
 def test_round_to_odd_refuses_what_it_cannot_round_exactly():
     x = torch.ones(3)
-    with pytest.raises(ValueError, match="float64 operands"):
-        qadd(x.double(), x.double(), Quant(P8), carrier_rounding=R.RO)
     with pytest.raises(ValueError, match="no exact carrier step"):
         qexp(x, Quant(P8), carrier_rounding=R.RO)
     with pytest.raises(ValueError, match="P is 23"):
         qadd(x, x, Quant(BinaryK(30, 23)), carrier_rounding=R.RO)  # binary32: P <= 22
     qadd(x, x, Quant(BinaryK(30, 23)), carrier=torch.float64, carrier_rounding=R.RO)
-    with pytest.raises(ValueError, match="P \\+ prng_bits is 28 .* at most 25"):
-        qsqrt(
-            x,
-            Quant(BinaryK(8, 4, prng_bits=24), R.SR),
-            carrier=torch.float64,
-            carrier_rounding=R.RO,
+    # The fused ops round a binary64 quotient or root to odd exactly, and
+    # float64 operands too, so only the format's own bound applies.
+    sr = Quant(BinaryK(8, 4, prng_bits=24), R.SR)
+    qsqrt(x, sr, carrier=torch.float64, carrier_rounding=R.RO)
+    qdiv(x, x, sr, carrier=torch.float64, carrier_rounding=R.RO)
+    qadd(x.double(), x.double(), Quant(P8), carrier_rounding=R.RO)
+    with pytest.raises(ValueError, match="P \\+ prng_bits is 53"):
+        qdiv(
+            x.double(), x.double(), Quant(BinaryK(8, 4, prng_bits=49), R.SR), carrier_rounding=R.RO
         )
-    qdiv(
-        x, x, Quant(BinaryK(8, 4, prng_bits=24), R.SR), carrier=torch.float64, carrier_rounding=R.RO
-    )
     with pytest.raises(ValueError, match="a Quant of a BinaryK"):
         qadd(x, x, lambda t: t, carrier_rounding=R.RO)
     for fmt in (SuperFP(3, 4, 8, 7), FixedPoint(8, 4)):
         qmul(x, x, Quant(fmt), carrier_rounding=R.RO)
     with pytest.raises(ValueError, match="RoundMode.RNE .* or RoundMode.RO"):
         qadd(x, x, Quant(P8), carrier_rounding=R.RU)
+
+
+@requires_cuda
+def test_the_two_passes_keep_their_round_to_odd_bounds():
+    """A CUDA tensor beside a CPU 0-dim tensor runs the two passes, whose odd
+    step is computed in float64: float64 operands, and a binary64 quotient
+    or root past its bound, are refused there."""
+    x, one = torch.ones(3, device="cuda"), torch.tensor(1.0)
+    with pytest.raises(ValueError, match="float64 operands"):
+        qadd(x.double(), one.double(), Quant(P8), carrier_rounding=R.RO)
+    with pytest.raises(ValueError, match="P \\+ prng_bits is 30 .* at most 29"):
+        qdiv(x, one, Quant(BinaryK(8, 4, prng_bits=26), R.SR), carrier=torch.float64,
+             carrier_rounding=R.RO)  # fmt: skip
 
 
 @requires_mps

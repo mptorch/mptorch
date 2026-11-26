@@ -9,11 +9,22 @@ float32 and in bfloat16, in these variants:
     sr       the same under stochastic rounding (8 random bits)
     f64      ``rne`` computed and rounded in binary64 (``carrier=torch.float64``)
     ro       ``rne`` rounded to odd in the carrier (add, mul, div and sqrt only)
+    2pass    ``rne`` as two passes, torch's op in the carrier and then the
+             quantizer in place, which is what ``qadd``, ``qmul``, ``qdiv``,
+             ``qsqrt`` and ``qpwl`` computed before their fused ops (forward
+             only)
+
+``qadd``, ``qmul``, ``qdiv``, ``qsqrt`` and ``qpwl`` with a ``Quant`` slot run
+one fused op on the CPU and CUDA (``csrc/common/pointwise.h``), so their
+``rne``, ``sr``, ``f64`` and ``ro`` rows are its; the other ops run the two
+passes.
 
 The ops are ``qadd``, ``qmul``, ``qdiv``, ``qsqrt``, ``qexp``, ``qgelu`` and
-``qsilu`` (the gated activations with their gate rounded as well). The binary
-ops take a second tensor of the same shape. Each variant is the minimum over
-``--rounds`` rounds, alternating with ``torch``'s.
+``qsilu`` (the gated activations with their gate rounded as well), and
+``pwl``, ``qpwl`` over ``silu_table()`` against torch's SiLU (its ``none`` is
+the table unrounded). The binary ops take a second tensor of the same shape.
+Each variant is the minimum over ``--rounds`` rounds, alternating with
+``torch``'s.
 
 Run from the repository root (check the CPU clock first: a capped clock
 scales every number):
@@ -22,41 +33,38 @@ scales every number):
     uv run --no-sync python dev/benchmarks/timing/pointwise_ops.py --device cpu --threads 16
     uv run --no-sync python dev/benchmarks/timing/pointwise_ops.py --device cuda
 
-About two minutes for one CPU thread, less for the others. The shape is
+About eight minutes for one CPU thread, less for the others. The shape is
 2048 x 2048 on the CPU and 4096 x 4096 on CUDA (``--size``).
 
-On the CPU, the variants that widen (bfloat16 to float32, anything to
-float64, and the float32 square root, computed in float64 because torch's CPU
-root is not correctly rounded) allocate temporaries of 16 to 32 MB, which
-glibc maps fresh from the system on every call, so their times are mostly
-first-touch page faults. ``MALLOC_MMAP_THRESHOLD_=4294967296
-MALLOC_TRIM_THRESHOLD_=4294967296`` keeps them in the heap: at one thread,
-float32 ``qadd`` then takes 6.5 ms (6.7 without), bfloat16 9.3 (32.6),
-binary64 15.4 (70.2), rounded to odd 75.7 (389.1), and the float32 root 15.8
-(49.8), against torch's 1.0-1.5 ms.
+On the CPU, a result or temporary of 16 to 32 MB is mapped fresh from the
+system on every call by glibc, unless its dynamic threshold has risen past
+it, so CPU times move by a millisecond or more from one process to the next.
+``MALLOC_MMAP_THRESHOLD_=4294967296 MALLOC_TRIM_THRESHOLD_=4294967296`` keeps
+them in the heap; the CPU rows below were taken so.
 
-Results (Ryzen 9 7940HS at 4.5 GHz, RTX 4060 laptop GPU, torch 2.15,
-2026-11-23), forward, ms and against torch's, for float32:
+Results (Ryzen 9 7940HS at 4.7-4.8 GHz, RTX 4060 laptop GPU, torch 2.15,
+2026-11-26), float32 forward, ms; ``2pass`` is what each op cost before its
+fused op:
 
-                 torch   none   rne          sr           f64           ro
-    cpu x1  add   1.27   1.0x   6.62 (5.2x)  15.6 (12x)   69.2 (55x)   371 (293x)
-            exp   2.57   1.0x   8.44 (3.3x)  17.4 (6.8x)  50.4 (20x)
-            sqrt  1.38   1.0x   51.6 (37x)   59.6 (43x)   52.1 (38x)   138 (100x)
-            gelu  1.64   1.0x   61.4 (37x)   82.6 (50x)   147 (90x)
-            silu  1.73   1.1x   14.1 (8.1x)  33.1 (19x)   61.7 (36x)
-    cpu x16 add   0.95   1.1x   2.05 (2.2x)  2.97 (3.1x)  25.0 (26x)   129 (136x)
-            gelu  0.66   1.0x   19.5 (30x)   21.0 (32x)   47.4 (72x)
-    cuda    add   0.86   1.0x   1.45 (1.7x)  1.47 (1.7x)  5.52 (6.4x)  30.9 (36x)
-            sqrt  0.60   1.0x   1.19 (2.0x)  1.19 (2.0x)  4.18 (7.0x)  10.1 (17x)
-            gelu  0.60   1.0x   4.42 (7.4x)  4.43 (7.4x)  16.8 (28x)
-            silu  0.60   1.0x   2.64 (4.4x)  2.64 (4.4x)  9.45 (16x)
+                 torch   rne    2pass   sr     f64    ro
+    cpu x1  add   1.24   1.54   6.88   15.0   14.8   13.6
+            sqrt  1.36   6.76   15.4   19.5   18.0   13.6
+            pwl   2.79   16.0   58.1   24.3   21.7
+    cpu x16 add   0.98   1.13   2.23   1.88   7.92   2.49
+            sqrt  0.56   1.12   6.29   2.48   5.37   2.01
+            pwl   0.74   3.01   22.9   3.58   5.95
+    cuda    add   0.87   0.86   1.47   0.84   4.34   0.90
+            sqrt  0.60   0.59   1.19   0.57   3.18   0.58
+            pwl   0.60   0.57   14.2   0.57   4.36
 
-``none`` costs nothing, ``rne`` is the op plus the quantizer's pass (and,
-for the gated activations, the gate's), and the forward and backward
-together are 1.3-3x torch's in float32 on CUDA, 1.5-3.3x on one CPU thread
-(an addition 10x, since torch's backward of one is free). bfloat16 adds the
-widening and the store: the elementary ops' forward is 6.3-7x torch's on
-CUDA, whose bfloat16 ops take half the float32 ones' time.
+(``pwl``'s torch is SiLU.) On CUDA the fused ops cost what torch's op costs,
+stochastic rounding and rounding to odd included; in bfloat16 an add is 0.44
+against the two passes' 2.77. On one CPU thread ``rne`` runs the vector
+blocks (``cpu/pointwise_rne.cpp``; with ``MPTORCH_CPU_SIMD=0`` an add takes
+6.4), and ``sr`` is the scalar cast's cost, as in the quantizer. ``f64``
+widens the operands and narrows the result in passes of their own. The
+backward passes are unchanged: torch's formula, then the gradient slot's
+quantizer.
 """
 
 import argparse
@@ -69,14 +77,20 @@ from mptorch import BinaryK, RoundMode
 from mptorch.quant import (
     ActivationFormats,
     Quant,
+    pointwise,
+    pwl,
     qadd,
     qdiv,
     qexp,
     qgelu,
     qmul,
+    qpwl,
     qsilu,
     qsqrt,
+    silu_table,
 )
+
+TABLE = silu_table()
 
 OPS = {
     "add": (lambda x, y, *s, **k: qadd(x, y, *s, **k), lambda x, y: x + y),
@@ -86,6 +100,10 @@ OPS = {
     "exp": (lambda x, y, *s, **k: qexp(x, *s, **k), lambda x, y: torch.exp(x)),
     "gelu": (None, lambda x, y: torch.nn.functional.gelu(x)),
     "silu": (None, lambda x, y: torch.nn.functional.silu(x)),
+    "pwl": (
+        lambda x, y, *s, **k: qpwl(x, TABLE, quant=s[0], grad_quant=s[1], **k),
+        lambda x, y: torch.nn.functional.silu(x),
+    ),
 }
 ODD = ("add", "mul", "div", "sqrt")
 
@@ -106,10 +124,32 @@ def _slots(variant: str):
     return (q, q), kw, ActivationFormats(inner=q, out=q, grad=q, carrier=carrier)
 
 
+def _two_passes(op: str):
+    """What the op computed before its fused op: torch's op in binary32 (the
+    CPU's root through float64), the quantizer in place on that result, then
+    the store."""
+    q = Quant(BinaryK(8, 4), inplace=True)
+
+    def run(x, y):
+        xc = x.float()
+        if op == "pwl":
+            t = pwl._evaluate(TABLE, xc)
+        elif op == "sqrt":
+            t = pointwise._carrier_sqrt(xc)
+        else:
+            t = OPS[op][1](xc, y.float())
+        q(t)
+        return t.to(x.dtype)
+
+    return run
+
+
 def _call(op: str, variant: str):
     q_op, torch_op = OPS[op]
     if variant == "torch":
         return torch_op
+    if variant == "2pass":
+        return _two_passes(op)
     slots, kw, act = _slots(variant)
     if op == "gelu":
         return lambda x, y: qgelu(x, act)
@@ -136,6 +176,8 @@ def measure(device: str, size: int, dtype: torch.dtype, op: str, backward: bool,
     x = (torch.rand(size, size, generator=g) + 0.5).to(device=device, dtype=dtype)
     y = (torch.rand(size, size, generator=g) + 0.5).to(device=device, dtype=dtype)
     variants = ["torch", "none", "rne", "sr", "f64"] + (["ro"] if op in ODD else [])
+    if op in (*ODD, "pwl") and not backward:
+        variants.append("2pass")
     if device == "mps":
         variants = [v for v in variants if v not in ("f64", "ro")]
     calls = {v: _call(op, v) for v in variants}

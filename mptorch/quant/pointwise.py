@@ -23,6 +23,12 @@ and the documentation's table says when that is. ``carrier_rounding=
 RoundMode.RO`` makes the elementary ops' carrier step exact for every format
 within its bounds (:func:`_odd_reason`).
 
+With a ``Quant`` slot of a binaryK, superfp or fixed-point format, on the CPU
+and CUDA, ``qadd``, ``qsub``, ``qmul``, ``qdiv`` and ``qsqrt`` run the step and
+the rounding as one fused op (``_fused_op``, ``csrc/common/pointwise.h``),
+which gives the two passes' words; ``mptorch.quant.pwl`` does the same for a
+table.
+
 Each op is an autograd Function. Its backward is the derivative of the
 unrounded function, torch's own formula, computed in the carrier and rounded
 once by the gradient slot; the forward roundings pass the gradient through
@@ -42,6 +48,7 @@ import torch
 import torch.nn.functional as F
 
 from mptorch.number import BinaryK, FixedPoint, Number, RoundMode, SuperFP
+from mptorch.number.base import _report_per_call
 
 from .mac import Quant, _as_quant
 from .modules._opaque import _opaque_backward
@@ -347,11 +354,17 @@ def _precision(fmt: Any) -> int | None:
     return None
 
 
-def _odd_reason(op: str, quant: Any, wide: bool, dtype: torch.dtype) -> str | None:
+def _odd_reason(
+    op: str, quant: Any, wide: bool, dtype: torch.dtype, fused: bool = False
+) -> str | None:
     """Why ``carrier_rounding=RoundMode.RO`` cannot give ``op`` the format's
     rounding of the exact value, or ``None`` when it can.
 
-    The step computes the exact result rounded to odd at 53 bits in float64:
+    A call that runs a fused op (``_fused_op``) rounds the exact result to
+    odd in the carrier, in either carrier and for float64 operands too
+    (``csrc/common/carrier_odd_div_sqrt.h``), so only the format's own bounds
+    apply to it (``_odd_findings``). Otherwise the step is computed in
+    float64, rounded to odd at 53 bits:
     the product and the sum (with the error 2Sum finds) exactly, the quotient
     and the root to nearest. A float64 quotient of operands of p bits is on
     the exact quotient's side of every number of at most 53 - p bits, and a
@@ -363,7 +376,7 @@ def _odd_reason(op: str, quant: Any, wide: bool, dtype: torch.dtype) -> str | No
     is rounded to odd again at 24 bits, which both bounds allow, and the cast
     then needs ``_odd_findings``' bound for binary32.
     """
-    if dtype is torch.float64:
+    if dtype is torch.float64 and not fused:
         return (
             "carrier_rounding=RoundMode.RO takes float32, float16 and bfloat16 operands, whose "
             "exact results float64 holds or rounds to odd; float64 operands are not supported"
@@ -385,7 +398,7 @@ def _odd_reason(op: str, quant: Any, wide: bool, dtype: torch.dtype) -> str | No
     found = found64 if wide else found32
     if found:
         return found[0][0]
-    if wide and op in ("div", "sqrt"):
+    if wide and op in ("div", "sqrt") and not fused:
         k, spelled = _boundary_bits(P, prng_bits, quant.rounding)
         limit = 53 - _PRECISION[dtype] if op == "div" else 25
         if k > limit:
@@ -405,8 +418,10 @@ def _checked_call(
     carrier: torch.dtype | None,
     carrier_rounding: RoundMode,
     dtype: torch.dtype,
+    fused: bool = False,
 ) -> bool:
-    """Check one call's slots and carrier; return whether it rounds to odd."""
+    """Check one call's slots and carrier; return whether it rounds to odd.
+    ``fused`` says that the call runs a fused op (``_fused_op``)."""
     carrier = _checked_carrier(carrier)
     _checked_slot(quant, carrier, "quant")
     _checked_slot(grad_quant, carrier, "grad_quant")
@@ -416,7 +431,7 @@ def _checked_call(
     wide = _carrier_dtype(carrier, dtype) is torch.float64  # raises for a narrower carrier
     if rounding is _RNE or quant is None:
         return False
-    reason = _odd_reason(op, quant, wide, dtype)
+    reason = _odd_reason(op, quant, wide, dtype, fused)
     if reason is not None:
         raise ValueError(reason)
     return True
@@ -503,6 +518,92 @@ def _in_carrier(v: Any, c: torch.dtype, ref: torch.Tensor, op: str) -> Any:
     return v
 
 
+# --- the fused ops -----------------------------------------------------------------
+
+# Each family's fused pointwise op (``csrc/common/pointwise.h``), by the name
+# of its flat quantizer: the carrier step and the slot's rounding in one pass,
+# word for word the two passes below, stochastic rounding included. The
+# devices that have their kernels.
+_FUSED: dict[str, Callable[..., torch.Tensor]] = {
+    "binaryK_quantize": torch.ops.mptorch.binaryK_pointwise.default,
+    "superfp_quantize": torch.ops.mptorch.superfp_pointwise.default,
+    "fixedpoint_quantize": torch.ops.mptorch.fixedpoint_pointwise.default,
+}
+_FUSED_DEVICES = frozenset(("cpu", "cuda"))
+# The op codes: the tensor first, and, for a number first, the op with its
+# operands in their order (n + x and n * x are x + n and x * n).
+_CODE = {"add": 0, "sub": 1, "mul": 2, "div": 3, "sqrt": 4}
+_CODE_NUMBER_FIRST = {"add": 0, "sub": 5, "mul": 2, "div": 6}
+
+
+def _fused_op(quant: Any, a: Any, b: Any = None) -> Callable[..., torch.Tensor] | None:
+    """The fused op of a call whose result slot is ``quant``, or ``None``
+    where the two passes run: a slot that is not a ``Quant`` of a binaryK,
+    superfp or fixed-point format, a device without the op's kernels,
+    tensors on two devices (torch takes a CPU 0-dim tensor beside a CUDA
+    one), or an ``int`` operand that a float64 does not hold (torch converts
+    it to the carrier once). ``b`` is ``None`` for a unary op."""
+    if not isinstance(quant, Quant) or quant._spec is None:
+        return None
+    fused = _FUSED.get(quant._spec.name)
+    ta, tb = isinstance(a, torch.Tensor), isinstance(b, torch.Tensor)
+    ref = a if ta else b
+    if fused is None or ref.device.type not in _FUSED_DEVICES:
+        return None
+    if ta and tb and a.device != b.device:
+        return None
+    for v in (a, b):
+        if isinstance(v, int) and abs(v) > 2**53:
+            return None
+    return fused
+
+
+def _report_fused(spec: Any, wide: bool, dtype: torch.dtype) -> None:
+    """What ``_round_result`` reports for a slot's spec: its finding in the
+    carrier (``wide`` for binary64), and on storing a computed result in
+    ``dtype``."""
+    found = spec.findings[wide]
+    if found is not None:
+        _report_per_call(*found)
+    stored = spec.result_stored[wide].get(dtype)
+    if stored is not None:
+        _report_per_call(*stored)
+
+
+def _fused_forward(fused, op: str, a, b, quant: Quant, carrier, odd: bool) -> torch.Tensor:
+    """The carrier step and the slot's rounding in one fused op, with the
+    checks ``_round_result`` makes for the carrier and the stored dtype.
+    Under ``carrier=torch.float64`` the operands are widened first and the
+    result narrowed with one rounding, as in the two passes. Under RO a
+    number becomes a 0-dim tensor of the operands' dtype, as in
+    ``_odd_operand``, so that both operands have that dtype's precision."""
+    spec = quant._spec
+    assert spec is not None  # _fused_op checked it
+    ta, tb = isinstance(a, torch.Tensor), isinstance(b, torch.Tensor)
+    ref = a if ta else b
+    dtype = ref.dtype
+    wide = _carrier_dtype(carrier, dtype) is torch.float64
+    _report_fused(spec, wide, dtype)
+    if odd and op != "sqrt" and not (ta and tb):
+        if ta:
+            b, tb = torch.full((), b, dtype=dtype, device=ref.device), True
+        else:
+            a, ta = torch.full((), a, dtype=dtype, device=ref.device), True
+    if wide and dtype is not torch.float64:
+        a = a.double() if ta else a
+        b = b.double() if tb else b
+    rounding = (_RO if odd else _RNE).value
+    if op == "sqrt":
+        out = fused(a, None, None, _CODE[op], rounding, *spec.args)
+    elif ta and tb:
+        out = fused(a, b, None, _CODE[op], rounding, *spec.args)
+    elif ta:
+        out = fused(a, None, float(b), _CODE[op], rounding, *spec.args)
+    else:
+        out = fused(b, None, float(a), _CODE_NUMBER_FIRST[op], rounding, *spec.args)
+    return _stored(out, dtype)
+
+
 def _binary_forward(ctx, op: str, a, b, quant, grad_quant, carrier, odd: bool) -> torch.Tensor:
     ta, tb = isinstance(a, torch.Tensor), isinstance(b, torch.Tensor)
     ref = a if ta else b
@@ -519,6 +620,9 @@ def _binary_forward(ctx, op: str, a, b, quant, grad_quant, carrier, odd: bool) -
     )
     if quant is None:
         return _PLAIN[op](a, b)
+    fused = _fused_op(quant, a, b)
+    if fused is not None:
+        return _fused_forward(fused, op, a, b, quant, carrier, odd)
     c = _carrier_dtype(carrier, dtype)
     if odd:
         t = _odd_step(op, a, b, ref, c is torch.float64)
@@ -662,7 +766,8 @@ def _binary(op: str, a, b, quant, grad_quant, carrier, carrier_rounding) -> torc
     # as for the Functions
     with torch._C.DisableTorchFunction():
         ref = _checked_operands(op, a, b)
-        odd = _checked_call(op, quant, grad_quant, carrier, carrier_rounding, ref.dtype)
+        fused = _fused_op(quant, a, b) is not None
+        odd = _checked_call(op, quant, grad_quant, carrier, carrier_rounding, ref.dtype, fused)
         if quant is None and grad_quant is None:
             return _PLAIN[op](a, b)
         return _BINARY[op].apply(a, b, quant, grad_quant, carrier, odd)
@@ -683,8 +788,9 @@ _SLOTS_DOC = """
         carrier_rounding (RoundMode): ``RoundMode.RNE``, or ``RoundMode.RO``
             for the exact result rounded to odd, which the format then rounds
             correctly within the bounds of
-            ``docs/source/kernels/pointwise.rst`` (float32, float16 and
-            bfloat16 operands). Default: ``RoundMode.RNE``
+            ``docs/source/kernels/pointwise.rst`` (on the CPU and CUDA, any
+            float operands; elsewhere float32, float16 and bfloat16 ones).
+            Default: ``RoundMode.RNE``
 
     Raises:
         TypeError: for operands of two dtypes or of no float dtype, or a
@@ -808,6 +914,9 @@ def _unary_forward(ctx, op: str, x, exponent, quant, grad_quant, carrier, odd: b
     args = () if exponent is None else (exponent,)
     if quant is None:
         return _UNARY_PLAIN[op](x, *args)
+    fused = _fused_op(quant, x) if op == "sqrt" else None
+    if fused is not None:
+        return _fused_forward(fused, op, x, None, quant, carrier, odd)
     c = _carrier_dtype(carrier, x.dtype)
     if odd:
         t = _odd_step(op, x, None, x, c is torch.float64)
@@ -902,7 +1011,8 @@ def _unary(op: str, x, exponent, quant, grad_quant, carrier, carrier_rounding) -
             isinstance(exponent, bool) or not isinstance(exponent, int | float)
         ):
             raise TypeError(f"qpow's exponent is a Python number, got {type(exponent).__name__}")
-        odd = _checked_call(op, quant, grad_quant, carrier, carrier_rounding, x.dtype)
+        fused = op == "sqrt" and _fused_op(quant, x) is not None
+        odd = _checked_call(op, quant, grad_quant, carrier, carrier_rounding, x.dtype, fused)
         if quant is None and grad_quant is None:
             return _UNARY_PLAIN[op](x, *(() if exponent is None else (exponent,)))
         return _UNARY[op].apply(x, exponent, quant, grad_quant, carrier, odd)
@@ -918,12 +1028,13 @@ def qsqrt(
 ) -> torch.Tensor:
     """``torch.sqrt(x)``, computed in the carrier and rounded once by ``quant``.
 
-    The carrier rounds the root to nearest first, correctly in binary32 on
-    every device (torch's eager CPU root is not correctly rounded, so there
-    it is computed through float64). In binary64 the root is on the exact
-    root's side of every number of at most 25 bits, so the format's rounding
-    is the exact value's when its rounding boundaries are no wider. With both
-    slots ``None`` this is ``torch.sqrt(x)``.
+    The carrier rounds the root to nearest first, correctly rounded: with a
+    ``Quant`` slot on the CPU and CUDA the fused op computes it in either
+    carrier, and otherwise a binary32 root is computed through float64 on
+    the CPU, whose eager root is not correctly rounded. In binary64 the root
+    is on the exact root's side of every number of at most 25 bits, so the
+    format's rounding is the exact value's when its rounding boundaries are
+    no wider. With both slots ``None`` this is ``torch.sqrt(x)``.
     """
     return _unary("sqrt", x, None, quant, grad_quant, carrier, carrier_rounding)
 
@@ -1061,9 +1172,7 @@ def _act_forward(ctx, act: str, x: torch.Tensor, f: ActivationFormats, approxima
                 f"q{act} was given a table of {f.table.name}: an activation evaluates a table of "
                 "its own function, or of one of yours (a table with no name)"
             )
-        dtype = x.dtype
-        t = pwl._evaluate(f.table, x.to(_carrier_dtype(f.carrier, dtype)))
-        return _stored(t, dtype) if f.out is None else _round_result(f.out, t, dtype)
+        return pwl._rounded(f.table, x, f.out, f.carrier, x.dtype)
     if f.inner is None and f.out is None:
         return _act_plain(act, x, approximate)
     dtype = x.dtype

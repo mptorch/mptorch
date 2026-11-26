@@ -470,7 +470,7 @@ def _inverse(f: NormFormats, v: torch.Tensor) -> torch.Tensor:
 
     if isinstance(inv, pwl.FISR):
         return pwl._fisr(v, inv.steps, f.rsqrt)
-    return _r(f.rsqrt, pwl._evaluate(inv, v))
+    return pwl._rounded(inv, v, f.rsqrt, None, v.dtype)
 
 
 def _kappa(deviation: str) -> float:

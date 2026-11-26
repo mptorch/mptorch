@@ -259,4 +259,10 @@ TORCH_LIBRARY_IMPL(mptorch, Meta, m)
   m.impl("custom_matmul_fixedpoint_fma", TORCH_FN(fixedpoint_matmul_fma_meta));
   m.impl("custom_conv_fixedpoint", TORCH_FN(fixedpoint_conv_meta));
   m.impl("custom_conv_fixedpoint_fma", TORCH_FN(fixedpoint_conv_fma_meta));
+  m.impl("binaryK_pointwise", TORCH_FN(binaryK_pointwise_meta));
+  m.impl("superfp_pointwise", TORCH_FN(superfp_pointwise_meta));
+  m.impl("fixedpoint_pointwise", TORCH_FN(fixedpoint_pointwise_meta));
+  m.impl("binaryK_pwl", TORCH_FN(binaryK_pwl_meta));
+  m.impl("superfp_pwl", TORCH_FN(superfp_pwl_meta));
+  m.impl("fixedpoint_pwl", TORCH_FN(fixedpoint_pwl_meta));
 }

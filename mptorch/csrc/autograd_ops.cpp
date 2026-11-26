@@ -69,6 +69,8 @@ namespace
       const bool conv = name.find("custom_conv") != std::string::npos;
       const bool narrow = name.find("narrow_float64") != std::string::npos;
       const bool block = name.find("::block_") != std::string::npos;
+      const bool pointwise = name.find("_pointwise") != std::string::npos;
+      const bool pwl = name.find("_pwl") != std::string::npos;
       TORCH_CHECK(
           false, name, " is not differentiable: ",
           matmul ? "it simulates the arithmetic of its own reduction, so which format each "
@@ -89,6 +91,13 @@ namespace
           : narrow ? "it is the store of a result mptorch.quant computed in binary64, which "
                      "its own entry points call where no gradient flows. Use Tensor.to for a "
                      "differentiable conversion"
+          : pointwise
+              ? "it computes an operation and rounds its result in one pass, and the gradient "
+                "of a rounding is a modelling choice. Use mptorch.quant.qadd, qsub, qmul, qdiv "
+                "or qsqrt, which round each gradient with their grad_quant slot"
+          : pwl ? "it evaluates a lookup table and rounds the result in one pass, and the "
+                  "gradient of either is a modelling choice. Use mptorch.quant.qpwl, which takes "
+                  "the gradient of the table's function and rounds it with its grad_quant slot"
                    : "rounding to a coarse format has a zero derivative almost everywhere, so a "
                      "gradient through it is a modelling choice. Use mptorch.quant.Quantizer, "
                      "which applies one format in the forward pass and one of your choosing in "
@@ -204,6 +213,12 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_fixedpoint_fma", kernel());
   m.impl("custom_conv_fixedpoint", kernel());
   m.impl("custom_conv_fixedpoint_fma", kernel());
+  m.impl("binaryK_pointwise", kernel());
+  m.impl("superfp_pointwise", kernel());
+  m.impl("fixedpoint_pointwise", kernel());
+  m.impl("binaryK_pwl", kernel());
+  m.impl("superfp_pwl", kernel());
+  m.impl("fixedpoint_pwl", kernel());
 }
 
 // The four in-place quantizers also need a kernel for the ADInplaceOrView

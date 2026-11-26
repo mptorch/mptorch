@@ -10,7 +10,7 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 74 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  whose kernels the build has: all 80 under ``MPTORCH_ODD_ACCUMULATED=1``.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -57,7 +57,9 @@ from mptorch.number.base import _warn_per_call
 from mptorch.quant import (
     FusedMac,
     GemmFormats,
+    NormFormats,
     Palette,
+    PWLTable,
     QConv2d,
     QLinear,
     QMatmul,
@@ -81,7 +83,13 @@ from mptorch.quant import (
     fixedpoint_matmul_fma,
     fixedpoint_quantize,
     fixedpoint_quantize_,
+    qadd,
+    qlayernorm,
     qmatmul,
+    qpwl,
+    qsqrt,
+    qsub,
+    silu_table,
     superfp_quantize,
     superfp_quantize_,
 )
@@ -271,6 +279,18 @@ def _workload():
     ScaledQuant(BinaryK(8, 4, prng_bits=8), SR)(x)
     ScaledQuant(SuperFP(3, 4, 2, 7), granularity="row")(x)
     ScaledQuant(FixedPoint(8, 5), granularity="block", block_size=5)(x)
+    # the fused pointwise ops: a broadcast operand, a number first, a root
+    # rounded to odd
+    qadd(x, x[0], Quant(BinaryK(8, 4, prng_bits=8), SR))
+    qsub(0.5, x, Quant(SuperFP(3, 4, 2, 7)))
+    qsqrt(x.abs(), Quant(FixedPoint(8, 5)), carrier_rounding=R.RO)
+    # the fused table ops: ReLU tails under SR, clamped tails, and the 1/sqrt
+    # table's reduction in a norm
+    qpwl(x, silu_table(), quant=Quant(BinaryK(8, 4, prng_bits=8), SR))
+    clamped = PWLTable(-1.0, 1.0, (0.0, 1.0, 0.5), tails="clamp")
+    qpwl(x.t(), clamped, quant=Quant(SuperFP(3, 4, 2, 7)))
+    inverse = NormFormats(rsqrt=Quant(FixedPoint(8, 5)), inverse=PWLTable.rsqrt())
+    qlayernorm(x, (16,), formats=inverse)
     xb = _rnd(gen, 4, 64)
     block_quantize(xb, MXFP8_E4M3, rounding=SR)
     block_quantize(xb.t(), MXFP8_E4M3, rounding=SR)  # a strided input keeps its layout
@@ -354,7 +374,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 74
+    assert len(names) == 80
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -858,6 +878,20 @@ def _other_cases():
         "binaryK round mode int": _with("binaryK_quant", round_mode=9),
         "superfp round mode int": _with("superfp_quant", round_mode=-1),
         "fixedpoint round mode int": _with("fixedpoint_quant", round_mode=2**40),
+        "pointwise op": _with("binaryK_pointwise", op=7),
+        "pointwise carrier rounding": _with("binaryK_pointwise", carrier_rounding=3),
+        "pointwise operands": _with("binaryK_pointwise", scalar=1.0),
+        "pointwise dtype": _with("binaryK_pointwise", b=x(16).double()),
+        "pointwise broadcast": _with("binaryK_pointwise", b=x(3)),
+        "pointwise number": _with("superfp_pointwise", scalar=None),
+        "pointwise prng": _with("binaryK_pointwise", prng_bits=21),
+        "pointwise magnitude width": _with("fixedpoint_pointwise", wl=26),
+        "pwl tails": _with("binaryK_pwl", tails=3),
+        "pwl range": _with("binaryK_pwl", hi=-8.0),
+        "pwl entries dtype": _with("superfp_pwl", entries=x(3).double()),
+        "pwl entries rank": _with("superfp_pwl", entries=x(3, 1)),
+        "pwl entries count": _with("binaryK_pwl", entries=x(1)),
+        "pwl prng": _with("binaryK_pwl", prng_bits=21),
     }
 
 
@@ -924,7 +958,10 @@ _OTHER_IDS = [
     "superfp normal binades", "fixedpoint fl", "stochastic_cast bias", "binaryK saturation mode",
     "binaryK subnormals mode", "superfp saturation mode", "stochastic_cast saturation mode",
     "stochastic_cast subnormals mode", "binaryK K past int64", "binaryK round mode int",
-    "superfp round mode int", "fixedpoint round mode int",
+    "superfp round mode int", "fixedpoint round mode int", "pointwise op",
+    "pointwise carrier rounding", "pointwise operands", "pointwise dtype", "pointwise broadcast",
+    "pointwise number", "pointwise prng", "pointwise magnitude width", "pwl tails", "pwl range",
+    "pwl entries dtype", "pwl entries rank", "pwl entries count", "pwl prng",
 ]  # fmt: skip
 
 

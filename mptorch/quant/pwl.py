@@ -441,6 +441,52 @@ def _evaluate(table: PWLTable, x: torch.Tensor) -> torch.Tensor:
     return _interpolate(table, e, x)
 
 
+# Each family's fused table op (``csrc/common/pointwise.h``'s ``PwlStep``), by
+# the name of its flat quantizer: the evaluation above and the slot's rounding
+# in one pass, word for word the two passes, stochastic rounding included.
+_FUSED_PWL: dict[str, Callable[..., torch.Tensor]] = {
+    "binaryK_quantize": torch.ops.mptorch.binaryK_pwl.default,
+    "superfp_quantize": torch.ops.mptorch.superfp_pwl.default,
+    "fixedpoint_quantize": torch.ops.mptorch.fixedpoint_pwl.default,
+}
+
+
+def _tails_code(tails: Any) -> int | None:
+    """The fused op's code for a table's tails, or ``None`` for a callable
+    other than ``torch.relu`` (the activation presets' tails)."""
+    if tails is torch.relu:
+        return 2
+    if isinstance(tails, str):
+        return _TAILS.index(tails)
+    return None
+
+
+def _rounded(
+    table: PWLTable, x: torch.Tensor, slot: Any, carrier: torch.dtype | None, dtype: torch.dtype
+) -> torch.Tensor:
+    """The table at ``x``, computed in the carrier, rounded by ``slot`` and
+    stored in ``dtype``: one fused op where the slot is a ``Quant`` of a
+    binaryK, superfp or fixed-point format on a device that has the op's
+    kernels (as for ``pointwise._fused_op``) and the tails are ones it
+    evaluates; otherwise ``_evaluate`` and the slot."""
+    c = pointwise._carrier_dtype(carrier, x.dtype)
+    code = _tails_code(table.tails)
+    spec = slot._spec if isinstance(slot, pointwise.Quant) else None
+    fused = None
+    if code is not None and spec is not None and x.device.type in pointwise._FUSED_DEVICES:
+        fused = _FUSED_PWL.get(spec.name)
+    if fused is None:
+        y = _evaluate(table, x.to(c))
+        return _stored(y, dtype) if slot is None else _round_result(slot, y, dtype)
+    assert spec is not None  # a fused op was found for it
+    wide = c is torch.float64
+    pointwise._report_fused(spec, wide, dtype)
+    xc = x.double() if wide and x.dtype is not torch.float64 else x
+    entries = table._entries(x.device, c)
+    rsqrt = table.reduction == "rsqrt"
+    return _stored(fused(xc, entries, table.lo, table.hi, code, rsqrt, *spec.args), dtype)
+
+
 # --- FISR ----------------------------------------------------------------------------------
 
 
@@ -531,9 +577,7 @@ class _QPWL(torch.autograd.Function):
                 derivative,
                 carrier,
             )
-            c = pointwise._carrier_dtype(carrier, x.dtype)
-            y = _evaluate(table, x.to(c))
-            return _stored(y, x.dtype) if quant is None else _round_result(quant, y, x.dtype)
+            return _rounded(table, x, quant, carrier, x.dtype)
 
     @staticmethod
     def backward(ctx, *grads):

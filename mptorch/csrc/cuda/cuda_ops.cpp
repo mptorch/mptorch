@@ -92,4 +92,10 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("custom_matmul_fixedpoint_fma", fixedpoint_matmul_fma_cuda);
     MPT_CUDA_IMPL("custom_conv_fixedpoint", fixedpoint_conv_cuda);
     MPT_CUDA_IMPL("custom_conv_fixedpoint_fma", fixedpoint_conv_fma_cuda);
+    MPT_CUDA_IMPL("binaryK_pointwise", binaryK_pointwise_cuda);
+    MPT_CUDA_IMPL("superfp_pointwise", superfp_pointwise_cuda);
+    MPT_CUDA_IMPL("fixedpoint_pointwise", fixedpoint_pointwise_cuda);
+    MPT_CUDA_IMPL("binaryK_pwl", binaryK_pwl_cuda);
+    MPT_CUDA_IMPL("superfp_pwl", superfp_pwl_cuda);
+    MPT_CUDA_IMPL("fixedpoint_pwl", fixedpoint_pwl_cuda);
 }

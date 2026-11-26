@@ -110,11 +110,11 @@ value's rounding when:
    * - ``qdiv``
      - :math:`k \le 24 - p`
      - :math:`k \le 53 - p` (29 for float32 operands)
-     - as binary64, or exactly in binary32
+     - always
    * - ``qsqrt``
      - :math:`k \le 11`
      - :math:`k \le 25`
-     - as binary64, or exactly in binary32
+     - always
    * - ``qrsqrt``, ``qexp``, ``qpow``, the activations
      - not claimed
      - not claimed
@@ -146,28 +146,36 @@ roundings, and the two ways to avoid them:
    :caption: output
 
 PyTorch's eager square root on the CPU is not correctly rounded: it can be an
-ulp off, in float32 and in float64, where CUDA's is correctly rounded. A
-binary32 root is therefore computed through float64 on the CPU, whose root
-within an ulp narrows to the correctly rounded float32 one, so that the
-binary32 step is the same on every device.
+ulp off, in float32 and in float64, where CUDA's is correctly rounded. The
+fused ops below compute every root correctly rounded, in either carrier.
+Where an op runs as two passes, a binary32 root is computed through float64
+on the CPU, whose root within an ulp narrows to the correctly rounded
+float32 one, so that the binary32 step is the same on every device.
 
 Rounding to odd
 ~~~~~~~~~~~~~~~
 
 ``carrier_rounding=RoundMode.RO`` replaces the carrier's nearest step by the
 exact result rounded to odd, as the matrix products' odd ops do
-(:doc:`arithmetic`). It computes in float64: the product exactly, the sum
-with the error 2Sum finds, moved one step toward it when the sum's last bit
-is even, and the quotient and the root to nearest, which the bounds above
-make sufficient. In binary32 that value is rounded to odd once more, at 24
-bits. The cast then rounds the exact value, for every format that the
-round-to-odd step's bounds admit (:math:`P \le 22` under RNE in binary32,
-:math:`P \le 51` in binary64; the matrix products' odd ops state the others).
-It takes float32, float16 and bfloat16 operands, whose results float64 holds,
-and a number operand is first rounded to their dtype; float64 operands, MPS
-tensors (which have no float64), a slot that is not a ``Quant`` of a
+(:doc:`arithmetic`). The cast then rounds the exact value, for every format
+that the round-to-odd step's bounds admit (:math:`P \le 22` under RNE in
+binary32, :math:`P \le 51` in binary64; the matrix products' odd ops state
+the others). A number operand is first rounded to the operands' dtype, so
+that both operands have its precision. A slot that is not a ``Quant`` of a
 ``BinaryK``, ``SuperFP`` or ``FixedPoint``, and ``qrsqrt``, ``qexp`` and
-``qpow`` raise.
+``qpow``, raise.
+
+On the CPU and CUDA the fused ops (below) compute the odd result in the
+carrier itself, in binary64 too and for float64 operands: the sum and the
+product by error-free transforms or directed roundings, as the matrix
+products' odd ops do, and the quotient and the root by their remainders,
+``fma(-q, b, a)`` and ``fma(-s, s, x)``, which are exact, on the host, and
+by the directed pair (rounded down, rounded up, the odd one kept) on CUDA.
+Elsewhere (MPS) the two passes compute it in float64: the product exactly,
+the sum with the error 2Sum finds, moved one step toward it when the sum's
+last bit is even, and the quotient and the root to nearest, which the bounds
+above make sufficient, then rounded to odd once more at 24 bits; float64
+operands, which MPS does not have, cannot run there.
 
 Gradients
 ---------
@@ -188,22 +196,51 @@ over repeated indices in the carrier, then rounded once.
 The result in place
 -------------------
 
-A ``Quant`` rounds an op's result in place, since the result is the op's own
-tensor, and out of place when it is not contiguous (it keeps its operands'
-layout). An op never writes its inputs. Each op is an autograd Function,
+A fused op (below) writes its result once. In the two passes, a ``Quant``
+rounds an op's result in place, since the result is the op's own tensor, and
+out of place when it is not contiguous (it keeps its operands' layout). An op
+never writes its inputs. Each op is an autograd Function,
 hidden from torch function modes as the layers' Functions are, and compiles
 with ``fullgraph=True``. Under Inductor, PyTorch's arithmetic around the
 roundings is Inductor's, which fuses an activation's multiply-adds.
 
+.. _pointwise-one-pass:
+
+One pass
+--------
+
+On the CPU and CUDA, ``qadd``, ``qsub``, ``qmul``, ``qdiv`` and ``qsqrt``
+with a ``Quant`` slot of a ``BinaryK``, ``SuperFP`` or ``FixedPoint``, and a
+table evaluated with such a slot (:func:`~mptorch.quant.qpwl`, an
+activation's ``table``, a norm's ``inverse``), run one op of their own: the
+carrier's step and the slot's cast for each element, in one pass over the
+operands, with broadcasting and strides read in place. The result is the
+two passes' word for word, stochastic rounding included: the same
+operations, a contiguous result, and each element's random bits taken where
+the quantizer would take them, so the generator is left as the quantizer
+leaves it. A NaN is a NaN, whatever its payload. The one difference is the
+CPU's binary64 root, which PyTorch computes within an ulp and the fused op
+correctly rounded.
+
+Any other slot (a block format, a ``ScaledQuant``, a callable of your own), a
+table whose ``tails`` is a callable other than ``torch.relu``, and MPS run
+the two passes. On the CPU, an op under RNE whose format's cast takes the
+fast path runs in vector code (AVX-512, AVX2 or NEON), which gives the
+scalar loop's words; ``MPTORCH_CPU_SIMD=0`` keeps the scalar loop.
+
 What it costs
 -------------
 
-An op with no slot costs what PyTorch's does. With a slot, it costs the op
-plus one pass of the quantizer: 1.7-2x PyTorch's forward in float32 on an
-RTX 4060, and 3-5.5x on one Ryzen CPU thread (the square root more, since it
-is computed through float64 there). A narrow dtype adds the widening
-and the store, a rounded gate its own pass, binary64 the float64 arithmetic,
-and rounding to odd a dozen float64 passes
+An op with no slot costs what PyTorch's does. A fused op (one pass) costs
+PyTorch's op on an RTX 4060, in float32 and bfloat16, stochastic rounding and
+rounding to odd included; on a Ryzen CPU, 1.1-1.2x PyTorch's forward on
+sixteen threads and 1.2-1.3x on one under RNE (vector code), and on one
+thread the scalar cast's cost otherwise (an add under SR takes 15 ms on
+``[2048, 2048]``, against PyTorch's 1.2). Before the fused ops, the same
+float32 add took 1.7x PyTorch's on CUDA and 5.6x on one CPU thread. The two
+passes cost the op plus one pass of the quantizer; a narrow dtype adds the
+widening and the store, a rounded gate its own pass, and ``carrier=
+torch.float64`` the widened operands and the narrowing
 (``dev/benchmarks/timing/pointwise_ops.py``).
 
 Lookup-table activations
@@ -269,14 +306,18 @@ An activation refuses a table of another activation (a SiLU table given to
 norm's ``inverse`` (:doc:`reductions`). A table of a function of your own,
 which has no ``name``, goes anywhere.
 
-**What a table costs.** A table is evaluated with PyTorch's own ops: the
-index, the fraction, two gathers, the interpolation and the tails, then the
-slot's cast. Eager, that is about a dozen passes over the tensor. Compile it
-for speed: ``torch.compile`` fuses the evaluation into one kernel, whose cost
-is PyTorch's fused activation's, and only the rounding stays a pass of its
-own. On ``[4096, 4096]`` float32, against ``F.silu``'s 0.65 ms on CUDA (an
-RTX 4060 laptop GPU) and 0.78 ms on the CPU (16 threads, ``[2048, 2048]``),
-in ms per call:
+**What a table costs.** With a ``Quant`` slot on the CPU and CUDA, the
+evaluation and the rounding are one fused op (:ref:`One pass
+<pointwise-one-pass>`): 0.57 ms on ``[4096, 4096]`` float32 on an RTX 4060,
+against ``F.silu``'s 0.60, and 3.0 ms on sixteen CPU threads
+(``[2048, 2048]``), against 0.74. Otherwise a table is evaluated with
+PyTorch's own ops: the index, the fraction, two gathers, the interpolation
+and the tails, then the slot's cast. Eager, that is about a dozen passes over
+the tensor. Compile it for speed: ``torch.compile`` fuses the evaluation into
+one kernel, whose cost is PyTorch's fused activation's, and only the rounding
+stays a pass of its own. On ``[4096, 4096]`` float32, against ``F.silu``'s
+0.65 ms on CUDA (an RTX 4060 laptop GPU) and 0.78 ms on the CPU (16 threads,
+``[2048, 2048]``), in ms per call, as measured before the fused ops:
 
 ====================================  ==========  =============  =========  ============
 ``qsilu`` with ``silu_table()``       CUDA eager  CUDA compiled  CPU eager  CPU compiled
