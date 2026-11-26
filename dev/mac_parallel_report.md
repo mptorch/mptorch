@@ -1217,3 +1217,305 @@ The worktrees are back on their commits' text:
 - `../mptorch-base` is at `85d1d31`.
 
 `git worktree remove` deletes all three.
+
+## M8: S's MPS part, the counted ops on Metal (at `127f83d`, rebased on `e57c983`)
+
+The twelve counted ops run on MPS. Their results are the CPU's word for word
+and their counts the CPU's count for count, SR included.
+
+### The counting build under Apple clang
+
+The first `MPTORCH_COUNTING=1` build failed at its first counted unit
+(`cpu/custom_conv_counted_entry.cpp`; every counted unit includes the
+header). Darwin's `<math.h>` defines `OVERFLOW` (3) and `UNDERFLOW` (4),
+System V's `matherr` codes, under `__DARWIN_C_LEVEL >= __DARWIN_C_FULL`,
+which a default compile meets. They replaced the enumerators
+`events::OVERFLOW` and `events::UNDERFLOW` in `common/event_counts.h` and
+their uses in `fixedpoint_counted.h`. Linux's `<math.h>` defines neither,
+so Linux never saw it.
+
+The fix is an Apple-host-only block after `event_counts.h`'s includes (which
+have brought in `<cmath>` by then, through `bit_helper.h`):
+
+```cpp
+#if defined(__APPLE__) && !defined(__METAL_VERSION__)
+#undef OVERFLOW
+#undef UNDERFLOW
+#endif
+```
+
+On Linux it preprocesses to nothing. Renaming the two enumerators, as
+`NAN_RESULT` dodges `NAN`, would also work and would not depend on undefining
+a system macro; that is Linux's call.
+
+With it, the CPU counted kernels build and pass under Apple clang (before
+any Metal work): `test_counted_gemm.py`, `test_simulate_events.py`,
+`test_event_counts.py`, `test_entry_copies.py` gave 424 passed, 394 skipped
+(CUDA, and the no-flag test). The task flush's `__atomic_fetch_add` builds
+under Apple clang's libc++.
+
+### What was built
+
+**The kernel.** `gemm.metal` under `MPT_COUNTING`, compiled after one of two
+new roots, as the odd and fixed-point kernels are compiled after theirs:
+- `mps/counted.metal` (`KernelSource::GemmCounted`) holds
+  `common/gemm_counted.h`, for the binaryK and superfp ops;
+- `mps/fixedpoint_counted.metal` (`GemmFixedPointCounted`) holds
+  `common/fixedpoint_counted.h`, which brings `fixedpoint_gemm.h` with it.
+
+Both are flattened against the prelude's headers (`setup.py`), and both
+spell `std::remove_const_t` (`using metal::remove_const_t;`), which the
+counted Args use and the prelude's `std` lacks. A binaryK or superfp counted
+kernel therefore never compiles the fixed-point header.
+
+The tail is the Args' `mpt_args()` (`CountingArgs<Base, ALG>` or
+`FixedPointCountingArgs<Args>`, written field by field by
+`gemm_backend.cpp`, size-asserted) plus `#define MPT_COUNTING 1`, and, for a
+conv pass, the usual `MPT_GATHERED` lines. The kernel builds the counted
+policies itself, from the literal Args, through the Args' own
+`with_accumulator`, as for every other Args. So the casts' constants are
+immediates, as in the twin.
+
+**Where the counts go.** Each thread's counts are its policies' `tally`
+fields (32-bit, as on CUDA). After the store, `count_tile` sums them over
+the threadgroup:
+1. each SIMD group sums each of the 18 cells with `simd_sum`, over the
+   cells' 16-bit halves, so no partial sum can wrap (32 x 65535 < 2^21);
+2. after one barrier, thread c (< 18) adds the SIMD groups' halves into a
+   64-bit total;
+3. it adds the total to the call's int64 count with two 32-bit atomic adds:
+   the low word, then its carry plus the high word into the high word.
+
+The one add that wraps the low word sees the wrap in the value
+`atomic_fetch_add` returns, so the count is exact in any order. Threads
+outside C contribute zeros, and every thread reaches the barrier.
+
+The handoff proposed a per-threadgroup row of partial counts, summed by the
+entry point. The atomics need no partial buffer and no second kernel or
+reduction, and they keep the entry points the CPU's text: the driver
+(`gemm_counted_host.h`) allocates the counts and hands the backend only
+their data pointer. On MPS that pointer is the tensor's `MTLBuffer` (what
+`metal_runtime.mm`'s `buffer_of` reads), so `KernelArg::storage_at` binds
+it as is, after the variant's buffers (5, or 6 for a conv pass). A conv
+pass's per-class GEMMs (the input gradient) all add to the one tensor, as on
+the other backends.
+
+### The Metal spellings in `common/` (for `binary_identity.py`)
+
+MSL 3.1 rejects a derived class outright: "derived classes are not
+supported in Metal", from a compile probe as the runtime compiles (MSL 3.1,
+safe math). `mutable` members compile.
+
+**`common/gemm_counted.h`:**
+1. **`Counting<Acc>`** on Metal holds the accumulator as a member, `acc`,
+   and passes on the four calls `gemm.metal` makes (`seed_rng`,
+   `accumulate`, `end_slab`, `finalize`). It declares `counting` and
+   `positional`, and has an unused `counts` (a `uint32_t`), so that
+   `CountingArgs`' initializers, `{{mac}, args.counts}`, are the host's
+   text. The host's derived `Counting` is verbatim in the `#else`.
+2. **`CountingArgs`** is now outside the host-only block. Its `counts` is a
+   Metal arm (the `uint32_t`; the host's pointer verbatim in the `#else`).
+   Its static members, the `Builder`'s two references and `operator()`'s
+   parameter, and `with_accumulator`'s parameter gained `MPTORCH_CONSTANT` and
+   `MPTORCH_THREAD`, the spellings `AccumulateArgs` already uses. They
+   expand to nothing on the host and CUDA.
+3. **`counting_task_end` and the CUDA flush functions** keep their guards,
+   now an inner `#if !defined(__METAL_VERSION__)`.
+4. **A Metal-only block at the end:** `counting_gather`,
+   `counting_gather_mac`, `counting_gather_outer` (BLOCK's and TREE's
+   `outer`, chosen by the accumulator's type, since Metal has no
+   requires-expression) and `counting_tallies`, the Metal counterpart of
+   `counting_thread_end`: they add each wrapper's tally into a row per role.
+5. A bullet in the top comment says where the counts go on an Apple GPU.
+
+**`common/fixedpoint_counted.h`:**
+1. **`CountedFixedPointIntMac`** on Metal holds the integer mac as a member,
+   `m`. Its `sum_bits` and `step` are the host's statements with `m.` for
+   `this->` (the fused step's mantissa is `mant`, since `m` is taken), except
+   one: the fused step's test of a huge product is on the words, as in
+   `FixedPointIntMac::step`'s own Metal arm (`p_top` is a binary32 subnormal
+   for a format whose top is below 2^-126). It has `value()`. The host's
+   derived struct is verbatim in the `#else`.
+2. **`PositionalFixedPointIntAccumulator`**: `tile_type`, `finalize_wide` and
+   the tile functions behind `!defined(__METAL_VERSION__)`, as the other
+   accumulators have them; `MPTORCH_CONSTANT` on its static members (the
+   `int_result` comment moved to its own line).
+3. **`counted_int_mac::fused` and `FixedPointCountingArgs`**:
+   `MPTORCH_CONSTANT` and `MPTORCH_THREAD` as above. `counts` is a Metal arm.
+4. **A Metal-only `counting_gather_mac`** for the integer mac's two tallies.
+
+**`common/event_counts.h`:** the Apple-host `#undef` above.
+
+**Evidence that the host text did not move.** I preprocessed
+`common/fixedpoint_counted_host.h`, which includes all three headers, as a
+host unit (`clang++ -std=c++20 -E -P -DMPTORCH_FAST_CAST=1
+-DMPTORCH_COUNTING=1`, with `-D_POSIX_C_SOURCE=200809L` so that Darwin's two
+macros are absent from both trees), at `127f83d` and on the working tree,
+each from its own root. The two outputs differ in two lines only, by the
+space an empty `MPTORCH_THREAD` leaves (`with_accumulator( F &&f)`). So the
+host token streams are identical. On Linux the `#undef` block preprocesses
+away too. CUDA's arms were not preprocessed here (no CUDA headers), but no
+CUDA statement changed: they sit under the same conditions, nested one level
+deeper.
+
+Linux: please run `binary_identity.py` for these three headers. Only the
+counted units include them, so the expected result is the counted objects
+identical and nothing else touched.
+
+### The host side
+
+- `mps/gemm_backend.h`: `gemm_kernel_source` for the two counted Args;
+  `variant_source` adds `MPT_COUNTING`; `counts_of(args)` is the counts
+  pointer for a counted Args and null otherwise; it is passed from the
+  generic `launch` and the conv `launch` to `launch_source`/`launch_conv`.
+  No new `launch` overload was needed, and `CountingBackend<MpsBackend>`
+  (the fixed-point drivers' wrapper) works unchanged.
+- `mps/gemm_backend.cpp`: the two `args_source` templates (every field but
+  `counts`, size-asserted), instantiated for the 16 `CountingArgs` (four
+  macs, four algorithms) and the 5 `FixedPointCountingArgs`, all under
+  `#if defined(MPTORCH_COUNTING)`; `launch_gemm` appends the counts.
+- `mps/metal_runtime.{h,mm}`: the two `KernelSource`s (at the end of the
+  enum) and `KernelArg::storage_at`.
+- `mps/custom_{matmul,conv}_counted_entry.cpp`: the CPU files' text with the
+  backend and the `_mps` suffix; `mps/mps_ops.cpp`: twelve lines.
+
+Without the flag: the three MPS units compiled by hand without
+`-DMPTORCH_COUNTING=1` build, and reference no counted kernel source (`nm
+-u`: no `CountingArgs`, no `args_source`); the entries raise from the shared
+driver, as on the CPU.
+
+### The arithmetic the counts see
+
+The events are decided on the words (`event_counts.h`), which the GPU's
+flush cannot reach. But they describe the cast the GPU made: a product or
+sum below 2^-126, which the GPU flushes to zero before the cast (gemm.metal's
+"What the GPU's arithmetic cannot match"), is counted as the zero the cast
+received. Where the CPU counts an underflow (or an inexact subnormal) for
+such a cast, MPS counts nothing. `gemm.metal`'s new paragraph says so. None
+of the tests' operands reach that range (`test_event_counts`' rows have no
+binary32 subnormal, and the GEMM operands are `randn` scaled).
+
+### Files
+
+Mac-owned:
+- new: `mptorch/csrc/mps/counted.metal`, `mps/fixedpoint_counted.metal`,
+  `mps/custom_matmul_counted_entry.cpp`, `mps/custom_conv_counted_entry.cpp`;
+- changed: `mps/gemm.metal`, `mps/gemm_backend.{h,cpp}`,
+  `mps/metal_runtime.{h,mm}`, `mps/mps_ops.cpp`,
+  `dev/benchmarks/mps_backend.py` (`bench-counted`).
+
+Shared, with the hunks above:
+- `mptorch/csrc/common/event_counts.h`, `common/gemm_counted.h`,
+  `common/fixedpoint_counted.h` (**`binary_identity.py`**);
+- `mptorch/csrc/quant_ops.h`: the twelve `_mps` declarations, each after its
+  CPU twin, and the two section comments naming the MPS files;
+- `setup.py`: the roots `counted` and `fixedpoint_counted`, flattened after
+  the prelude (the tuple of such roots is now named `after_prelude`), and
+  the docstring;
+- `tests/test_counted_gemm.py`, `tests/test_simulate_events.py`,
+  `tests/test_entry_copies.py` (below).
+
+### Tests
+
+The shared test lines, with the reason for each:
+- **`tests/test_counted_gemm.py`:**
+  - `counted_devices` gains `pytest.param("mps", marks=requires_mps)`, so
+    every device-parametrized test runs on MPS against the same references
+    (Fractions, `_recount`, the unfolded GEMMs);
+  - `test_fixedpoint_paths_count_alike` lost its wide half, which is now
+    `test_a_wide_fixedpoint_result_is_counted` over `float64_devices` (a
+    wide result is float64, which MPS refuses), and
+    `test_on_mps_a_wide_counted_result_is_refused` holds the MPS refusal;
+  - `_fx_sr_mac(which)` factors `test_fixedpoint_stochastic_rounding`'s SR
+    mac, which `test_mps_is_the_cpu` uses too;
+  - **`test_mps_is_the_cpu`** (144 cases): MPS against the CPU, word for
+    word and count for count, under one seed: every `CASES_32` case
+    (four macs, both families, every schedule) under RNE, RO and SR; the
+    eight fixed-point macs under RNE and SR; the four conv macs' three
+    passes under RNE and SR. Under SR the per-device tests hold only the
+    casts' totals, so this is where MPS's SR counts are checked;
+  - `test_without_the_flag_the_ops_raise` gains MPS (it skips on this
+    flag-on build);
+  - the module docstring says MPS is held to the CPU.
+- **`tests/test_simulate_events.py`:** `devices` gains MPS.
+- **`tests/test_entry_copies.py`:** `PARTIAL_ENTRY_FILES` is empty again;
+  the MPS entry files are held to the CPU's token for token.
+
+| command (the flag-on build: `MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1`) | result |
+|---|---|
+| the seven kinds of counted call (binaryK split NAIVE, fused KAHAN, superfp BLOCK, binaryK TREE, the fixed-point carrier path, integer accumulator and fused mac) at 37 x 41 x 29, MPS against the CPU | results and counts equal, first try |
+| `pytest tests/test_counted_gemm.py tests/test_simulate_events.py tests/test_event_counts.py` | 896 passed, 399 skipped; every skip is a CUDA case, the no-flag test or one test's own rule ("fixed point has its own counted ops"); no MPS case skipped (489 collected) |
+| the same plus `test_entry_copies.py` and `test_fake_kernels.py`, on the final tree | 1,406 passed, 413 skipped |
+| `pytest tests/` | 28,286 passed, 17,101 skipped, 0 failed (13 min 50 s, the GEMM kernels compiling cold; M6b's run: 27,364 / 16,701) |
+| `ruff check`, `ruff format --check` (mptorch, tests, dev/benchmarks), `ty check mptorch`, `ty check` on the changed tests and tool | clean |
+
+The full suite ran on the build before a formatting-only pass over the
+C++ lines I changed; the counted modules above ran on the rebuilt tree.
+
+Rebased on `d314a01` (the opt-in kinds' counting, Python only) and
+`e57c983`: its new tests in `test_simulate_events.py` run on MPS through
+the same `devices` line and pass (the module: 21 passed, 7 skipped, all
+CUDA); `test_counted_gemm.py`, `test_simulate_events.py` and
+`test_entry_copies.py` together: 864 passed, 367 skipped.
+
+### Timing (`dev/benchmarks/mps_backend.py bench-counted`, new)
+
+AC power, no thermal warning before or after, two runs (they agree within
+5%); twin / counted ms, the two alternated, best of five rounds each, and
+no counted result differed from its twin's:
+
+| op | 512^3 | 1024^3 |
+|---|---|---|
+| binaryK split NAIVE RNE | 1.64 / 4.10 (2.50x) | 11.33 / 30.66 (2.71x) |
+| binaryK split KAHAN RNE | 3.25 / 8.83 (2.72x) | 24.06 / 68.82 (2.86x) |
+| binaryK split BLOCK 32 RNE | 1.69 / 4.74 (2.81x) | 11.85 / 35.96 (3.03x) |
+| binaryK split TREE 64 RNE | 2.23 / 5.90 (2.64x) | 15.91 / 45.13 (2.84x) |
+| binaryK fused NAIVE RNE | 1.01 / 2.24 (2.23x) | 6.90 / 16.29 (2.36x) |
+| binaryK split NAIVE SR | 8.20 / 10.16 (1.24x) | 64.14 / 79.50 (1.24x) |
+| binaryK split KAHAN SR | 20.86 / 25.65 (1.23x) | 166.1 / 203.4 (1.22x) |
+| binaryK split BLOCK 32 SR | 9.14 / 11.39 (1.25x) | 71.28 / 88.62 (1.24x) |
+| binaryK split TREE 64 SR | 10.48 / 12.69 (1.21x) | 81.72 / 99.43 (1.22x) |
+| binaryK fused NAIVE SR | 4.16 / 5.07 (1.22x) | 31.58 / 38.88 (1.23x) |
+| superfp split NAIVE RNE | 2.75 / 5.03 (1.83x) | 20.64 / 38.50 (1.86x) |
+| fixed point, carrier path, RNE | 0.86 / 3.09 (3.60x) | 5.35 / 22.84 (4.27x) |
+| fixed point, integer accumulator, RNE | 5.04 / 7.77 (1.54x) | 38.67 / 60.56 (1.57x) |
+| fixed point, fused, RNE | 6.95 / 8.42 (1.21x) | 53.61 / 65.61 (1.22x) |
+
+A binaryK split conv 3x3 [8,64,32,32] forward pass: 3.96 / 9.22 ms (2.33x).
+
+So the cost of counting on the M3 Pro's GPU is 2.2-3.0x under RNE and
+1.21-1.25x under SR, against Linux's 1.7-3.4x on CUDA. The classification
+is integer work of a fixed size per cast, which weighs most beside the
+cheapest casts (binaryK's RNE fast path, the fixed-point carrier path) and
+least beside SR's draws. The end-of-tile reduction is once per threadgroup
+and does not show at these sizes. The numbers are in `mps_backend.py`'s
+docstring.
+
+### What Linux is asked to do
+
+1. **`binary_identity.py`** for `common/event_counts.h`,
+   `common/gemm_counted.h` and `common/fixedpoint_counted.h`, against
+   `127f83d`, flag off and on. Expected: nothing moves; the host token
+   streams are identical (above), and only the counted units include the
+   three headers.
+2. **Decide on `OVERFLOW`/`UNDERFLOW`**: keep the Apple-host `#undef`, or
+   rename the two enumerators.
+3. `dev/benchmarks/README.md`'s `mps_backend.py` row: add `bench-counted`
+   ("each counted op against its twin on MPS").
+4. CLAUDE.md's macOS section (untracked, yours): the counted ops run on MPS
+   (`KernelSource::GemmCounted`/`GemmFixedPointCounted`, `mps/counted.metal`
+   and `mps/fixedpoint_counted.metal`, `gemm.metal` under `MPT_COUNTING`,
+   the counts added with 32-bit atomics), and Darwin's `OVERFLOW`/`UNDERFLOW`
+   macros, a trap for any new identifier of those names.
+
+### Open
+
+- The worktrees `../mptorch-base`, `../mptorch-wide` and `../mptorch-m4base`
+  are still there (M7's report lists them).
+
+### M8's commits
+
+| task | commit | files | shared? |
+|---|---|---|---|
+| M8 | "MPS: the counted GEMM and conv ops" | the files listed above | yes: the three `common/` headers need **`binary_identity.py`**; `quant_ops.h`, `setup.py` and the three test files are listed above |
+| this section | the commit after it | `dev/mac_parallel_report.md` | |
