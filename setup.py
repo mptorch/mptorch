@@ -22,6 +22,10 @@ Environment switches, all read at build time:
     Also build the odd step's kernels under KAHAN, BLOCK and TREE (44% more
     compile work); without it those calls raise, naming the flag.
     ``MPTORCH_NO_ODD=1`` overrides it.
+``MPTORCH_COUNTING=1``
+    Also build the counted GEMM kernels, which count the casts' numeric events
+    (overflow, underflow, ...); without it the counted ops raise, naming the
+    flag.
 ``USE_MPS=0``
     On macOS, build without the Metal kernels of the MPS backend.
 ``MPTORCH_COMPRESS_FATBIN=0``
@@ -283,6 +287,33 @@ class IncrementalBuildExtension(BuildExtension):
         (directory / "build_config.txt").write_text("\n".join(self.build_configuration) + "\n")
         print(f"Build directory: {directory}")
         super().run()
+
+    def build_extension(self, ext) -> None:
+        """Build as setuptools does, with the counted GEMMs' objects linked last.
+
+        Each unit emits its own out-of-line copy of a shared inline function it
+        does not inline everywhere (conv_shape, PhiloxEngine's draw), compiled
+        in that unit's context, and the linker keeps the first copy in link
+        order, which every unit's call then reaches. setuptools links the
+        objects in the sorted order of their sources, in which a counted
+        unit's name can come first (``custom_conv_counted_entry`` before
+        ``custom_conv_entry``), and its copy then replaced the one the other
+        kernels called. Linked last, the counted units leave every other
+        object where it was, and so every kept copy.
+        """
+        compiler = self.compiler
+        link = compiler.link_shared_object
+
+        def link_counted_last(objects, *args, **kwargs):
+            counted = [o for o in objects if "counted" in Path(o).stem]
+            rest = [o for o in objects if "counted" not in Path(o).stem]
+            return link(rest + counted, *args, **kwargs)
+
+        compiler.link_shared_object = link_counted_last
+        try:
+            super().build_extension(ext)
+        finally:
+            compiler.link_shared_object = link
 
 
 def embed_metal_sources(mps_dir: Path, header: Path) -> None:
@@ -561,6 +592,19 @@ def get_extensions():
         )
     odd_accumulated_stem = re.compile(r"_(kahan|block|tree)_odd(_f64)?$")
 
+    # The counted GEMMs (common/gemm_counted.h), which count their casts'
+    # numeric events, are a diagnostic, opt-in at build time as the odd
+    # accumulated kernels are: their instantiation files, whose stems end in
+    # _counted or _counted_f64, are left out without MPTORCH_COUNTING=1, and
+    # the counted ops' entry points and Meta kernels then raise, naming the
+    # flag, before they instantiate a driver.
+    counting = os.getenv("MPTORCH_COUNTING", "0") == "1"
+    if counting:
+        print("MPTORCH_COUNTING=1: building the counted GEMM kernels.")
+        extra_compile_args["cxx"].append("-DMPTORCH_COUNTING=1")
+        extra_compile_args["nvcc"].append("-DMPTORCH_COUNTING=1")
+    counted_stem = re.compile(r"_counted(_f64)?$")
+
     # nvcc stores each .cu file's device code in .nv_fatbin twice: as a native
     # image for the architecture it was built for, and as PTX for any newer
     # one. By default only the PTX is compressed, and the native images are
@@ -606,8 +650,9 @@ def get_extensions():
         Sorted so the ninja build file, and with it the incremental rebuild, is
         stable across runs. Relative because setuptools rejects absolute source
         paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``, the
-        odd kernels' units under ``MPTORCH_NO_ODD=1``, and the odd accumulated
-        ones unless ``MPTORCH_ODD_ACCUMULATED=1``.
+        odd kernels' units under ``MPTORCH_NO_ODD=1``, the odd accumulated
+        ones unless ``MPTORCH_ODD_ACCUMULATED=1``, and the counted ones unless
+        ``MPTORCH_COUNTING=1``.
         """
         return sorted(
             str(p.relative_to(root))
@@ -618,6 +663,7 @@ def get_extensions():
                 and (p.stem.endswith("_odd") or p.stem.endswith("_odd_f64") or p.name in odd_units)
             )
             and not (not odd_accumulated and odd_accumulated_stem.search(p.stem))
+            and not (not counting and counted_stem.search(p.stem))
         )
 
     # Sources are globbed, so a new kernel file only needs to land in the right

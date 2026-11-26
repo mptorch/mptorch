@@ -54,6 +54,8 @@ import torch
 
 from mptorch.number import RoundMode
 
+from .. import events
+from ..events import _CountingQuant
 from ..mac import BlockQuant, Quant
 from ..ops import BlockPacked
 from ..rotation import _RotatedQuant
@@ -85,6 +87,8 @@ def _known(q: object) -> Quant | ScaledQuant | BlockQuant | _Rotation | None:
     if isinstance(q, _RotatedQuant):
         if q.quant is None:
             return _ROTATION_ONLY
+        q = q.quant
+    if isinstance(q, _CountingQuant):  # simulate(events=True) counting a Quant's casts
         q = q.quant
     if isinstance(q, Quantizer):
         q = q.forward_quant
@@ -185,22 +189,31 @@ def restore(saved: Any, replay: _Replay | None) -> Any:
     if replay is None:
         return saved
     q, state = replay
-    if state is None:
-        return q(saved)
-    cpu, devices = state
-    cpu_now = torch.get_rng_state() if cpu is not None else None
-    devices_now = [(d, _device_state(d)) for d, _ in devices]
+    # the replay repeats casts the forward counted (simulate(events=True),
+    # which compiled code never runs)
+    counted = not torch.compiler.is_compiling()
+    if counted:
+        events._replaying += 1
     try:
-        if cpu is not None:
-            torch.set_rng_state(cpu)
-        for d, saved_state in devices:
-            _set_device_state(d, saved_state)
-        return q(saved)
+        if state is None:
+            return q(saved)
+        cpu, devices = state
+        cpu_now = torch.get_rng_state() if cpu is not None else None
+        devices_now = [(d, _device_state(d)) for d, _ in devices]
+        try:
+            if cpu is not None:
+                torch.set_rng_state(cpu)
+            for d, saved_state in devices:
+                _set_device_state(d, saved_state)
+            return q(saved)
+        finally:
+            if cpu_now is not None:
+                torch.set_rng_state(cpu_now)
+            for d, now in devices_now:
+                _set_device_state(d, now)
     finally:
-        if cpu_now is not None:
-            torch.set_rng_state(cpu_now)
-        for d, now in devices_now:
-            _set_device_state(d, now)
+        if counted:
+            events._replaying -= 1
 
 
 def save(ctx, a: object, b: object) -> None:

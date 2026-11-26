@@ -474,7 +474,7 @@ See :doc:`instrument`.
 .. autofunction:: unconvert_
 
 .. autoclass:: simulate
-   :members: report, wrap
+   :members: report, events, wrap
 
 .. autoclass:: SimulateReport
 
@@ -498,6 +498,22 @@ See :doc:`instrument`.
 .. autoclass:: ElementRecord
 
 .. autoclass:: UncountedRecord
+
+.. automodule:: mptorch.quant.events
+   :no-members:
+
+.. currentmodule:: mptorch.quant
+
+.. autoclass:: EventReport
+   :members: by_format
+
+.. autoclass:: EventRow
+
+.. autoclass:: EventCounts
+
+.. autodata:: EVENTS
+
+.. autodata:: ROLES
 
 .. autofunction:: set_palette_maps_
 

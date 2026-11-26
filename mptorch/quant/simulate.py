@@ -81,6 +81,8 @@ from torch.overrides import TorchFunctionMode, resolve_name
 
 from . import attention, norm, pointwise, reduce
 from .convert import _REGISTRY
+from .events import EventReport, _SiteTally
+from .events import _report as _event_report
 from .modules.conv import CustomArithConvNd
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
@@ -174,11 +176,18 @@ _OPT_IN_KINDS = (
 )
 
 
+# Why simulate(events=True) does not count an opt-in kind's sites.
+_OPT_IN_NOT_COUNTED = "events are counted in the linear, conv and matmul kinds"
+
+
 class _State:
     """Everything a call reads, built once from the model and the recipe."""
 
-    def __init__(self, recipe: Recipe, model: nn.Module, strict: bool):
+    def __init__(self, recipe: Recipe, model: nn.Module, strict: bool, events: bool = False):
         self.strict = strict
+        # simulate(events=True)'s counts, by (module, kind, site): one counting
+        # container per site, which counts into its tally
+        self.tallies: dict[tuple[str, str, str | None], _SiteTally] = {}
         self.names: dict[int, str] = {}
         self.owners: dict[int, tuple[str, ...]] = {}
         self.owned: set[str] = set()
@@ -235,12 +244,20 @@ class _State:
                 self.covered.setdefault(name, set()).add(kind)
                 if kind in _OPT_IN_KINDS:  # frozen formats, read as they are
                     self.routes[(name, kind, site)] = _Route(gf, gf.label())
+                    if events:
+                        tally = self.tallies.setdefault((name, kind, site), _SiteTally())
+                        tally.gap("fwd", kind, _OPT_IN_NOT_COUNTED)
                     continue
-                # a palette's container holds its map, so each route has its own
-                key = (name, kind, site) if gf.palette else (id(gf), kind)
+                # a palette's container holds its map, and a counting one its
+                # site's counts, so each such route has its own
+                key = (name, kind, site) if gf.palette or events else (id(gf), kind)
                 if key not in containers:
                     build = {"linear": gf.affine, "conv": gf.conv, "matmul": gf.matmul}[kind]
-                    containers[key] = build()
+                    if events:
+                        tally = self.tallies.setdefault((name, kind, site), _SiteTally())
+                        containers[key] = build(_tally=tally)
+                    else:
+                        containers[key] = build()
                 self.routes[(name, kind, site)] = _Route(containers[key], gf.label())
             entry = _REGISTRY.get(type(module))
             if entry is not None and entry.forward is not None:
@@ -1099,6 +1116,13 @@ class simulate:
             ``einsum``, ``scaled_dot_product_attention``) where some GEMM
             kind has formats, an in-place activation or arithmetic where its
             own kind has. Default: ``False``
+        events (bool): count the numeric events of the simulated products'
+            casts (:mod:`mptorch.quant.events`), by site, pass and role, which
+            :meth:`events` reports: each product runs its GEMM op's counted
+            twin, and each quantizer slot holding a ``Quant`` is recounted.
+            It needs a build with ``MPTORCH_COUNTING=1`` (the report says so
+            otherwise), runs in eager calls only, and gives each site a
+            container of its own. Default: ``False``
 
     Raises:
         ValueError: for a module reachable under two names that the recipe
@@ -1123,7 +1147,9 @@ class simulate:
     _state_class: type[_State] = _State
     _mode_class: type[_Interceptor] = _Interceptor
 
-    def __init__(self, recipe: Recipe, model: nn.Module, *, strict: bool = False):
+    def __init__(
+        self, recipe: Recipe, model: nn.Module, *, strict: bool = False, events: bool = False
+    ):
         _outside_compile("made")
         if not isinstance(recipe, Recipe):
             raise TypeError(f"recipe must be a Recipe, got {type(recipe).__name__}")
@@ -1131,7 +1157,12 @@ class simulate:
             raise TypeError(f"model must be an nn.Module, got {type(model).__name__}")
         model = getattr(model, "_orig_mod", model)  # a torch.compile'd module's original
         self.model = model
-        self._state = self._state_class(recipe, model, strict)
+        self._events = events
+        self._state = (
+            self._state_class(recipe, model, strict, events)
+            if events
+            else self._state_class(recipe, model, strict)
+        )
         self._mode = self._mode_class(self._state)
         self._hooks: list[Any] = []
         self._users = 0
@@ -1191,6 +1222,18 @@ class simulate:
         )
         return SimulateReport(tuple(self._state.rows), maps)
 
+    def events(self) -> EventReport:
+        """The numeric events counted so far, as an :class:`EventReport`: by
+        site, pass and role, with the parts of the simulated sites that are
+        not counted and why. It reads the counts from the device.
+
+        Raises:
+            RuntimeError: for a ``simulate`` made without ``events=True``.
+        """
+        if not self._events:
+            raise RuntimeError("this simulate counts no events: make it with events=True")
+        return _event_report(self._state.tallies)
+
     def wrap(self) -> "SimulatedModule":
         """The model as a module that simulates every call to it: the one to
         compile, as ``torch.compile(sim.wrap(), fullgraph=True)``.
@@ -1199,7 +1242,16 @@ class simulate:
         stay on the model's modules while the wrapper lives (until it is
         collected or its ``close()`` is called). Call it outside
         ``with sim:``, which would enter the mode a second time.
+
+        Raises:
+            RuntimeError: for a ``simulate`` made with ``events=True``: events
+                are counted in eager calls only.
         """
+        if self._events:
+            raise RuntimeError(
+                "a simulate made with events=True counts in eager calls only, and cannot be "
+                "wrapped for torch.compile: run it eagerly, or make one without events"
+            )
         return SimulatedModule(self)
 
 

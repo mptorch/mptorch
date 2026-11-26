@@ -564,6 +564,15 @@ namespace mptorch::gemm_cuda
                     store_elem<T>(C, out, dt, acc.finalize());
             }
         }
+
+        // A counted GEMM (common/gemm_counted.h) adds this thread's counts to
+        // the call's; a thread outside the result ran the K-loop on padding,
+        // and adds none. Every thread of the block gets here, as the warp
+        // reduction needs. The condition is is_counting, spelled here so that
+        // this header needs no include for it; counting_thread_end is found by
+        // argument-dependent lookup.
+        if constexpr (requires { Accumulator::counting; })
+            counting_thread_end(acc, rId < M && cId < N);
     }
 
     // Launch the kernel over a grid of output tiles for each batch element.

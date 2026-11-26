@@ -47,6 +47,7 @@ from torch.nn.modules.utils import _ntuple
 
 from .conv import _leading_padding
 from .convert import _REGISTRY
+from .events import EventReport, _SiteTally
 from .gemm import cast_quant
 from .mac import BlockMac, FusedMac, SplitMac
 from .modules.activation import QSoftmax
@@ -148,13 +149,16 @@ class Profile:
 
     ``records`` holds the products and sums, ``elements`` the elementwise
     calls and ``uncounted`` what could not be counted, each in the order the
-    calls ran.
+    calls ran. With ``profile(..., events=True)``, ``events`` holds the pass's
+    numeric events (:class:`~mptorch.quant.EventReport`).
     """
 
     records: tuple[ProfileRecord, ...]
     cost: Mapping[Any, float] | None = None
     elements: tuple[ElementRecord, ...] = ()
     uncounted: tuple[UncountedRecord, ...] = ()
+    # the pass's numeric events, with profile(events=True)
+    events: EventReport | None = None
 
     @property
     def macs(self) -> int:
@@ -937,8 +941,8 @@ _COUNTERS[F.scaled_dot_product_attention] = _count_sdpa
 class _CountingState(_State):
     """A simulate's state that sees every kind, and keeps each call's decision."""
 
-    def __init__(self, recipe: Recipe, model: nn.Module, strict: bool):
-        super().__init__(recipe, model, strict)
+    def __init__(self, recipe: Recipe, model: nn.Module, strict: bool, events: bool = False):
+        super().__init__(recipe, model, strict, events)
         # every kind's handler, so that the calls of a kind the recipe does not
         # name are seen too: they find no route, and run as PyTorch's
         for kind in _OPT_IN_KINDS:
@@ -1147,6 +1151,7 @@ def profile(
     backward: bool = False,
     run: bool = True,
     palette_maps: Mapping[str, torch.Tensor | None] | None = None,
+    events: bool = False,
     **kwargs: Any,
 ) -> Profile:
     """Run one forward pass of ``model`` and count its products and sums by their formats.
@@ -1201,6 +1206,16 @@ def profile(
             its map divides its outputs, an unset map's all in entry 0; a
             converted model's layers are counted by their own maps.
             Default: ``None``
+        events (bool): also count the pass's numeric events, into
+            :attr:`Profile.events`, as ``simulate(recipe, model,
+            events=True)`` counts them; a converted layer's through a
+            counting container rebuilt from the formats it was converted
+            with, swapped in for the pass (a layer whose formats were built
+            otherwise, or hold a palette, is listed as not counted). The
+            pass is a forward one: ``backward=True`` counts the backward's
+            MACs from the forward's shapes, and runs no backward. It needs
+            ``run=True``, since a fake tensor has no values. Default:
+            ``False``
         **kwargs: its keyword inputs.
 
     Returns:
@@ -1229,8 +1244,13 @@ def profile(
             "profile(backward=True) was called under torch.inference_mode, where no gradient "
             "is computed: call it outside inference_mode"
         )
+    if events and not run:
+        raise RuntimeError(
+            "profile(events=True) counts the values the pass computes, and run=False runs it on "
+            "fake tensors, which have none: pass run=True"
+        )
     model = getattr(model, "_orig_mod", model)
-    sim = _Counting(Recipe() if recipe is None else recipe, model)
+    sim = _Counting(Recipe() if recipe is None else recipe, model, events=events)
     if palette_maps is not None:
         if recipe is None:
             raise TypeError(
@@ -1244,6 +1264,7 @@ def profile(
     state.counter = counter
     buffers = [(b, b.detach().clone()) for b in model.buffers()]
     handles = _hooks(model, state)
+    swapped: list[tuple[nn.Module, nn.Module]] = []
     try:
         with ExitStack() as stack:
             stack.enter_context(torch.random.fork_rng(devices=_cuda_devices(model, inputs, kwargs)))
@@ -1251,6 +1272,9 @@ def profile(
                 stack.enter_context(FakeTensorMode(allow_non_fake_inputs=True))
             stack.enter_context(torch.enable_grad() if backward else torch.no_grad())
             stack.enter_context(sim)
+            if events:
+                # after simulate installed its hooks, which know the model's modules
+                swapped = _counting_layers(model, state)
             try:
                 model(*inputs, **kwargs)
             except (DataDependentOutputException, DynamicOutputShapeException) as e:
@@ -1261,9 +1285,49 @@ def profile(
                     "format what it reads"
                 ) from e
     finally:
+        for module, formats in swapped:
+            module.formats = formats
         for h in handles:
             h.remove()
         with torch.no_grad():
             for b, saved in buffers:
                 b.copy_(saved)
-    return Profile(tuple(counter.records), cost, tuple(counter.elements), tuple(counter.uncounted))
+    return Profile(
+        tuple(counter.records),
+        cost,
+        tuple(counter.elements),
+        tuple(counter.uncounted),
+        sim.events() if events else None,
+    )
+
+
+def _counting_layers(model: nn.Module, state: _State) -> list[tuple[nn.Module, nn.Module]]:
+    """Give each converted GEMM layer a counting container for the pass,
+    rebuilt from the GemmFormats it was converted with, its site's counts in
+    ``state.tallies``; return the (layer, formats) pairs to put back."""
+    swapped = []
+    for name, module in model.named_modules():
+        f = getattr(module, "formats", None)
+        if isinstance(module, _CONVS):
+            kind, build = "conv", "conv"
+        elif isinstance(module, QMatmul):
+            kind, build = "matmul", "matmul"
+        elif isinstance(module, nn.Linear):
+            kind, build = "linear", "affine"
+        else:
+            continue
+        if f is None or not getattr(type(module), "_mptorch_owned", False):
+            continue
+        tally = state.tallies.setdefault((name, kind, None), _SiteTally())
+        source = getattr(f, "_source", None)
+        if not isinstance(source, GemmFormats) or source.palette:
+            why = (
+                "a palette mac"
+                if isinstance(source, GemmFormats)
+                else "formats not built from a GemmFormats"
+            )
+            tally.gap("fwd", "mac", why)
+            continue
+        swapped.append((module, f))
+        module.formats = getattr(source, build)(_tally=tally)
+    return swapped

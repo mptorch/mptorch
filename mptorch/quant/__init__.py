@@ -20,6 +20,7 @@ from .blockwise import (
 )
 from .conv import conv_formats
 from .convert import ConvertReport, ConvertRow, convert, convert_, register, unconvert_
+from .events import EVENTS, ROLES, EventCounts, EventReport, EventRow
 from .gemm import (
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
@@ -273,6 +274,11 @@ __all__ = [
     "ConvertReport",
     "ConvertRow",
     "simulate",
+    "EVENTS",
+    "ROLES",
+    "EventCounts",
+    "EventReport",
+    "EventRow",
     "SimulateReport",
     "SimulateRow",
     "SimulatedModule",

@@ -10,7 +10,8 @@ the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
   public-API calls on the CPU, recorded by a dispatch mode, reaches every op
-  whose kernels the build has: all 80 under ``MPTORCH_ODD_ACCUMULATED=1``.
+  whose kernels the build has: all 92 under ``MPTORCH_ODD_ACCUMULATED=1`` and
+  ``MPTORCH_COUNTING=1``.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -93,7 +94,9 @@ from mptorch.quant import (
     superfp_quantize,
     superfp_quantize_,
 )
-from tests.markers import HAS_ODD, HAS_ODD_ACCUMULATED, requires_cuda
+from mptorch.quant.mac import spec_for_mac
+from mptorch.quant.ops._counted import _counted_conv_twin, _counted_twin
+from tests.markers import HAS_COUNTING, HAS_ODD, HAS_ODD_ACCUMULATED, requires_cuda
 
 # Dynamo says once per function that it traces through the format checks'
 # lru_cache; the checks are pure, so the cache only saves time.
@@ -207,10 +210,18 @@ def _is_odd_accumulated(name: str) -> bool:
     return name.endswith("_accumulated_odd")
 
 
+def _is_counted(name: str) -> bool:
+    """A counted GEMM op, which a build without MPTORCH_COUNTING=1 registers
+    and makes raise."""
+    return name.endswith("_counted")
+
+
 def _unbuilt(name: str) -> bool:
     """Whether this build left out the kernels of op (or mac) `name`."""
-    return (not HAS_ODD and _is_odd(name)) or (
-        not HAS_ODD_ACCUMULATED and _is_odd_accumulated(name)
+    return (
+        (not HAS_ODD and _is_odd(name))
+        or (not HAS_ODD_ACCUMULATED and _is_odd_accumulated(name))
+        or (not HAS_COUNTING and _is_counted(name))
     )
 
 
@@ -319,6 +330,39 @@ def _workload():
     fixedpoint_matmul_fma(a.bfloat16(), b.bfloat16(), fma_wl=10, fma_fl=4, overflow=Overflow.WRAP)
     if HAS_ODD:
         torch.ops.mptorch._carrier_odd(x, x, x, 0)
+    if HAS_COUNTING:
+        # the counted GEMMs, through the counted twins of single-format specs
+        for name in (
+            "binaryK",
+            "superfp_fma",
+            "binaryK_accumulated",
+            "superfp_accumulated",
+            "fixedpoint",
+            "fixedpoint_fma",
+        ):
+            twin = _counted_twin(spec_for_mac(MACS[name]))
+            assert twin is not None
+            op, args = twin
+            op(a, b, False, False, *args)
+        naive_fma = FusedMac(BK_ACC, rounding=SR)
+        op, args = _counted_twin(spec_for_mac(naive_fma))  # ty: ignore[not-iterable]
+        op(a, _rnd(gen, 6, 32), False, True, *args)
+        # the counted conv ops: a forward pass and an input gradient
+        x, w = _rnd(gen, 2, 3, 6, 6), _rnd(gen, 4, 3, 3, 3)
+        for name in (
+            "binaryK",
+            "binaryK_fma",
+            "superfp_accumulated",
+            "superfp_fma",
+            "fixedpoint",
+            "fixedpoint_fma",
+        ):
+            conv = _counted_conv_twin(spec_for_mac(MACS[name]))
+            assert conv is not None
+            op, args = conv
+            op(w, x, 0, [4, 4], [1, 1], [0, 0], [1, 1], 1, *args)
+        op, args = _counted_conv_twin(spec_for_mac(MACS["binaryK"]))  # ty: ignore[not-iterable]
+        op(w, _rnd(gen, 2, 4, 4, 4), 1, [6, 6], [1, 1], [0, 0], [1, 1], 1, *args)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3
     torch.ops.mptorch._stochastic_cast(
         x, torch.zeros_like(x, dtype=torch.int64), 0, [8, 4, 7, 3, 1, 2, 0], 7
@@ -374,7 +418,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 80
+    assert len(names) == 92
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -425,6 +469,26 @@ def test_without_the_flag_every_odd_accumulated_op_raises_naming_it():
         func = getattr(torch.ops.mptorch, name).default
         args = _calls()[name[: -len("_odd")]][0][1]
         with pytest.raises(RuntimeError, match="MPTORCH_ODD_ACCUMULATED=1") as cpu:
+            func(*_fresh(args))
+        with pytest.raises(RuntimeError) as meta:
+            func(*_on_meta(args))
+        assert str(meta.value) == str(cpu.value), name
+
+
+@pytest.mark.skipif(HAS_COUNTING, reason="the counted kernels are built")
+def test_without_the_flag_every_counted_op_raises_naming_it():
+    """A build without MPTORCH_COUNTING=1 keeps the counted ops registered,
+    and each raises the same message from its CPU and its Meta kernel,
+    called on its twin's recorded call (the twin's schema: a single-format
+    GEMM's *_accumulated op, or the conv or fixed-point op itself)."""
+    names = [n for n in _op_names() if _is_counted(n)]
+    assert len(names) == 12
+    for name in names:
+        func = getattr(torch.ops.mptorch, name).default
+        accumulated = name.startswith("custom_matmul") and "fixedpoint" not in name
+        twin = "_accumulated" if accumulated else ""
+        args = _calls()[name.replace("_counted", twin)][0][1]
+        with pytest.raises(RuntimeError, match="MPTORCH_COUNTING=1") as cpu:
             func(*_fresh(args))
         with pytest.raises(RuntimeError) as meta:
             func(*_on_meta(args))

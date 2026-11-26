@@ -46,12 +46,13 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from mptorch.number import BlockFormat, Number, RoundMode
+from mptorch.number import BinaryK, BlockFormat, FixedPoint, Number, RoundMode, SuperFP
 from mptorch.number import presets as number_presets
 from mptorch.number.block import _block_label, _part_label
 
 from .attention import AttentionFormats
 from .conv import _conv_formats
+from .events import _CountedCall, _CountingQuant, _SiteTally
 from .gemm import (
     _block_linear_fwd,
     _block_linear_igrad,
@@ -86,8 +87,9 @@ from .modules.format import QAffineFormats, QMatmulFormats
 from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
 from .norm import NormFormats, SoftmaxFormats
+from .ops._counted import _counted_parts, _counting_built
 from .ops._operands import _gemm_nd
-from .ops._spec import _run_gemm
+from .ops._spec import _GemmSpec, _run_gemm
 from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .reduce import ReductionFormats
@@ -185,35 +187,133 @@ def _as_output_quant(slot: object, fwd_mac: Any) -> Any:
     return tuple(_as_quant(q, f"output_quant[{i}]") for i, q in enumerate(slot))
 
 
-def _linear_pass(mac: Any, hook: Callable, block_hook: Callable, where: str) -> Callable | None:
+# A pass's counting (simulate(events=True)): the resolved GEMM of a mac,
+# with its op replaced by the counted twin; None for a pass not counted.
+_Count = Callable[[Any, "_GemmSpec | None"], "_GemmSpec | None"] | None
+
+
+def _linear_pass(
+    mac: Any, hook: Callable, block_hook: Callable, where: str, count: _Count = None
+) -> Callable | None:
     """One Linear pass's hook: none without a mac (PyTorch's own product),
     ``block_hook`` over a ``BlockMac``'s GEMM and its two operands' quantizers,
     and ``hook`` over any other mac's resolved GEMM, which refuses a wide
-    fixed-point result as a ``where`` pass (``gemm._spec_matmul``)."""
+    fixed-point result as a ``where`` pass (``gemm._spec_matmul``). ``count``
+    makes the GEMM's counting spec."""
     if mac is None:
         return None
     if isinstance(mac, BlockMac):
+        if count is not None:
+            count(mac, None)
         return block_hook(spec_for_block_mac(mac), cast_quant(mac.a), cast_quant(mac.b))
-    return hook(_spec_matmul(spec_for_mac(mac), _run_gemm, where))
+    spec = spec_for_mac(mac)
+    if count is not None:
+        spec = count(mac, spec)
+    assert spec is not None
+    return hook(_spec_matmul(spec, _run_gemm, where))
 
 
-def _matmul_pass(mac: Any, hook: Callable, block_hook: Callable, where: str) -> Callable | None:
+def _matmul_pass(
+    mac: Any, hook: Callable, block_hook: Callable, where: str, count: _Count = None
+) -> Callable | None:
     """One matmul pass's hook, as :func:`_linear_pass` builds a Linear one."""
     if mac is None:
         return None
     if isinstance(mac, BlockMac):
+        if count is not None:
+            count(mac, None)
         return block_hook(mac)
-    return hook(_spec_matmul(spec_for_mac(mac), _gemm_nd, where))
+    spec = spec_for_mac(mac)
+    if count is not None:
+        spec = count(mac, spec)
+    assert spec is not None
+    return hook(_spec_matmul(spec, _gemm_nd, where))
 
 
-def _wide_forward(mac: Any, hook: Callable, runner: Callable) -> Callable | None:
+def _wide_forward(
+    mac: Any, hook: Callable, runner: Callable, count: _Count = None
+) -> Callable | None:
     """The forward hook that leaves a wide fixed-point result in float64, for
     the container's ``_wide_fwd``, or ``None`` when ``mac``'s result is never
     wide."""
     if not isinstance(mac, SplitMac | FusedMac):
         return None
     spec = spec_for_mac(mac)
-    return hook(partial(runner, spec)) if spec.wide else None
+    if not spec.wide:
+        return None
+    if count is not None:
+        spec = count(mac, spec)
+    return hook(partial(runner, spec))
+
+
+# --- counting (simulate(events=True)) ------------------------------------------
+
+_PASSES = ("fwd", "igrad", "wgrad")
+# Each quantizer slot's pass in a counting container's report.
+_SLOT_PASS = {
+    "input_quant": "fwd",
+    "weight_quant": "fwd",
+    "bias_quant": "fwd",
+    "output_quant": "fwd",
+    "igrad_quant": "igrad",
+    "wgrad_quant": "wgrad",
+    "bgrad_quant": "bgrad",
+}
+
+
+def _role_labels(mac: Any) -> tuple[str, str, str]:
+    """The format of each of a single-format mac's roles (mul, acc, outer),
+    or "" for a role it does not round."""
+    if isinstance(mac, SplitMac):
+        mul, acc = _slot_label(mac.mul), ("" if mac.acc is None else _slot_label(mac.acc))
+    else:
+        mul, acc = "", ("" if mac.fma is None else _slot_label(mac.fma))
+    return mul, acc, ("" if mac.outer is None else _fmt_label(mac.outer))
+
+
+def _uncounted_reason(mac: Any) -> str:
+    """Why a mac's GEMM has no counted twin."""
+    if isinstance(mac, BlockMac):
+        return "a block GEMM"
+    if _palette_length(mac):
+        return "a palette mac"
+    if mac.carrier_rounding is RoundMode.RO:
+        return "a carrier step rounded to odd"
+    return "a cross-family mac"
+
+
+def _counting(tally: "_SiteTally | None", pass_: str) -> _Count:
+    """``pass_``'s counting into ``tally``, or ``None`` without a tally."""
+    if tally is None:
+        return None
+
+    def count(mac: Any, spec: "_GemmSpec | None") -> "_GemmSpec | None":
+        parts = None if spec is None else _counted_parts(spec)
+        if parts is None:
+            tally.gap(pass_, "mac", _uncounted_reason(mac))
+            return spec
+        if not _counting_built():
+            tally.gap(pass_, "mac", "built without MPTORCH_COUNTING=1")
+            return spec
+        assert spec is not None  # parts came from it
+        (op, tail), conv = parts
+        return spec._replace(op=_CountedCall(op, tail, conv, tally, pass_, _role_labels(mac)))
+
+    return count
+
+
+def _counting_quant(q: Any, tally: "_SiteTally | None", slot: str) -> Any:
+    """A quantizer slot's value, counting its casts into ``tally`` when it is
+    a Quant of a family the recount reads; the value itself otherwise, and
+    without a tally."""
+    if tally is None or q is None:
+        return q
+    pass_ = _SLOT_PASS.get(slot, slot.split("_")[0])
+    if isinstance(q, Quant) and not q.inplace and isinstance(q.fmt, BinaryK | SuperFP | FixedPoint):
+        return _CountingQuant(q, tally, pass_, slot, _fmt_label(q.fmt))
+    what = "an in-place Quant" if isinstance(q, Quant) else f"a {type(q).__name__}"
+    tally.gap(pass_, slot, f"{what} quantizer")
+    return q
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -361,13 +461,15 @@ class GemmFormats:
         """Whether a pass multiplies block formats, which no convolution does."""
         return any(isinstance(getattr(self, name), BlockMac) for name in _MAC_SLOTS)
 
-    def _affine_slots(self, formats: QAffineFormats) -> QAffineFormats:
-        formats.input_quant = self.input_quant
-        formats.weight_quant = self.weight_quant
-        formats.bias_quant = self.bias_quant
-        formats.igrad_quant = self.igrad_quant
-        formats.wgrad_quant = self.wgrad_quant
-        formats.bgrad_quant = self.bgrad_quant
+    def _affine_slots(
+        self, formats: QAffineFormats, tally: "_SiteTally | None" = None
+    ) -> QAffineFormats:
+        formats.input_quant = _counting_quant(self.input_quant, tally, "input_quant")
+        formats.weight_quant = _counting_quant(self.weight_quant, tally, "weight_quant")
+        formats.bias_quant = _counting_quant(self.bias_quant, tally, "bias_quant")
+        formats.igrad_quant = _counting_quant(self.igrad_quant, tally, "igrad_quant")
+        formats.wgrad_quant = _counting_quant(self.wgrad_quant, tally, "wgrad_quant")
+        formats.bgrad_quant = _counting_quant(self.bgrad_quant, tally, "bgrad_quant")
         formats.recompute_input = self.recompute_input
         formats.recompute_weight = self.recompute_weight
         formats._source = self
@@ -392,34 +494,46 @@ class GemmFormats:
         formats._rotation = rotation
         return formats
 
-    def affine(self) -> QAffineFormats:
+    def affine(self, *, _tally: Any = None) -> QAffineFormats:
         """A new ``QAffineFormats`` for a Linear layer, with these formats.
 
         With a palette ``fwd_mac`` it holds the layer's map (``None`` until
         :func:`~mptorch.quant.set_palette_maps_` sets it), and its forward
         computes each output neuron in its entry, rounded by its entry's
-        ``output_quant``."""
-        igrad = _linear_pass(self.igrad_mac, _linear_igrad, _block_linear_igrad, "gradient")
-        wgrad = _linear_pass(self.wgrad_mac, _linear_wgrad, _block_linear_wgrad, "gradient")
+        ``output_quant``. ``_tally`` (``simulate(events=True)``'s) makes a
+        container that counts its casts there."""
+        fwd_count, igrad_count, wgrad_count = (_counting(_tally, p) for p in _PASSES)
+        igrad = _linear_pass(
+            self.igrad_mac, _linear_igrad, _block_linear_igrad, "gradient", igrad_count
+        )
+        wgrad = _linear_pass(
+            self.wgrad_mac, _linear_wgrad, _block_linear_wgrad, "gradient", wgrad_count
+        )
         if self.palette:
+            if _tally is not None:
+                _tally.gap("fwd", "mac", "a palette mac")
             palette = _Palette("linear", self.fwd_mac, self.output_quant)
             hooks = {"bwd_igrad_math": igrad, "bwd_wgrad_math": wgrad}
-            return self._affine_slots(_PaletteAffineFormats(palette, **hooks))
+            return self._affine_slots(_PaletteAffineFormats(palette, **hooks), _tally)
         formats = QAffineFormats(
-            fwd_math=_linear_pass(self.fwd_mac, _linear_fwd, _block_linear_fwd, "forward"),
+            fwd_math=_linear_pass(
+                self.fwd_mac, _linear_fwd, _block_linear_fwd, "forward", fwd_count
+            ),
             bwd_igrad_math=igrad,
             bwd_wgrad_math=wgrad,
         )
-        formats._wide_fwd = _wide_forward(self.fwd_mac, _linear_fwd, _run_gemm)
+        formats._wide_fwd = _wide_forward(self.fwd_mac, _linear_fwd, _run_gemm, fwd_count)
         if isinstance(self.fwd_mac, BlockMac):
             # the weight's quantizer, which QLinear.freeze_packed_ packs a frozen weight with
             formats._block_weight = cast_quant(self.fwd_mac.b)
         if self.output_quant is not None:
-            _with_output(formats, self.output_quant, F.linear)
-        return self._affine_slots(formats)
+            output = _counting_quant(self.output_quant, _tally, "output_quant")
+            _with_output(formats, output, F.linear)
+        return self._affine_slots(formats, _tally)
 
-    def conv(self) -> QAffineFormats:
-        """A new ``QAffineFormats`` for a ``QConv1d/2d/3d``, with these formats.
+    def conv(self, *, _tally: Any = None) -> QAffineFormats:
+        """A new ``QAffineFormats`` for a ``QConv1d/2d/3d``, with these formats
+        (``_tally``: as for :meth:`affine`).
 
         Raises:
             TypeError: if a pass's mac is a ``BlockMac``: there is no block
@@ -436,24 +550,32 @@ class GemmFormats:
                 "its kernel taps, which its kernels gather; give rotation to the linear and "
                 "matmul kinds only"
             )
-        fwd, igrad, wgrad = (
-            None if m is None else spec_for_mac(m)
-            for m in (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
-        )
+        specs = []
+        for m, pass_ in zip((self.fwd_mac, self.igrad_mac, self.wgrad_mac), _PASSES, strict=True):
+            count = _counting(_tally, pass_)
+            spec = None if m is None else spec_for_mac(m)
+            if spec is not None and count is not None and not (pass_ == "fwd" and self.palette):
+                spec = count(m, spec)
+            specs.append(spec)
+        fwd, igrad, wgrad = specs
         if self.palette:
+            if _tally is not None:
+                _tally.gap("fwd", "mac", "a palette mac")
             grads = _conv_formats(None, igrad, wgrad)
             palette = _Palette("conv", self.fwd_mac, self.output_quant)
             formats = _PaletteAffineFormats(
                 palette, bwd_igrad_math=grads.bwd_igrad_math, bwd_wgrad_math=grads.bwd_wgrad_math
             )
-            return self._affine_slots(formats)
+            return self._affine_slots(formats, _tally)
         formats = _conv_formats(fwd, igrad, wgrad)
         if self.output_quant is not None:
-            _with_output(formats, self.output_quant, _plain_conv)
-        return self._affine_slots(formats)
+            output = _counting_quant(self.output_quant, _tally, "output_quant")
+            _with_output(formats, output, _plain_conv)
+        return self._affine_slots(formats, _tally)
 
-    def matmul(self) -> QMatmulFormats:
-        """A new ``QMatmulFormats`` for a ``QMatmul``, with these formats.
+    def matmul(self, *, _tally: Any = None) -> QMatmulFormats:
+        """A new ``QMatmulFormats`` for a ``QMatmul``, with these formats
+        (``_tally``: as for :meth:`affine`).
 
         When all three passes are ``BlockMac`` s it is
         :func:`~mptorch.quant.block_matmul_formats`'s container, which packs
@@ -461,41 +583,50 @@ class GemmFormats:
         backward, with the quantizers this value sets in place of its own.
         """
         macs = (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
+        fwd_count, igrad_count, wgrad_count = (_counting(_tally, p) for p in _PASSES)
         if self.palette:
+            if _tally is not None:
+                _tally.gap("fwd", "mac", "a palette mac")
             formats = _PaletteMatmulFormats(
                 _Palette("matmul", self.fwd_mac, self.output_quant),
                 bwd_agrad_math=_matmul_pass(
-                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient"
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count
                 ),
                 bwd_bgrad_math=_matmul_pass(
-                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient"
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count
                 ),
             )
         elif all(isinstance(m, BlockMac) for m in macs):
+            if _tally is not None:
+                for pass_ in _PASSES:
+                    _tally.gap(pass_, "mac", "a block GEMM")
             formats = block_matmul_formats(macs[0], agrad_mac=macs[1], bgrad_mac=macs[2])
         else:
             formats = QMatmulFormats(
-                fwd_math=_matmul_pass(macs[0], _matmul_fwd, _block_matmul_fwd, "forward"),
+                fwd_math=_matmul_pass(
+                    macs[0], _matmul_fwd, _block_matmul_fwd, "forward", fwd_count
+                ),
                 bwd_agrad_math=_matmul_pass(
-                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient"
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count
                 ),
                 bwd_bgrad_math=_matmul_pass(
-                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient"
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count
                 ),
             )
-            formats._wide_fwd = _wide_forward(macs[0], _matmul_fwd, _gemm_nd)
-        for slot, value in (
-            ("a_quant", self.input_quant),
-            ("b_quant", self.weight_quant),
-            ("agrad_quant", self.igrad_quant),
-            ("bgrad_quant", self.wgrad_quant),
+            formats._wide_fwd = _wide_forward(macs[0], _matmul_fwd, _gemm_nd, fwd_count)
+        for slot, name, value in (
+            ("a_quant", "input_quant", self.input_quant),
+            ("b_quant", "weight_quant", self.weight_quant),
+            ("agrad_quant", "igrad_quant", self.igrad_quant),
+            ("bgrad_quant", "wgrad_quant", self.wgrad_quant),
         ):
             if value is not None:
-                setattr(formats, slot, value)
+                setattr(formats, slot, _counting_quant(value, _tally, name))
         formats.recompute_a = self.recompute_input
         formats.recompute_b = self.recompute_weight
         if self.output_quant is not None and not self.palette:
-            _with_output(formats, self.output_quant, torch.matmul)
+            output = _counting_quant(self.output_quant, _tally, "output_quant")
+            _with_output(formats, output, torch.matmul)
         formats._source = self
         return self._rotated(formats, ("a_quant", "b_quant"), _MATMUL_GRADS)
 

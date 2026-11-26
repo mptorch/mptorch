@@ -98,4 +98,16 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("binaryK_pwl", binaryK_pwl_cuda);
     MPT_CUDA_IMPL("superfp_pwl", superfp_pwl_cuda);
     MPT_CUDA_IMPL("fixedpoint_pwl", fixedpoint_pwl_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_counted", binaryK_matmul_counted_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_counted", superfp_matmul_counted_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_fma_counted", binaryK_matmul_fma_counted_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_fma_counted", superfp_matmul_fma_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_counted", binaryK_conv_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_fma_counted", binaryK_conv_fma_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_counted", superfp_conv_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_fma_counted", superfp_conv_fma_counted_cuda);
+    MPT_CUDA_IMPL("custom_matmul_fixedpoint_counted", fixedpoint_matmul_counted_cuda);
+    MPT_CUDA_IMPL("custom_matmul_fixedpoint_fma_counted", fixedpoint_matmul_fma_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_fixedpoint_counted", fixedpoint_conv_counted_cuda);
+    MPT_CUDA_IMPL("custom_conv_fixedpoint_fma_counted", fixedpoint_conv_fma_counted_cuda);
 }

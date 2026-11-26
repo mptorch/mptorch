@@ -27,11 +27,13 @@ import pytest
 CSRC = Path(__file__).resolve().parents[1] / "mptorch" / "csrc"
 BACKENDS = ("cpu", "cuda", "mps", "meta")
 ENTRY_FILES = (
+    "custom_conv_counted_entry.cpp",
     "custom_conv_entry.cpp",
     "custom_conv_fixedpoint_entry.cpp",
     "custom_conv_odd_entry.cpp",
     "custom_matmul_accumulated_entry.cpp",
     "custom_matmul_block_entry.cpp",
+    "custom_matmul_counted_entry.cpp",
     "custom_matmul_cross_entry.cpp",
     "custom_matmul_entry.cpp",
     "custom_matmul_fixedpoint_entry.cpp",
@@ -39,7 +41,16 @@ ENTRY_FILES = (
 )
 # Entry files that only some backends have yet: file -> (backends, reason).
 # The copies are compared on those backends.
-PARTIAL_ENTRY_FILES: dict[str, tuple[tuple[str, ...], str]] = {}
+PARTIAL_ENTRY_FILES: dict[str, tuple[tuple[str, ...], str]] = {
+    "custom_conv_counted_entry.cpp": (
+        ("cpu", "cuda", "meta"),
+        "the counted GEMMs have no MPS kernels yet, so no MPS entry points",
+    ),
+    "custom_matmul_counted_entry.cpp": (
+        ("cpu", "cuda", "meta"),
+        "the counted GEMMs have no MPS kernels yet, so no MPS entry points",
+    ),
+}
 ODD_HOST_FILES = ("carrier_odd_host.h", "carrier_odd_gemm_host.h", "carrier_odd_conv_host.h")
 
 # Functions one backend's file has and the CPU's does not: (backend, file) ->

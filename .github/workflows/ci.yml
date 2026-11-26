@@ -31,10 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 5
-    # The odd carrier step's kernels under KAHAN, BLOCK and TREE are opt-in at
-    # build time (setup.py): CI builds them, so the suite runs their tests.
+    # The odd carrier step's kernels under KAHAN, BLOCK and TREE, and the
+    # counted GEMMs' kernels, are opt-in at build time (setup.py): CI builds
+    # them, so the suite runs their tests.
     env:
       MPTORCH_ODD_ACCUMULATED: "1"
+      MPTORCH_COUNTING: "1"
 
     steps:
     - uses: actions/checkout@v5
@@ -71,9 +73,11 @@ jobs:
   # happened. The build itself is checked either way.
   build-macos:
     runs-on: macos-15
-    # As in build-linux: the odd step's KAHAN, BLOCK and TREE kernels too.
+    # As in build-linux: the odd step's KAHAN, BLOCK and TREE kernels and the
+    # counted GEMMs' kernels too.
     env:
       MPTORCH_ODD_ACCUMULATED: "1"
+      MPTORCH_COUNTING: "1"
 
     steps:
     - uses: actions/checkout@v5

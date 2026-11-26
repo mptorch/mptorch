@@ -219,6 +219,18 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("binaryK_pwl", kernel());
   m.impl("superfp_pwl", kernel());
   m.impl("fixedpoint_pwl", kernel());
+  m.impl("custom_matmul_binaryK_counted", kernel());
+  m.impl("custom_matmul_superfp_counted", kernel());
+  m.impl("custom_matmul_binaryK_fma_counted", kernel());
+  m.impl("custom_matmul_superfp_fma_counted", kernel());
+  m.impl("custom_conv_binaryK_counted", kernel());
+  m.impl("custom_conv_binaryK_fma_counted", kernel());
+  m.impl("custom_conv_superfp_counted", kernel());
+  m.impl("custom_conv_superfp_fma_counted", kernel());
+  m.impl("custom_matmul_fixedpoint_counted", kernel());
+  m.impl("custom_matmul_fixedpoint_fma_counted", kernel());
+  m.impl("custom_conv_fixedpoint_counted", kernel());
+  m.impl("custom_conv_fixedpoint_fma_counted", kernel());
 }
 
 // The four in-place quantizers also need a kernel for the ADInplaceOrView

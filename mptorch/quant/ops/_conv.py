@@ -19,6 +19,8 @@ from typing import Any
 
 import torch
 
+from mptorch.quant.events import _CountedCall
+
 from ._checks import _NARROW_STORAGE, _check_stored, _narrowed, _report_findings
 from ._spec import _GemmSpec, _named_carrier_operands
 
@@ -112,7 +114,12 @@ class _ConvOp:
     __slots__ = ("op", "args", "spec", "prec_idx")
 
     def __init__(self, spec: _GemmSpec, prec_idx: torch.Tensor | None):
-        self.op, tail = _conv_ops()[spec.op]
+        op = spec.op
+        if isinstance(op, _CountedCall):  # a counting spec's (simulate(events=True)): its conv twin
+            assert op.conv is not None
+            self.op, tail = op.conv
+        else:
+            self.op, tail = _conv_ops()[op]
         self.args = (*spec.args, *tail)
         self.spec = spec
         self.prec_idx = prec_idx

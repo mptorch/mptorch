@@ -362,6 +362,52 @@ an attention's grouped keys and values count once per query head, which
 they are repeated for. The pass leaves the model's buffers (a batch norm's
 running statistics) and the random generators as it found them.
 
+Counting numeric events
+-----------------------
+
+``simulate(recipe, model, events=True)`` also counts how each cast of the
+simulated products went, by site, pass and role, and
+:meth:`~mptorch.quant.simulate.events` reports it as an
+:class:`~mptorch.quant.EventReport`. Each event is a property of one cast,
+read from its input and its result (:mod:`mptorch.quant.events` states them
+exactly): ``casts``, every one; ``overflow``, a finite input past the
+format's largest value; ``underflow``, a nonzero input rounded to zero;
+``subnormal``, a result below the normal range; ``inexact``, a result that
+is not the input; ``nan``, a NaN result. Each product runs the counted twin
+of its GEMM op, whose kernels count the casts of the product (role ``mul``),
+the sums (``acc``: a split mac's sum, a fused mac's one rounding, KAHAN's
+three) and BLOCK's and TREE's outer format (``outer``), with the same results
+word for word, stochastic rounding included. Each quantizer slot that holds
+a :class:`~mptorch.quant.Quant` is recounted from its input and output,
+under the slot's name. An operand quantized again in backward (recompute)
+is counted once.
+
+The run below takes an MLP through one training step with E4M3 operands and
+E5M2 gradients, unscaled, then with the loss scaled by 1024:
+
+.. literalinclude:: ../snippets/instrument_events.py
+   :language: python
+   :caption: docs/snippets/instrument_events.py
+
+.. literalinclude:: ../snippets/instrument_events.out
+   :language: text
+   :caption: output
+
+Unscaled, almost a third of the gradient casts lose their value to zero:
+cross-entropy's gradient divides by the batch, and E5M2's smallest value is
+2^-16. The scale brings them back into range.
+
+The counts stay on the device until a report is made. The counted kernels
+are built with ``MPTORCH_COUNTING=1``; in a build without them every site is
+listed as not counted, and so are the palette, block, cross-family and
+round-to-odd macs and the quantizers that are not a ``Quant``
+(``EventReport.not_counted`` says which and why). The opt-in kinds (an
+activation, a norm, ...) are not counted, and events are counted in eager
+calls only, so ``sim.wrap()`` refuses. ``profile(..., events=True)`` counts
+the forward pass's events into ``Profile.events``, a converted layer's
+through a counting container rebuilt from the formats it was converted
+with.
+
 Three models
 ------------
 

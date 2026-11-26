@@ -651,6 +651,14 @@ namespace mptorch::gemm_cpu
           }
         }
       }
+
+      // A counted GEMM (common/gemm_counted.h) adds the task's counts to the
+      // call's. The condition is is_counting, spelled here so that this
+      // header needs no include for it; counting_task_end is found by
+      // argument-dependent lookup. It comes last, after every name the
+      // lambda captures has been named.
+      if constexpr (requires { Accumulator::counting; })
+        counting_task_end(acc_proto);
     });
   }
 

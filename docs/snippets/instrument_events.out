@@ -1,0 +1,22 @@
+loss scale      1: 123280 of 403456 gradient casts underflow
+loss scale   1024:    446 of 403456 gradient casts underflow
+module  kind    pass   role          format                        casts     overflow  underflow  subnormal  inexact  nan
+0       linear  fwd    input_quant   E4M3                          32768     0         32         363        32768    0  
+0       linear  fwd    weight_quant  E4M3                          16384     0         133        1791       16384    0  
+0       linear  fwd    acc           BinaryK(K=16, P=11, bias=16)  8388608   0         0          75         1405585  0  
+0       linear  wgrad  wgrad_quant   E5M2                          131072    0         444        1959       131068   0  
+0       linear  wgrad  acc           BinaryK(K=16, P=11, bias=16)  8388608   0         0          1532       2932606  0  
+2       linear  fwd    input_quant   E4M3                          131072    0         330        4951       131072   0  
+2       linear  fwd    weight_quant  E4M3                          65536     0         1103       14255      65536    0  
+2       linear  fwd    acc           BinaryK(K=16, P=11, bias=16)  33554432  0         0          3879       8850809  0  
+2       linear  igrad  igrad_quant   E5M2                          131072    0         1          119        131004   0  
+2       linear  wgrad  wgrad_quant   E5M2                          131072    0         1          119        131004   0  
+2       linear  igrad  acc           BinaryK(K=16, P=11, bias=16)  33554432  0         0          85107      4176016  0  
+2       linear  wgrad  acc           BinaryK(K=16, P=11, bias=16)  33554432  0         0          3658       9722619  0  
+4       linear  fwd    input_quant   E4M3                          131072    0         1011       14146      131072   0  
+4       linear  fwd    weight_quant  E4M3                          2560      0         35         535        2560     0  
+4       linear  fwd    acc           BinaryK(K=16, P=11, bias=16)  1310720   0         0          836        245498   0  
+4       linear  igrad  igrad_quant   E5M2                          5120      0         0          0          5120     0  
+4       linear  wgrad  wgrad_quant   E5M2                          5120      0         0          0          5120     0  
+4       linear  igrad  acc           BinaryK(K=16, P=11, bias=16)  1310720   0         0          0          2529     0  
+4       linear  wgrad  acc           BinaryK(K=16, P=11, bias=16)  1310720   0         0          0          405831   0  

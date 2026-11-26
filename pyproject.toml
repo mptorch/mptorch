@@ -116,6 +116,7 @@ cache-keys = [
     { env = "MPTORCH_NO_FP64" },
     { env = "MPTORCH_NO_ODD" },
     { env = "MPTORCH_ODD_ACCUMULATED" },
+    { env = "MPTORCH_COUNTING" },
     { env = "MPTORCH_COMPRESS_FATBIN" },
 ]
 

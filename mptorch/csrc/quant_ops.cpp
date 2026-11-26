@@ -585,4 +585,97 @@ TORCH_LIBRARY(mptorch, m)
   m.def("fixedpoint_pwl(Tensor x, Tensor entries, float lo, float hi, int tails, bool rsqrt, "
         "int wl, int fl, int prng_bits, bool is_signed, bool symmetric, "
         "int round_mode) -> Tensor", seeded);
+  // The counted GEMMs (common/gemm_counted.h): each *_accumulated op's
+  // schema, under every algorithm, NAIVE included, returning the result
+  // and an int64 [3, 6] tensor of its casts' numeric events (roles mul,
+  // acc and outer by events casts, overflow, underflow, subnormal, inexact
+  // and nan; common/event_counts.h). Their kernels are built with
+  // MPTORCH_COUNTING=1; without it the ops raise, naming the flag.
+  m.def("custom_matmul_binaryK_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int mul_subnormals_mode, "
+        "int acc_saturation_mode, int acc_subnormals_mode, "
+        "int mul_prng_bits, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_matmul_superfp_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_man_bits, int mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_man_bits, int acc_exp_bits, int acc_normal_binades, "
+        "int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int acc_saturation_mode, "
+        "int mul_prng_bits, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, "
+        "int outer_normal_binades, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_matmul_binaryK_fma_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_K, int fma_P, int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_subnormals_mode, int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_matmul_superfp_fma_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_man_bits, int fma_exp_bits, int fma_normal_binades, "
+        "int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, "
+        "int outer_normal_binades, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  // The counted conv ops: each single-format conv op's schema, returning the
+  // result and its counts, as the counted GEMMs do.
+  m.def("custom_conv_binaryK_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, int mul_K, int mul_P, int mul_bias, "
+        "bool mul_is_signed, bool accumulate_quant, int acc_K, int acc_P, int acc_bias, "
+        "bool acc_is_signed, int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int mul_subnormals_mode, int acc_saturation_mode, "
+        "int acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits, int block_size, "
+        "bool outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_conv_binaryK_fma_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, bool fma_quant, int fma_K, "
+        "int fma_P, int fma_bias, bool fma_is_signed, int accumulate_algorithm, "
+        "int round_mode, int fma_saturation_mode, int fma_subnormals_mode, int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_conv_superfp_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, int mul_man_bits, int mul_exp_bits, "
+        "int mul_normal_binades, int mul_bias, bool mul_is_signed, bool accumulate_quant, "
+        "int acc_man_bits, int acc_exp_bits, int acc_normal_binades, int acc_bias, "
+        "bool acc_is_signed, int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int acc_saturation_mode, int mul_prng_bits, "
+        "int acc_prng_bits, int block_size, bool outer_quant, int outer_man_bits, "
+        "int outer_exp_bits, int outer_normal_binades, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  m.def("custom_conv_superfp_fma_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, bool fma_quant, "
+        "int fma_man_bits, int fma_exp_bits, int fma_normal_binades, int fma_bias, "
+        "bool fma_is_signed, int accumulate_algorithm, int round_mode, "
+        "int fma_saturation_mode, int fma_prng_bits, int block_size, bool outer_quant, "
+        "int outer_man_bits, int outer_exp_bits, int outer_normal_binades, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_prng_bits) -> (Tensor, Tensor)", seeded);
+  // The counted fixed-point GEMM and conv ops, on their twins' schemas.
+  m.def("custom_matmul_fixedpoint_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_wl, int mul_fl, bool mul_is_signed, bool mul_symmetric, "
+        "int acc_wl, int acc_fl, bool acc_is_signed, bool acc_symmetric, "
+        "int round_mode, int mul_prng_bits, int acc_prng_bits, bool wrap, "
+        "bool integer=False) -> (Tensor, Tensor)", seeded);
+  m.def("custom_matmul_fixedpoint_fma_counted(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
+        "int round_mode, int fma_prng_bits, bool wrap) -> (Tensor, Tensor)", seeded);
+  m.def("custom_conv_fixedpoint_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, "
+        "int mul_wl, int mul_fl, bool mul_is_signed, bool mul_symmetric, "
+        "int acc_wl, int acc_fl, bool acc_is_signed, bool acc_symmetric, "
+        "int round_mode, int mul_prng_bits, int acc_prng_bits, bool wrap, "
+        "bool integer=False) -> (Tensor, Tensor)", seeded);
+  m.def("custom_conv_fixedpoint_fma_counted(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] stride, "
+        "int[] padding, int[] dilation, int groups, "
+        "int fma_wl, int fma_fl, bool fma_is_signed, bool fma_symmetric, "
+        "int round_mode, int fma_prng_bits, bool wrap) -> (Tensor, Tensor)", seeded);
 }
