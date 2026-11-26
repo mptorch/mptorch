@@ -124,7 +124,7 @@ def test_a_middle_axis_is_rotated_as_the_last():
 
 
 def test_a_ragged_axis_takes_the_largest_power_of_two_dividing_it():
-    """R-e: 784 = 16 x 49 under 128 rotates in blocks of 16; an odd axis is
+    """784 = 16 x 49 under 128 rotates in blocks of 16; an odd axis is
     returned as it is."""
     rot = Hadamard(128)
     assert [rot.block(k) for k in (784, 96, 768, 4096, 7)] == [16, 32, 128, 128, 1]
@@ -563,8 +563,8 @@ def test_a_convolution_refuses_a_rotation():
 
 
 def test_mx_is_unrotated_by_default():
-    """R-f: ``presets.mx()`` is the recipe it was, and a rotation is named in
-    the formats' label."""
+    """``presets.mx()`` rotates nothing unless asked, a rotation leaves the
+    rest of its formats as they were, and it is named in the formats' label."""
     plain = dict(presets.mx().rules[0].kinds)["linear"]
     assert plain.rotation is None
     assert plain == dataclasses.replace(

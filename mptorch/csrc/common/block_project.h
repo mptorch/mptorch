@@ -31,7 +31,7 @@
 // A NaN element that its tile's scale does not make NaN needs the element
 // format's NaN code. A format without one (E2M1, E2M3, E3M2) cannot store it,
 // and the kernels report that through `unstored`, which the entry points
-// turn into an error (decision AG-c of dev/continuation_plan.md). A format
+// turn into an error rather than store some other element's code. A format
 // without a scale stores elem_max's code instead, as block_pack does.
 //
 // This header uses no ATen and is valid Metal, like block_decode.h: the CPU,

@@ -1,6 +1,6 @@
 #pragma once
 
-// The fixed-point GEMM (phase T of dev/continuation_plan.md): a mac whose
+// The fixed-point GEMM: a mac whose
 // multiply and accumulate formats are fixed point. For operands a and b in
 // the carrier c (binary32 for float32, float16 and bfloat16 operands,
 // binary64 for float64 ones), and Q_F the rounding to format F in the call's

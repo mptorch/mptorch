@@ -1,4 +1,4 @@
-// The header of the fixed-point GEMM (phase T; common/fixedpoint_gemm.h), for
+// The header of the fixed-point GEMM (common/fixedpoint_gemm.h), for
 // the kernels that need it: gemm.metal under a fixed-point Args
 // (FixedPointSplitArgs, the carrier path, or a FixedPointIntArgs, the
 // integer accumulator), which the fixed-point GEMM and conv ops build. The

@@ -2,7 +2,7 @@
 // meta_ops.cpp registers: the CPU entry point's checks, in its order and
 // with its messages (common/block_project_host.h, on symbolic sizes), and the
 // codes it allocates, with nothing computed and no RNG state drawn. The NaN
-// check of decision AG-c reads the elements, so it is the real kernels' only.
+// check reads the elements, so it is the real kernels' only.
 // A file of its own, so that meta_ops.cpp's other kernels are what they were.
 
 #include "../common/block_project_host.h"

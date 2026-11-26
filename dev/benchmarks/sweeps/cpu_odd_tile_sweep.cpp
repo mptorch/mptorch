@@ -302,8 +302,8 @@ namespace
     return bad;
   }
 
-  // The binary32 vectors of the odd step's review (dev/continuation_plan.md's
-  // phase N; tests/test_carrier_rounding.py's VECTORS), as (a, b, c).
+  // The binary32 vectors of the odd step's review (tests/test_carrier_rounding.py's
+  // VECTORS), as (a, b, c).
   uint64_t special_cases(const BinaryKParams &p)
   {
     const float inf = std::numeric_limits<float>::infinity();

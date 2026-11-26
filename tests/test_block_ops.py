@@ -6,7 +6,7 @@ IEEE P3109's block operations (section VIII of arXiv:2606.04028), and mptorch's 
   under the same seed), both carriers and every layout; onto other scale
   codes, it is an independent reference built from P3109's cases and
   ``block_reference.py``'s value-set rounding. Then the cases one by one: a
-  NaN scale, a zero scale, a NaN the format cannot store (decision AG-c), a
+  NaN scale, a zero scale, a NaN the format cannot store, a
   format without a scale, and the checks of the scale codes.
 - **block_map, block_exp, block_scaled_add**: the decode, the function in
   the carrier, and the projection, against the ops spelled out by hand.
@@ -242,7 +242,7 @@ def test_a_zero_scale_stores_zeros_and_keeps_a_nan(device):
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("fmt", [MXFP4_E2M1, NVFP4], ids=["mxfp4_e2m1", "nvfp4"])
 def test_a_nan_the_format_cannot_store_raises(device, fmt):
-    """Decision AG-c: a NaN element under a scale that is not NaN, in a format
+    """A NaN element under a scale that is not NaN, in a format
     whose elements have no NaN code, raises; giving that block the scale's NaN
     code stores it, as code 0 throughout."""
     x = _inputs((4, 64), device)

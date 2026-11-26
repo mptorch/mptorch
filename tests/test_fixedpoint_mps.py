@@ -1,5 +1,5 @@
 """
-The fixed-point GEMM and conv ops on MPS (phase T, step 6): every MPS result
+The fixed-point GEMM and conv ops on MPS: every MPS result
 is the CPU op's, word for word, stochastic rounding included, since MPS
 draws its seed from the CPU generator and keys each element's Philox stream
 as the CPU does. The one exception is the GEMM's documented flush of binary32

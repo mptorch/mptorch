@@ -1052,7 +1052,7 @@ def test_block_gemm_products_flush():
 
 
 # --------------------------------------------------------------------------
-# The odd carrier step (carrier_rounding=RoundMode.RO; phase Z)
+# The odd carrier step (carrier_rounding=RoundMode.RO)
 # --------------------------------------------------------------------------
 #
 # Every odd op is the default op's kernel with its Args wrapped

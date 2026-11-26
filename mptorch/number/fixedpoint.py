@@ -5,7 +5,7 @@ checks use neither `_carrier`'s `_Extent` nor `_storage`'s GEMM rule: they
 compare its precision and the two ends of its range with the carrier's
 directly. Its storage rules are the elementwise one and the computed
 result's (`_fixedpoint_value_set_findings`). The end of the module holds the
-rules of the fixed-point GEMM (phase T): whether the carrier or the integer
+rules of the fixed-point GEMM: whether the carrier or the integer
 accumulator computes a call, what each refuses, and when a result is wide.
 """
 
@@ -478,7 +478,7 @@ def _fixedpoint_value_set_findings(
     return None, None
 
 
-# --- the fixed-point GEMM (phase T) ------------------------------------------
+# --- the fixed-point GEMM ----------------------------------------------------
 #
 # A mac whose formats are fixed point computes, for operands a and b in the
 # carrier c, and Q_F the rounding to format F with saturation (or, for the

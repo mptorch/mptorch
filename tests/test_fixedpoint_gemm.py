@@ -1,5 +1,5 @@
 """
-The fixed-point GEMM (phase T): its definition, written as an independent
+The fixed-point GEMM: its definition, written as an independent
 reference (``tests/fixedpoint_gemm_reference.py``), the rules that choose how
 a call is computed and what is refused (``mptorch/number/fixedpoint.py``'s
 ``_fixedpoint_gemm``), and the two ops, ``custom_matmul_fixedpoint`` (a split

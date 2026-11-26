@@ -323,7 +323,7 @@ def test_causal_skipping_is_the_masked_tiles(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_operand_quantizers_run_per_tile(device):
-    """AE-c: a ScaledQuant on q scales each query tile by its own maximum, so
+    """A ScaledQuant on q scales each query tile by its own maximum, so
     one tile's output does not move when another tile grows a thousandfold."""
     sq = ScaledQuant(E4M3)
     af = AttentionFormats(

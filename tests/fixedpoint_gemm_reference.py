@@ -1,4 +1,4 @@
-"""An independent reference for the fixed-point GEMM (phase T): its definition, step by step.
+"""An independent reference for the fixed-point GEMM: its definition, step by step.
 
 For operands ``a`` and ``b`` in the carrier ``c`` (binary32 for float32,
 float16 and bfloat16 operands, binary64 for float64 ones or under

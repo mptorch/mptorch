@@ -648,7 +648,7 @@ def _flash_forward(formats, q, k, v, mask, scale, causal):
     c = pointwise._carrier_dtype(fl.carrier, dtype)
     rows, cols = _tiles(q.size(-2), fl.block_q), _tiles(k.size(-2), fl.block_kv)
     qk, pv = formats._qk_tile, formats._pv_tile
-    # each tile quantized once, in the carrier (AE-c): q per query tile, k
+    # each tile quantized once, in the carrier: q per query tile, k
     # (transposed, as the product's right operand) and v per key tile
     qq = [_quantized(qk, "a_quant", q[..., a:b, :].to(c)) for a, b in rows]
     kq = [_quantized(qk, "b_quant", k[..., a:b, :].to(c).mT) for a, b in cols]

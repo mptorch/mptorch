@@ -319,7 +319,7 @@ def _words32(t: torch.Tensor) -> list[int]:
 
 
 def odd_probe():
-    """What phase Z's Metal primitives may assume of the GPU
+    """What the odd carrier step's Metal primitives may assume of the GPU
     (common/carrier_odd_metal.h).
 
     1. metal::fma is one rounding to nearest even: equal to the exact

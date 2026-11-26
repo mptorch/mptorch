@@ -393,7 +393,7 @@ def test_a_nan_passes_through_the_host_primitives_whole(dtype, op):
 
 @requires_mps
 def test_what_the_odd_ops_refuse_on_mps():
-    """Every odd op runs on an Apple GPU (phase Z), and refuses there what the
+    """Every odd op runs on an Apple GPU, and refuses there what the
     CPU's refuses: binary64, which MPS has no tensors for (the widening fails),
     and, in a build without MPTORCH_ODD_ACCUMULATED, KAHAN, BLOCK and TREE,
     naming the flag as the CPU's does, since both share the entry points'
@@ -804,8 +804,9 @@ def test_what_the_odd_step_does_not_implement_raises(build):
     ],
     ids=["kahan", "cross-family TREE", "flat cross-family BLOCK", "flat BLOCK"],
 )
-def test_what_phase_y_added_runs(build):
-    """The odd step under KAHAN, BLOCK and TREE, which raised before phase Y."""
+def test_the_accumulated_odd_steps_run(build):
+    """The odd step under KAHAN, BLOCK and TREE runs, on the GEMM and the flat
+    functions, single-family and cross-family."""
     assert build().shape == (2, 2)
 
 
