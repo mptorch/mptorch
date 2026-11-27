@@ -480,7 +480,11 @@ Performance notes
   Stochastic rounding, every other format and every other accumulate
   algorithm run the scalar loop, and so does every call under the
   environment variable ``MPTORCH_CPU_SIMD=0``, which is read when mptorch
-  loads.
+  loads. A tile of fewer than four outputs under ``RNE`` (eight in the other
+  modes), such as a sum into one scalar, skips the vector code's passes,
+  which would run one lane or a few and cost up to twice the scalar loop:
+  under ``RNE`` it runs each output's steps as one chain, a few percent
+  faster than the scalar loop, and in the other modes the scalar loop.
 - **Block products and convolutions cost what their matrix products cost.**
   How much the decode of a block operand adds depends on the arithmetic
   beside it (:doc:`block`, "How the kernel decodes"). At 1024\ :sup:`3` on

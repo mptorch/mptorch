@@ -55,6 +55,21 @@ namespace odd = mptorch::gemm::odd;
 
 namespace
 {
+  // One lane through a tile: a row of eight copies of it, since a tile of
+  // fewer outputs goes back to the scalar loop whole (copies, so that the row
+  // holds a NaN only when the lane does: a = inf against a zero b would make
+  // one). True if it ran; r holds the starting sum, and the lane's result if
+  // the row ran.
+  bool lane(mptorch::gemm_cpu::RneTileFn tile, float a, float b, float &r, const BinaryKParams &p)
+  {
+    alignas(64) float bs[8], ss[8];
+    for (int j = 0; j < 8; ++j)
+      bs[j] = b, ss[j] = r;
+    const bool ran = tile(&a, bs, ss, 1, 1, 8, p, p);
+    r = ss[0];
+    return ran;
+  }
+
   struct Format
   {
     int man_bits, exp_bits, bias;
@@ -138,7 +153,7 @@ namespace
       {
         bad += float_bits(out[j]) != 0u; // handed back: the zeros as they were
         float r = 0.0f;
-        if (tile(&one, &x[j], &r, 1, 1, 1, p, p))
+        if (lane(tile, one, x[j], r, p))
           bad += float_bits(r) != float_bits(want(x[j]));
         else
           bad += float_bits(r) != 0u || !std::isnan(want(x[j]));
@@ -176,7 +191,7 @@ namespace
           [&](float v, float &out)
           {
             out = v;
-            return fused(&zero, &minus_one, &out, 1, 1, 1, p, p);
+            return lane(fused, zero, minus_one, out, p);
           },
           [&](float v) { return cast(std::fma(0.0f, -1.0f, v)); });
       for (int64_t i = 0; i < TI; ++i)
@@ -215,7 +230,7 @@ namespace
       {
         bad += float_bits(out[j]) != float_bits(y[j]);
         float r = y[j];
-        if (tile(&c, &x[j], &r, 1, 1, 1, p, p))
+        if (lane(tile, c, x[j], r, p))
           bad += float_bits(r) != float_bits(want(x[j], y[j]));
         else
           bad += float_bits(r) != float_bits(y[j]) || !std::isnan(want(x[j], y[j]));

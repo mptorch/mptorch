@@ -60,6 +60,70 @@ namespace mptorch::gemm_cpu
 #if defined(MPTORCH_FAST_CAST)
   namespace
   {
+    // A tile of fewer than four outputs runs narrow_steps below in place of
+    // the passes. Each K-step's passes would run one lane or a few, and their
+    // setup costs more than the lanes save: on one thread the scalar loop was
+    // 1.2-2x faster for a single output (a sum into one scalar), and the
+    // passes first won at four outputs (dev/benchmarks/timing/cpu_narrow_gemm.py).
+    // The tile is not handed back instead, because the palette tiles
+    // (cpu/gemm_palette_tile.h) call these functions on column and row
+    // groups, and one group's false hands their whole K-block back.
+    constexpr int64_t NARROW_TILE = 4;
+
+    // A narrow tile: each output's K steps as one chain, the chains of the
+    // tile's outputs interleaved, with the expressions the passes' lanes
+    // compute (so the scalar kernel's step, word for word).
+    template <int KIND>
+    [[gnu::always_inline]] inline float narrow_step(float a, float b, float s,
+                                                    const BinaryKParams &pm,
+                                                    const BinaryKParams &pa)
+    {
+      if constexpr (KIND == 1) // SplitMac::step: add(acc + mul(a, b))
+        return cast_binaryK_rne_fast(s + cast_binaryK_rne_fast(a * b, pm), pa);
+      else if constexpr (KIND == 2) // ... over an IdentityAdder
+        return s + cast_binaryK_rne_fast(a * b, pm);
+      else // FusedMac::step: add(fma(a, b, acc))
+        return cast_binaryK_rne_fast(std::fma(a, b, s), pa);
+    }
+
+    // N outputs, in registers across the K-block (through memory, each step
+    // would wait on the last one's store), output l at row l / tj, column
+    // l % tj.
+    template <int KIND, int N>
+    [[gnu::always_inline]] inline void narrow_lanes(const float *__restrict__ a_pack,
+                                                    const float *__restrict__ b_pack,
+                                                    float *__restrict__ sums, int64_t tk,
+                                                    int64_t tj, const BinaryKParams &pm,
+                                                    const BinaryKParams &pa)
+    {
+      float s[N];
+      int64_t ai[N], bj[N];
+      for (int l = 0; l < N; ++l)
+        s[l] = sums[l], ai[l] = (l / tj) * tk, bj[l] = l % tj;
+      for (int64_t k = 0; k < tk; ++k)
+        for (int l = 0; l < N; ++l)
+          s[l] = narrow_step<KIND>(a_pack[ai[l] + k], b_pack[k * tj + bj[l]], s[l], pm, pa);
+      for (int l = 0; l < N; ++l)
+        sums[l] = s[l];
+    }
+
+    template <int KIND>
+    [[gnu::always_inline]] inline void narrow_steps(const float *__restrict__ a_pack,
+                                                    const float *__restrict__ b_pack,
+                                                    float *__restrict__ sums, int64_t ti,
+                                                    int64_t tk, int64_t tj, const BinaryKParams &pm,
+                                                    const BinaryKParams &pa)
+    {
+      static_assert(NARROW_TILE == 4, "a narrow_lanes per size below the cut-off");
+      const int64_t n = ti * tj;
+      if (n == 1)
+        narrow_lanes<KIND, 1>(a_pack, b_pack, sums, tk, tj, pm, pa);
+      else if (n == 2)
+        narrow_lanes<KIND, 2>(a_pack, b_pack, sums, tk, tj, pm, pa);
+      else
+        narrow_lanes<KIND, 3>(a_pack, b_pack, sums, tk, tj, pm, pa);
+    }
+
     // One K-step after another, each element's steps in K order: the
     // products of a step, row by row, into t (the fused tile's fma also reads
     // the sum), then each cast as one pass over every lane of the tile. The
@@ -158,7 +222,9 @@ namespace mptorch::gemm_cpu
       const int64_t n = ti * tj;
       alignas(64) float saved[RNE_TILE_MAX];
       std::memcpy(saved, sums, static_cast<size_t>(n) * sizeof(float));
-      if constexpr (ROWS)
+      if (n < NARROW_TILE)
+        narrow_steps<KIND>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
+      else if constexpr (ROWS)
         tile_rows<KIND>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
       else if (ti == 32 && tj == 32 && tk == 32)
         tile_steps<KIND, 32, 32, 32>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);

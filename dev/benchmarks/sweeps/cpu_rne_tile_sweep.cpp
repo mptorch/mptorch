@@ -24,8 +24,18 @@
 // infinities in others (operand(), below), through all three tiles. Each block runs whole, and again as 32
 // one-step calls, and both must be the scalar steps' result word for word, a
 // handed-back block or step taking the scalar steps as the kernel's loop
-// does; the program prints how many blocks ran whole. Built with the
-// extension's host flags:
+// does; the program prints how many blocks ran whole.
+//
+// A tile of fewer than four outputs runs a narrow path instead of the passes
+// (each output's steps as a chain of the scalar step), so the words go
+// through it too: every lane alone and in groups of three (rows sharing a,
+// columns sharing b), and each whole-tile block again as 1 x 1, 1 x 2, 1 x 3
+// and 3 x 1 tiles cut from its first rows and columns, over all its steps.
+// The per-word groups check the path's casts on every word; only the blocks
+// tell its kinds apart, since the per-word operands make every kind's step
+// one cast of the word.
+//
+// Built with the extension's host flags:
 //
 //   g++ -O3 -std=c++20 -fopenmp -ffp-contract=off -DMPTORCH_FAST_CAST=1 \
 //       -I mptorch/csrc dev/benchmarks/sweeps/cpu_rne_tile_sweep.cpp \
@@ -33,8 +43,9 @@
 //   /tmp/cpu_rne_tile_sweep                         # the widest ISA the CPU has
 //   MPTORCH_CPU_SIMD=avx2 /tmp/cpu_rne_tile_sweep   # the AVX2 tiles on an AVX-512 CPU
 //
-// About 5 s per format on 16 threads, and as long again for the whole tiles. MPTORCH_CPU_SIMD=0 leaves the tiles
-// null, and the program then says it has nothing to check.
+// About 45 s per format on 16 threads (~7 min), most of it the narrow
+// tiles' calls. MPTORCH_CPU_SIMD=0 leaves the tiles null, and the program
+// then says it has nothing to check.
 
 #include "cpu/gemm_rne_tile.h"
 
@@ -49,6 +60,21 @@ using mptorch::gemm_cpu::rne_tiles;
 
 namespace
 {
+  // One lane through a tile: a row of eight copies of it, since a tile of
+  // fewer outputs goes back to the scalar loop whole (copies, so that the row
+  // holds a NaN only when the lane does: a = inf against a zero b would make
+  // one). True if it ran; r holds the starting sum, and the lane's result if
+  // the row ran.
+  bool lane(mptorch::gemm_cpu::RneTileFn tile, float a, float b, float &r, const BinaryKParams &p)
+  {
+    alignas(64) float bs[8], ss[8];
+    for (int j = 0; j < 8; ++j)
+      bs[j] = b, ss[j] = r;
+    const bool ran = tile(&a, bs, ss, 1, 1, 8, p, p);
+    r = ss[0];
+    return ran;
+  }
+
   struct Format
   {
     int man_bits, exp_bits, bias;
@@ -108,6 +134,41 @@ namespace
     return bad;
   }
 
+  // The narrow tiles (fewer outputs than the passes take, which the tile runs
+  // as chains of the scalar step): the lanes (a[l], b[l], s[l]), l < n, each
+  // alone (1 x 1) and in groups of three (the last group what is left), as
+  // rows (1 x g, on a[l0]) when ROW and as columns (g x 1, on b[l0])
+  // otherwise, so the caller gives every lane the same a, or the same b. A
+  // call handed back must leave its sums as they were and hold a lane the
+  // scalar step makes a NaN of.
+  template <bool ROW, class Want>
+  uint64_t narrow(mptorch::gemm_cpu::RneTileFn tile, const float *a, const float *b, const float *s,
+                  int64_t n, const BinaryKParams &p, Want want)
+  {
+    uint64_t bad = 0;
+    auto run = [&](int64_t l0, int64_t g)
+    {
+      float r[3];
+      for (int64_t l = 0; l < g; ++l)
+        r[l] = s[l0 + l];
+      const bool ran =
+          ROW ? tile(a + l0, b + l0, r, 1, 1, g, p, p) : tile(a + l0, b + l0, r, g, 1, 1, p, p);
+      bool any_nan = false;
+      for (int64_t l = 0; l < g; ++l)
+      {
+        const float w = want(a[l0 + l], b[l0 + l], s[l0 + l]);
+        any_nan |= std::isnan(w);
+        bad += float_bits(r[l]) != float_bits(ran ? w : s[l0 + l]);
+      }
+      bad += !ran && !any_nan;
+    };
+    for (int64_t l = 0; l < n; ++l)
+      run(l, 1);
+    for (int64_t l0 = 0; l0 < n; l0 += 3)
+      run(l0, n - l0 < 3 ? n - l0 : 3);
+    return bad;
+  }
+
   // Mismatches over every word for one format, through both tiles.
   uint64_t sweep(const BinaryKParams &p)
   {
@@ -128,13 +189,14 @@ namespace
 
       // fused: one K-step of a = 0, b = -1 over sum = x
       const bool fused = rne_tiles.fused(zero_a, minus_one_b, sums, TI, 1, TJ, p, p);
-      bad += check(fused, x, sums, LANES,
-                   [&](float v, float &r)
-                   {
-                     r = v;
-                     return rne_tiles.fused(&zero, &minus_one, &r, 1, 1, 1, p, p);
-                   },
-                   [&](float v) { return want_fused(v, p); });
+      bad += check(
+          fused, x, sums, LANES,
+          [&](float v, float &r)
+          {
+            r = v;
+            return lane(rne_tiles.fused, zero, minus_one, r, p);
+          },
+          [&](float v) { return want_fused(v, p); });
 
       // split: one K-step of a = 1 against b = a row of words, sum = 0
       for (int64_t i = 0; i < TI; ++i)
@@ -150,13 +212,29 @@ namespace
           {
             bad += float_bits(out[j]) != 0u; // handed back: the zeros as they were
             float r = 0.0f;
-            if (rne_tiles.split(&one, &v, &r, 1, 1, 1, p, p))
+            if (lane(rne_tiles.split, one, v, r, p))
               bad += float_bits(r) != float_bits(want_split(v, p));
             else
               bad += float_bits(r) != 0u || !std::isnan(want_split(v, p));
           }
         }
       }
+
+      // the narrow tiles: the fused tile's sums in columns, the split and
+      // product-only tiles' b in rows
+      alignas(64) float zeros[LANES], ones[LANES], minus_ones[LANES];
+      for (int64_t l = 0; l < LANES; ++l)
+        zeros[l] = 0.0f, ones[l] = 1.0f, minus_ones[l] = -1.0f;
+      bad += narrow<false>(rne_tiles.fused, zeros, minus_ones, x, LANES, p,
+                           [&](float, float, float v) { return want_fused(v, p); });
+      bad += narrow<true>(rne_tiles.split, ones, x, zeros, LANES, p,
+                          [&](float, float v, float) { return want_split(v, p); });
+      bad += narrow<true>(rne_tiles.mul_only, ones, x, zeros, LANES, p,
+                          [&](float, float v, float)
+                          {
+                            return 0.0f + cast_binaryK_nearest_even(1.0f * v, true,
+                                                                    SubnormalsMode::SUBNORMALS, p);
+                          });
     }
     return bad;
   }
@@ -267,6 +345,29 @@ namespace
         { return float_bits(u) == float_bits(v) || (std::isnan(u) && std::isnan(v)); };
         for (int64_t l = 0; l < LANES; ++l)
           bad += !same(whole[l], want[l]) + !same(steps[l], want[l]);
+        // narrow tiles over the block's first rows and columns, all its steps
+        // (the narrow path, which the per-word passes cannot tell apart by
+        // kind: their operands make every kind's step one cast of the word)
+        for (const auto &[ti, tj] : {std::pair<int64_t, int64_t>{1, 1}, {1, 2}, {1, 3}, {3, 1}})
+        {
+          alignas(64) float bn[T * 3], sn[3];
+          for (int64_t k = 0; k < T; ++k)
+            for (int64_t j = 0; j < tj; ++j)
+              bn[k * tj + j] = b[k * T + j];
+          for (int64_t i = 0; i < ti; ++i)
+            for (int64_t j = 0; j < tj; ++j)
+              sn[i * tj + j] = x[i * T + j];
+          const bool narrow_ran = tile(a, bn, sn, ti, T, tj, p, p);
+          bool nan = false;
+          for (int64_t i = 0; i < ti; ++i)
+            for (int64_t j = 0; j < tj; ++j)
+            {
+              nan |= std::isnan(want[i * T + j]);
+              bad += narrow_ran ? !same(sn[i * tj + j], want[i * T + j])
+                                : float_bits(sn[i * tj + j]) != float_bits(x[i * T + j]);
+            }
+          bad += !narrow_ran && !nan; // handed back with no NaN at the block's end
+        }
       }
     }
     ran = kept;

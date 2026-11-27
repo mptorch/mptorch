@@ -37,6 +37,14 @@ namespace mptorch::gemm_cpu
 {
   namespace
   {
+    // A tile of fewer than eight outputs goes back to the scalar loop
+    // whole. Each K-step's passes would then run one lane or a few, and
+    // their setup costs more than the lanes save: on one thread the scalar
+    // loop was 1.2-2x faster for a single output (a sum into one scalar),
+    // and these tiles first won at eight outputs
+    // (dev/benchmarks/timing/cpu_narrow_gemm.py).
+    constexpr int64_t NARROW_TILE = 8;
+
     namespace odd = mptorch::gemm::odd;
 
     // A NaN anywhere in the tile hands the K-block back to the scalar loop,
@@ -218,6 +226,8 @@ namespace mptorch::gemm_cpu
     {
       const BinaryKParams pm = mul_p, pa = add_p;
       const int64_t n = ti * tj;
+      if (n < NARROW_TILE)
+        return false;
       alignas(64) float saved[RNE_TILE_MAX];
       std::memcpy(saved, sums, static_cast<size_t>(n) * sizeof(float));
       const Ops ops;

@@ -74,7 +74,11 @@ rows x K       CUDA    one CPU thread   sixteen threads
 =============  ======  ===============  ===============
 
 Stochastic rounding and KAHAN cost 3-4x RNE's time on CUDA, and 2-6x and
-5-17x on one CPU thread, where they run without the vector tile. A format
+5-17x on one CPU thread, where they run without the vector tile. A sum into
+a single output, a whole tensor into one scalar, is one chain of :math:`K`
+dependent steps: on one Ryzen thread about 6.4 ns a step under RNE into
+``BinaryK(16, 11)``, and 12.6 ns with the odd carrier step
+(``carrier_rounding=RoundMode.RO``). A format
 whose smallest value lies below what binary32's fast cast handles (such as
 ``BinaryK(16, 8)``, bias 128) costs about twice as much. Built on these sums,
 a softmax's or a norm's forward costs 7-17x PyTorch's fused kernel on CUDA,

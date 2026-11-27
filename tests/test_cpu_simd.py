@@ -136,6 +136,21 @@ _CASES = textwrap.dedent(
                 a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=8,
                 subnormals_mode=SubnormalsMode.NORMALS, rounding_mode=RoundMode.RZ,
             )
+    # tiles on both sides of the cut-offs below which a tile goes back to the
+    # scalar loop whole (four outputs for the RNE and odd tiles, eight for
+    # the word tiles)
+    for m, k, n in [(1, 70, 1), (1, 40, 3), (2, 40, 2), (1, 40, 7), (8, 40, 1), (3, 40, 3)]:
+        a, b = operands(m, k, n, torch.float32, 30)
+        for mode in (RoundMode.RNE, RoundMode.RZ):
+            kw = dict(mul_K=8, mul_P=4, acc_K=16, acc_P=11, rounding_mode=mode)
+            fkw = dict(fma_K=16, fma_P=11, rounding_mode=mode)
+            key = f"narrow-{m}x{k}x{n}-{mode.name}"
+            out["split-" + key] = binaryK_matmul(a, b, **kw)
+            out["fused-" + key] = binaryK_matmul_fma(a, b, **fkw)
+            if ODD:
+                odd = dict(carrier_rounding=RoundMode.RO)
+                out["odd-split-" + key] = binaryK_matmul(a, b, **kw, **odd)
+                out["odd-fused-" + key] = binaryK_matmul_fma(a, b, **fkw, **odd)
     g = torch.Generator().manual_seed(9)
     a = torch.randn(3, 33, 40, generator=g)
     b = torch.randn(40, 17, generator=g)
@@ -206,6 +221,21 @@ _CASES = textwrap.dedent(
                 a.abs(), b.abs(), p, mul_K=[8, 8], mul_P=[4, 4], acc_K=[16, 16], acc_P=[ap, ap],
                 mul_is_signed=False,
             )  # fmt: skip
+    # an odd palette whose second entry holds two columns of a one-row tile: a
+    # column group narrower than the cut-off, which hands its K-block back
+    if ODD:
+        a, b = operands(1, 64, 32, torch.float32, 40)
+        p = torch.zeros(1, 32, dtype=torch.int32)
+        p[0, 5:7] = 1
+        for name, call in (("split", binaryK_matmul_mixed), ("fused", binaryK_matmul_fma_mixed)):
+            fmts = (
+                dict(mul_K=[8, 12], mul_P=[4, 7], acc_K=[16, 16], acc_P=[11, 11])
+                if name == "split"
+                else dict(fma_K=[16, 12], fma_P=[11, 7])
+            )
+            out[f"pal-odd-narrow-group-{name}"] = call(
+                a, b, p, **fmts, carrier_rounding=RoundMode.RO
+            )
     pal_mac = SplitMac(
         Palette([BinaryK(8, 4), BinaryK(12, 7)]), Palette([BinaryK(16, 11), BinaryK(16, 11)])
     )
