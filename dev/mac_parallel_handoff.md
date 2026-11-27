@@ -103,7 +103,7 @@ this document assigns to the Mac with a sync point.
 | M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | now | no |
 | M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
 | M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | now (SP-AS delivered for steps 1-2) | yes |
-| M12 | AT, the odd carrier's step on a single chain: the host change under Apple clang | at SP-AT (planned 2026-11-27) | yes |
+| M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | now (SP-AT delivered) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
@@ -196,7 +196,7 @@ timing. Lint any Python you change, as CI does:
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
 | **SP-ANb** (planned) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
 | **SP-AS** (delivered for steps 1-2, the commit adding M11's brief) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
-| **SP-AT** (planned) | the odd carrier's host change, if AT's profile justifies one | M12 |
+| **SP-AT** (delivered: `2d21c0b`, `a6b622d`) | narrow CPU tiles (the profile's finding; `odd::add` left as it is) and AN-b's thresholds | M12 |
 
 Linux will say at each point which commit it is, and the user relays it.
 
@@ -1176,24 +1176,67 @@ quantizer, in the commit adding this line):
   propose. The tile files are Linux's, so a NEON-only change goes to Linux
   as a hunk.
 
-## 16. M12, at SP-AT: the odd carrier's step on a single chain
+## 16. M12, at SP-AT: narrow CPU tiles (AT), and AN-b's thresholds
 
 **What AT is.** A `qsum` of a whole vector is one output, so one k-order
-chain. On the Ryzen it costs 27 ns an element with the odd carrier against
-8.4 with the nearest carrier, because the host's binary32 `odd::add`
-(`common/carrier_odd.h`, binary64 arithmetic) adds about 19 ns to each step's
-latency. AT profiles it and ships a lower-latency `odd::add` only if it gains
-at least 1.3x.
+chain. On the Ryzen it cost 27 ns an element with the odd carrier against
+8.4 with the nearest. The plan blamed the host's binary32 `odd::add`.
+**The profile found another cause:** a sum into one scalar is a 1 x 1 GEMM
+tile, and the vector tiles' per-K-step passes then ran one lane, costing up
+to 2x the scalar loop (RNE odd 28.8 against 14.5 ns a step).
 
-**What Linux built:** (filled in at SP-AT, or "closed" if the profile says
-so).
+**What Linux built** (`2d21c0b` the thresholds, `a6b622d` the tiles):
+- **Narrow tiles.** A CPU tile of fewer than `NARROW_TILE` outputs skips the
+  passes. The constant is file-local: 4 in `cpu/gemm_rne_tile.cpp` and
+  `cpu/gemm_odd_tile.cpp`, 8 in the word tile files, from the Ryzen's
+  crossover (`dev/benchmarks/timing/cpu_narrow_gemm.py`).
+  - The RNE and odd tiles run such a tile themselves, `narrow_steps`: each
+    output's chain in registers (`narrow_lanes<KIND, N>`, N = 1..3), with the
+    scalar step's expressions (`carrier_odd.h`'s primitives in the odd
+    file), and return true. They must not hand back: the palette tiles call
+    them on column and row groups, and a group's `false` hands the whole
+    palette K-block back. A first form that did made an odd palette with one
+    row and a two-column entry 3.4-4.6x slower.
+  - The word tiles, which no palette calls, hand a narrow tile back to the
+    scalar loop.
+  - Identity against `daa9304`'s build: exactly the 72 tile functions moved;
+    every kernel instantiation and all CUDA are identical.
+- **The sweeps.**
+  - `cpu_rne_tile_sweep.cpp` and `cpu_odd_tile_sweep.cpp` gained narrow
+    passes: every lane alone and in rows and columns of three, and every
+    whole-tile block again as 1 x 1, 1 x 2, 1 x 3 and 3 x 1 tiles. Both bite
+    on a deliberately broken narrow step.
+  - All three tile sweeps re-check a handed-back lane in a row of eight
+    copies of it.
+- **The Ryzen, one thread, ns a mac step:**
+  - at 1 x 1 against the scalar loop: RNE 7.11 / 7.72, RNE odd 13.75 / 14.55,
+    fused odd 13.33 / 14.99; the word tiles at the scalar loop's speed;
+  - odd palettes within 0.85-1.06x of the build before;
+  - the odd chain 28.8 -> 13.75 ns.
+- `odd::add` itself was left as it is: a rewrite gained at most 1.15x on the
+  chain, below AT's 1.3x gate.
+- **AN-b's thresholds**, from M10b and a Linux measurement: `_MIN_STEPS` is
+  now keyed by the CPU's engine, `cpu-int` 2^18 (16 Ryzen threads break even
+  there) and `cpu-float` 2^16, with MPS 2^22 (M10b's suggestion) and CUDA
+  2^25 unchanged.
 
 **The Mac's part:**
-- `tests/test_carrier_rounding.py`, `tests/test_accumulators.py`'s odd cases,
-  `dev/benchmarks/sweeps/cpu_odd_tile_sweep.cpp` under Apple clang (with its
-  control), and the suite.
-- Timing: `qsum` of 2^20 values with both carriers, at 1 thread, before and
-  after, alternated.
+- Build; `tests/test_cpu_simd.py` (its narrow cases), the carrier rounding
+  and accumulator tests, `tests/test_fixedpoint_exact_route.py`, and the
+  suite.
+- `cpu_rne_tile_sweep.cpp`, `cpu_odd_tile_sweep.cpp` and
+  `cpu_word_tile_sweep.cpp` under Apple clang (the NEON paths: the narrow
+  path and the re-checks changed in all three).
+- `dev/benchmarks/timing/cpu_narrow_gemm.py` on one thread. The NEON tiles
+  have 4 lanes, not 16, so their crossover may differ from the Ryzen's. If
+  NEON wants other cut-offs, report the table and propose them. The
+  constants are Linux's, so a change comes to Linux as a hunk.
+- `qsum` of 2^20 values with both carriers, at 1 thread, and the odd palette
+  edge: `binaryK_matmul_mixed` with one row, K = 4,096, N = 256, a per-column
+  map giving entry 1 two columns of every 32, `carrier_rounding=RO`. Time it
+  against `daa9304` if convenient.
+- MPS: the exact route at the new threshold, 2^22, gains as M10b measured
+  (`fixedpoint_gemm.py exact --device mps --sizes 128 160 192 256`).
 
 ## 17. Later, when their phases are refined
 
