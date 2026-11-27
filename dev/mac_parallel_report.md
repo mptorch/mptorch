@@ -2199,3 +2199,502 @@ So the shipped layout stands on NEON, and there is no hunk for Linux.
 - AS step 3, the elementwise quantizers' word loop: their timing, when it
   lands.
 - M12 waits on SP-AT.
+
+## M11 step 3 and M12: the NEON quantizer loops, the narrow tiles, the exact route on MPS (at `a507483`)
+
+Linux's code for both tasks runs on the M3 Pro and gives the scalar code's
+words: the elementwise quantizer's six NEON loops over all 2^32 binary32
+inputs, the RNE and odd tiles' narrow path, and the word tiles' hand-back.
+The six loops all vectorize at width 4, and on one thread they take E4M3
+1.4-4.9x faster than the scalar casts. The narrow path fixes qsum's odd
+chain: 77.7 -> 16.9 ns a step (4.6x) against `daa9304`.
+
+**NEON wants other cut-offs in two of the four tile files**, and a hunk for
+Linux follows:
+- the word tiles: 4 outputs, not 8;
+- the odd tiles: 40 outputs, not 4. Their passes set the directed roundings
+  through FPCR, at 11-13 ns a write, a fixed cost per K-step. The hunk also
+  pads the narrow path to a multiple of four lanes, because clang leaves 5-7,
+  9-11 and 13-15 lanes scalar.
+
+With the hunk, odd tiles of 4 to 39 outputs run 1.1-4.4x faster, and the odd
+palette edge 1.19-1.21x faster. The hunk gives the scalar loop's words on
+7,752 calls, and the odd tile sweep and the tests pass on it. On MPS the exact
+route's new threshold, 2^22, sits at the crossing. No file changed but this
+report.
+
+Machine: the M3 Pro, on AC power, with no thermal or performance warning
+recorded before or after any timing. Built flag-on
+(`MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1`) with Apple clang 21.0.0.
+
+### Tests
+
+| command | result |
+|---|---|
+| `pytest tests/test_cpu_simd.py tests/test_carrier_rounding.py tests/test_accumulators.py tests/test_fixedpoint_exact_route.py` | 1,892 passed, 1,554 skipped (CUDA and MPS-float64 cases) |
+| `pytest tests/` | 28,432 passed, 17,155 skipped, 0 failed (6:35) |
+| `bash dev/benchmarks/check_native.sh` | `OK    sweeps/cpu_quant_vector_sweep.cpp` among the others, `all native tools build` |
+
+### The sweeps under Apple clang
+
+Built as for M11: each file's header build line, with clang++ and Homebrew's
+libomp in place of `g++` and `-fopenmp`:
+
+```
+FLAGS="-O3 -std=c++20 -ffp-contract=off -DMPTORCH_FAST_CAST=1 -Xpreprocessor -fopenmp \
+    -I$(brew --prefix libomp)/include -L$(brew --prefix libomp)/lib -lomp -I mptorch/csrc"
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_quant_vector_sweep.cpp \
+    mptorch/csrc/cpu/binaryK_quant_vector.cpp -o cpu_quant_vector_sweep
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_rne_tile_sweep.cpp \
+    mptorch/csrc/cpu/gemm_rne_tile.cpp -o cpu_rne_tile_sweep
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_odd_tile_sweep.cpp \
+    mptorch/csrc/cpu/gemm_odd_tile.cpp -o cpu_odd_tile_sweep
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_word_tile_sweep.cpp \
+    mptorch/csrc/cpu/gemm_word_tile.cpp mptorch/csrc/cpu/gemm_word_odd_tile.cpp -o cpu_word_tile_sweep
+```
+
+All four compile with no warning. The times are on 11 threads.
+
+| run | output | time |
+|---|---|---|
+| `cpu_quant_vector_sweep` | `the neon loops, all 2^32 binary32 inputs against the scalar casts`; 0 mismatches in each of the 76 comparisons (14 formats x 6 modes, less RNE for the two formats the fast gate leaves to the scalar loop: `kept by the scalar loop, skipped`); `ok: 0 mismatches in 76 comparisons` | 2:23 |
+| `cpu_quant_vector_sweep control` | a mismatch count in every comparison (90,177,504 to 4,278,124,928); `control ok: 0 of the 76 comparisons found no mismatch` | 2:40 |
+| `cpu_rne_tile_sweep` | `isa neon`; 0 mismatches in each of 9 formats (whole tiles: 172,032 of 196,608 blocks ran whole); `PASS: 9 formats checked, 0 mismatches` | 5:42 |
+| `cpu_odd_tile_sweep` | `isa neon`; 0 mismatches in each of 10 formats (the same whole-tile count); `PASS: 10 formats checked, 0 mismatches` | 14:29 |
+| `cpu_word_tile_sweep` | `the neon word tiles`; 0 mismatches in each of the 60 comparisons (6 formats x 5 modes, both carriers); `ok: 0 mismatches in all` | 13:31 |
+| `cpu_word_tile_sweep control` | a mismatch count in every comparison (453,690,833 to 12,834,374,784); `control ok: 0 of the comparisons found no mismatch` | 14:09 |
+
+**The narrow sweeps bite on NEON too.** I built both tile sweeps against a
+copy of their tile file whose `narrow_lanes` reads every lane's B from
+column 0 (`bj[l] = 0` in place of `l % tj`):
+
+| run | output |
+|---|---|
+| broken `cpu_rne_tile_sweep` | mismatches in all 9 formats (235,704 to 1,789,524,340); `FAIL: 9 formats checked, 1792023655 mismatches` (5:54) |
+| broken `cpu_odd_tile_sweep` | 1,022,852,050 to 1,433,113,616 mismatches in each of its first 6 formats, when I stopped it at 10 min |
+
+### The elementwise quantizer's loops
+
+**Vectorization.** I recompiled `cpu/binaryK_quant_vector.cpp` with the
+extension's own flags (`build.ninja`'s `cflags` and `post_cflags`) plus
+clang's vectorizer remarks. The one `#pragma omp simd` loop (line 46)
+vectorized at width 4, interleave 1, in each of its six instantiations. In
+the object (`objdump -d`), NEON operations (`.4s` and `.16b` mnemonics, or
+`q` operands) are 41-43% of each function's instructions:
+
+| function | instructions | NEON |
+|---|---|---|
+| `rne_neon` (`ltmp0` in objdump; `nm` names it) | 71 | 30 |
+| `rna_neon` | 205 | 85 |
+| `ru_neon` | 237 | 99 |
+| `rd_neon` | 238 | 99 |
+| `rz_neon` | 200 | 86 |
+| `ro_neon` | 189 | 85 |
+
+The rest are loads, stores, saved registers and the scalar remainder.
+
+**Timing.** `cpu_quantize_elementwise.py` at 2^22 elements, one process per
+setting (`MPTORCH_CPU_SIMD=0` against the default), alternated in three
+rounds with the order reversed. The table gives the minimum over the rounds
+of the tool's median. E4M3 on float32, ms, scalar -> vector (speedup):
+
+| mode | 1 thread | 11 threads | Ryzen, 1 thread |
+|---|---|---|---|
+| RNE | 5.59 -> 1.15 (4.86x) | 1.17 -> 0.31 (3.77x) | 5.57 -> 0.93 |
+| RNA | 5.57 -> 4.09 (1.36x) | 1.42 -> 0.90 (1.58x) | 5.73 -> 2.12 |
+| RU | 20.43 -> 5.25 (3.89x) | 3.18 -> 1.16 (2.74x) | 19.2-20.6 -> 4.2 |
+| RD | 19.89 -> 5.31 (3.75x) | 3.18 -> 1.18 (2.69x) | |
+| RZ | 21.36 -> 4.41 (4.84x) | 3.40 -> 0.98 (3.47x) | 19.2 -> 2.93 |
+| RO | 7.98 -> 3.94 (2.03x) | 1.36 -> 0.89 (1.53x) | 6.06 -> 1.85 |
+
+- **The in-place rows agree.** I timed `y.copy_(x)` then
+  `binaryK_quantize_(y)`, the copy subtracted, in three rounds: RNE 4.59x,
+  RNA 1.36x, RU 4.00x, RD 3.77x, RZ 4.91x and RO 2.01x on one thread, and
+  1.51-3.73x on 11. So macOS's allocator doesn't distort the out-of-place
+  rows.
+- **The tool's other rows move by 0.97-1.07x**, as they should: superfp,
+  fixed point, SR, float64 and the copy don't take the loops.
+- **RNA gains least.** Its scalar cast is as cheap as RNE's (5.57 ms), and
+  its word cast has about three times the instructions of RNE's fast cast
+  (205 against 71). With 4 lanes that leaves 1.36x, against 2.7x with the
+  Ryzen's 16.
+- **On 11 threads the word modes stay well above a copy's time**, unlike on
+  the Ryzen's 16. They take 0.89-1.18 ms, 5-7x a copy (0.17 ms). From 1 to
+  11 threads the vector loops scale 3.7-4.6x on the 5 performance and 6
+  efficiency cores, so here they are compute-bound.
+
+### The narrow tiles at HEAD
+
+**`cpu_narrow_gemm.py`, one thread.** The tool alternates
+`MPTORCH_CPU_SIMD=0` with the default. I ran it on HEAD and on a build whose
+four tile files are `daa9304`'s, whose tiles take every shape. That build is
+those files compiled with the extension's flags and linked into a copy of
+the package, imported through `PYTHONPATH`. Each build ran twice,
+alternated. Each cell gives the scalar loop's ns a mac step (the minimum
+over both builds), then `daa9304`'s tiles / HEAD's tiles over it (< 1 is
+faster than the scalar loop):
+
+| M x N | outputs | RNE | RNE odd | RZ | RZ odd | fused RNE odd |
+|---|---|---|---|---|---|---|
+| 1x1 | 1 | 9.79: 1.04 / 1.02 | 18.56: 4.30 / 1.01 | 11.83: 1.38 / 1.01 | 19.20: 4.80 / 1.01 | 18.08: 2.28 / 1.00 |
+| 1x2 | 2 | 4.56: 1.02 / 1.06 | 9.02: 4.54 / 1.01 | 9.55: 1.16 / 1.00 | 14.60: 3.30 / 1.02 | 8.72: 2.44 / 1.03 |
+| 2x1 | 2 | 10.09: 0.52 / 0.53 | 16.48: 2.55 / 0.59 | 10.38: 1.14 / 1.02 | 17.59: 2.82 / 1.00 | 18.06: 1.24 / 0.53 |
+| 1x4 | 4 | 3.44: 0.75 / 0.75 | 7.26: 2.75 / 2.74 | 9.28: 0.49 / 1.00 | 14.50: 1.71 / 1.02 | 4.72: 2.21 / 2.21 |
+| 4x1 | 4 | 8.98: 0.36 / 0.36 | 15.33: 1.38 / 1.36 | 9.57: 0.54 / 1.02 | 16.76: 1.54 / 1.00 | 16.82: 0.71 / 0.71 |
+| 2x2 | 4 | 5.38: 0.54 / 0.55 | 10.02: 2.07 / 2.05 | 9.16: 0.54 / 1.00 | 14.08: 1.81 / 1.03 | 9.34: 1.22 / 1.23 |
+| 1x8 | 8 | 3.14: 0.44 / 0.44 | 6.97: 1.53 / 1.51 | 9.42: 0.32 / 0.32 | 15.14: 0.92 / 0.89 | 3.28: 1.72 / 1.72 |
+| 8x1 | 8 | 8.47: 0.22 / 0.23 | 14.89: 0.79 / 0.77 | 9.25: 0.36 / 0.37 | 16.34: 0.91 / 0.89 | 16.23: 0.42 / 0.42 |
+| 1x16 | 16 | 2.83: 0.30 / 0.30 | 6.66: 0.83 / 0.82 | 9.75: 0.24 / 0.24 | 16.34: 0.49 / 0.49 | 2.98: 0.95 / 0.95 |
+| 4x4 | 16 | 3.65: 0.27 / 0.29 | 8.34: 0.70 / 0.70 | 8.82: 0.28 / 0.28 | 14.01: 0.59 / 0.61 | 5.52: 0.58 / 0.58 |
+| 1x32 | 32 | 2.88: 0.24 / 0.24 | 6.66: 0.48 / 0.48 | 10.34: 0.22 / 0.22 | 18.13: 0.28 / 0.29 | 2.98: 0.57 / 0.57 |
+| 8x8 | 64 | 2.89: 0.26 / 0.25 | 6.62: 0.33 / 0.32 | 10.37: 0.21 / 0.21 | 17.68: 0.22 / 0.22 | 2.94: 0.41 / 0.41 |
+
+The tool's 16x1 and 32x1 rows follow 8x1's pattern.
+
+- **At one output the passes cost NEON up to 4.8x the scalar loop**
+  (`daa9304`: RNE odd 4.30x, RZ odd 4.80x, fused odd 2.28x), against up to
+  2x on the Ryzen. HEAD brings every family to the scalar loop's speed
+  there (1.00-1.02x).
+- **Below the cut-off HEAD's narrow path beats the scalar loop on column
+  tiles** (2x1: 0.53-0.59x).
+- **The odd tiles still lose to the scalar loop from 4 outputs up to 8 or
+  16** (1x4: 2.74x for the split, 2.21x for the fused). The cut-offs below
+  deal with that.
+
+**qsum and the odd palette edge.** `narrow_ab.py` is a scratch script: one
+process per build, alternated, each making one warm-up call and keeping the
+minimum of 7, and the table gives the minimum over the rounds. ns a mac
+step, one thread:
+- qsum: `qsum(x, mac=SplitMac(BinaryK(16, 11), BinaryK(16, 11)[,
+  carrier_rounding=RO]))`, x 2^20 N(0, 1) values;
+- the palette edge: `binaryK_matmul_mixed` (and `_fma_mixed`) of a
+  [1, 4096] row by [4096, 256], entry 1 on two columns of every 32,
+  `carrier_rounding=RO`.
+
+| | `daa9304` -> HEAD (3 rounds) | HEAD -> the hunk below (6 rounds) |
+|---|---|---|
+| qsum, nearest carrier | 8.46 -> 8.18 (1.03x) | 8.17 -> 8.20 (1.00x) |
+| qsum, odd carrier | **77.66 -> 16.85 (4.61x)** | 16.84 -> 16.87 (1.00x) |
+| palette edge, odd split | 6.23 -> 4.43 (1.40x) | **4.17 -> 3.46 (1.21x)** |
+| palette edge, odd fused | 3.27 -> 2.74 (1.19x) | **2.55 -> 2.14 (1.19x)** |
+
+HEAD's palette rows ran 6-7% faster in the second run than in the first, so
+each ratio holds within its own alternated run. On the Ryzen the odd chain
+went 28.8 -> 13.75 ns. Neither palette edge is slower than `daa9304`'s,
+unlike the first form of the narrow path that the brief mentions. The hunk
+speeds up the palette edge's other groups, of 5 and 25 columns.
+
+### NEON's cut-offs
+
+The tool jumps from 4 outputs to 8 and 16, so I timed more shapes with
+scratch copies of it: `narrow_ext.py`, `narrow_ext2.py`, and for the odd
+tiles `lanes.py` and `wide.py` (every size from 1 x 1 to 33 x 1, then 2-D
+shapes from 28 to 64 outputs). Each alternates the builds, in two to four
+rounds.
+
+**Word tiles: 4, not 8.** Each cell gives the scalar loop's ns, then
+`daa9304`'s passes over it. HEAD hands these tiles back below 8 (1.00-1.08x
+there).
+
+| M x N | outputs | RNA | RU | RO | RZ | RZ, odd carrier |
+|---|---|---|---|---|---|---|
+| 1x3 | 3 | 8.45: 0.91 | 8.67: 1.26 | 8.51: 0.90 | 9.62: 0.91 | 14.53: 2.39 |
+| 3x1 | 3 | 8.66: 0.91 | 8.94: 1.27 | 8.88: 0.87 | 9.88: 0.92 | 17.01: 2.06 |
+| 1x4 | 4 | 7.97: 0.43 | 7.93: 0.61 | 7.85: 0.44 | 9.17: 0.50 | 14.47: 1.70 |
+| 4x1 | 4 | 8.44: 0.51 | 8.77: 0.63 | 8.46: 0.50 | 9.59: 0.54 | 16.76: 1.55 |
+| 2x2 | 4 | 7.91: 0.50 | 8.13: 0.63 | 7.91: 0.50 | 9.08: 0.54 | 14.18: 1.81 |
+| 1x6 | 6 | 7.64: 0.51 | 7.75: 0.69 | 7.36: 0.49 | 9.76: 0.42 | 15.89: 1.16 |
+| 6x1 | 6 | 8.09: 0.54 | 8.41: 0.69 | 8.29: 0.51 | 9.49: 0.52 | 16.54: 1.17 |
+| 1x8 | 8 | 7.50: 0.37 | 7.75: 0.47 | 7.42: 0.35 | 9.61: 0.31 | 15.41: 0.90 |
+| 8x1 | 8 | 8.16: 0.38 | 8.36: 0.46 | 8.33: 0.36 | 9.17: 0.36 | 16.34: 0.91 |
+| 4x2 | 8 | | | | 8.85: 0.35 | 13.88: 1.07 |
+| 1x12 | 12 | 7.49: 0.33 | 7.79: 0.41 | 7.32: 0.32 | 9.76: 0.27 | 15.91: 0.65 |
+
+- **The word tiles** run 0.42-0.69x of the scalar loop at 4 and 6 outputs
+  in all four modes, so NEON's cut-off is 4. At 3 outputs they run 0.87-1.27x,
+  and RU loses.
+- **The odd word tiles keep 8** (the last column, from `narrow_ext.py`):
+  1.55-1.81x of the scalar loop at 4 outputs, 1.16-1.36x at 6, 0.90-1.07x
+  at 8 and 0.65-0.81x at 12. 8 is a tie, and 12 would gain at most 7%, at
+  4x2.
+- **The RNE tiles keep 4.** Their passes run 0.36-0.75x of the scalar loop
+  at 4 outputs (the tool's table). Below 4, HEAD's narrow path (0.39-1.06x)
+  and `daa9304`'s passes (0.43-1.04x) are within a few percent of each
+  other.
+
+**Odd tiles: 40, not 4.** On NEON the odd passes take the directed
+roundings from the FP unit's mode (`gemm_odd_tile.cpp`'s `Fpcr`): three
+FPCR writes a K-step for the products, and three more for the split tile's
+`odd_sums`. That cost is fixed per K-step, whatever the tile's width. The
+passes' time per K-step (ns a mac step x outputs, `daa9304`, 1 x N tiles and
+8x8 for 64) shows it:
+
+| outputs | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| odd split, ns a K-step | 79.8 | 81.9 | 79.9 | 85.3 | 88.4 | 102.3 | 139.8 |
+| odd fused, ns a K-step | 41.2 | 42.6 | 41.7 | 45.1 | 45.3 | 54.4 | 77.1 |
+| RNE split (no FPCR), ns a K-step | 10.2 | 9.3 | 10.3 | 11.1 | 13.6 | 22.1 | 48.1 |
+
+Up to 16 outputs the odd split pays 70-75 ns a K-step more than the RNE
+split: six writes at 11-13 ns. The fused tile, with three writes, pays about
+half. A scratch loop of writes (`fpcr.cpp`, alternating the RMode bits as
+the passes do) measures 7.6-8.4 ns a write on its own. A K-step of the
+narrow path costs about 3 ns an output, so the passes need some 35-40
+outputs to amortize the writes. On x86, AVX-512 rounds by instruction, with
+no mode switch, which suits the Ryzen's cut-off of 4. AVX2 switches MXCSR,
+so its crossover may be higher too; I couldn't measure that here.
+
+**Clang vectorizes the narrow path only at some sizes.** With one
+`narrow_lanes` per size, the split tile cost 2.7-3.0 ns a step at 8, 12,
+..., 28 lanes (4.6-4.9 at 4), but 6.9-7.4 ns at 5-7, 9-11 and 13-15 lanes,
+the scalar chain's speed. The fused tile behaved the same way. A probe (one
+`noinline` function per lane count, compiled with the extension's flags and
+`-fsave-optimization-record`) shows why. Clang's loop vectorizer takes the
+lane loop at width 4 at 4, 8, 12 and 16 lanes and at every size measured
+from 17 up. It rejects 5-7, 9-11 and 13-15 as `VectorizationNotBeneficial`.
+At 1-3 lanes the loop is fully unrolled. So the hunk pads a tile to the next
+multiple of four lanes: the extra lanes repeat the last output and aren't
+stored. Against unpadded sizes (one `narrow_lanes` per size) the padding
+measured:
+- 1.56-2.19x faster for the split tile and 1.04-1.98x for the fused at 5-7,
+  9-11 and 13-15 outputs, and 1.17-1.19x for the split at 3;
+- the same at multiples of four;
+- 0.88-1.16x from 17 to 31;
+- 0.93-0.96x for the fused tile at one or two outputs, so those keep
+  `narrow_lanes<KIND, 1>` and `<KIND, 2>`.
+
+**The crossover.** Here is HEAD against the hunk (narrow below 40, padded),
+ns a mac step, one thread, four rounds:
+
+| outputs | split, 1 x N | split, N x 1 | fused, 1 x N | fused, N x 1 |
+|---|---|---|---|---|
+| 1 | 18.78 -> 18.75 (1.00x) | | 18.21 -> 18.27 (1.00x) | |
+| 2 | 9.12 -> 9.16 (1.00x) | 9.63 -> 9.65 (1.00x) | 9.01 -> 9.01 (1.00x) | 9.54 -> 9.51 (1.00x) |
+| 3 | 7.43 -> 6.43 (1.16x) | 7.60 -> 6.38 (1.19x) | 6.42 -> 6.52 (0.98x) | 6.34 -> 6.52 (0.97x) |
+| 4 | 20.11 -> 4.67 (4.30x) | 21.10 -> 4.81 (4.39x) | 10.39 -> 4.75 (2.19x) | 12.17 -> 4.91 (2.48x) |
+| 5 | 17.50 -> 4.73 (3.70x) | 18.09 -> 4.63 (3.91x) | 8.94 -> 4.03 (2.22x) | 10.05 -> 3.92 (2.57x) |
+| 6 | 15.00 -> 3.80 (3.95x) | 15.77 -> 3.90 (4.05x) | 7.57 -> 3.19 (2.38x) | 9.06 -> 3.28 (2.76x) |
+| 8 | 10.66 -> 2.90 (3.68x) | 11.61 -> 2.95 (3.94x) | 5.69 -> 2.44 (2.33x) | 6.79 -> 2.49 (2.73x) |
+| 11 | 9.03 -> 3.31 (2.72x) | 9.66 -> 3.28 (2.94x) | 4.72 -> 2.00 (2.36x) | 5.81 -> 1.92 (3.02x) |
+| 16 | 5.49 -> 2.78 (1.98x) | 6.66 -> 2.96 (2.25x) | 2.82 -> 1.46 (1.92x) | 4.23 -> 1.53 (2.76x) |
+| 24 | 4.12 -> 2.74 (1.50x) | 5.22 -> 2.90 (1.80x) | 2.10 -> 1.49 (1.41x) | 3.52 -> 1.53 (2.30x) |
+| 31 | 3.61 -> 2.83 (1.28x) | 4.83 -> 2.95 (1.64x) | 1.90 -> 1.52 (1.25x) | 3.23 -> 1.58 (2.04x) |
+| 32 | 3.27 -> 2.72 (1.20x) | 4.55 -> 2.88 (1.58x) | 1.69 -> 1.47 (1.15x) | 2.94 -> 1.50 (1.95x) |
+
+The sizes between follow the same pattern. Some 2-D shapes:
+- at 32 outputs (2x16, 16x2, 4x8): 1.17-1.58x for the split, 1.23-1.95x for
+  the fused;
+- at 36 (2x18, 3x12): 1.14-1.15x and 1.20-1.24x;
+- at 40 and up both builds run the passes, and they agree within 0.93-1.09x,
+  which is this A/B's noise.
+
+A variant that ran the narrow path up to 64 outputs located the cut-off.
+Narrow over the passes:
+- 1.12-1.49x for the split and 1.19-2.09x for the fused at 32-36 outputs;
+- 1.01-1.09x and 1.08-1.16x at 40-45;
+- 0.91-0.94x and 0.90-1.03x on row tiles at 48 (2x24, 4x12, 6x8), while
+  24x2 still ran 1.29x and 1.72x;
+- 0.79-0.95x and 0.86-0.98x at 56-60;
+- 0.30-0.47x and 0.38-0.76x at 61-64 outputs, padded to 64 lanes.
+
+So 40 takes every size where the narrow path wins clearly, and the
+matrix-vector tile (1 x 32) with them.
+
+### The hunk for Linux: NEON's cut-offs and the padded narrow path
+
+Both cut-offs are file-local constants in Linux's files. The change is
+NEON-only, behind `__aarch64__`, with the x86 statements verbatim in each
+`#else`. `git apply --check` takes it at `a507483`:
+
+```diff
+diff --git a/mptorch/csrc/cpu/gemm_word_tile.cpp b/mptorch/csrc/cpu/gemm_word_tile.cpp
+--- a/mptorch/csrc/cpu/gemm_word_tile.cpp
++++ b/mptorch/csrc/cpu/gemm_word_tile.cpp
+@@ -35,8 +35,14 @@ namespace mptorch::gemm_cpu
+     // their setup costs more than the lanes save: on one thread the scalar
+     // loop was 1.2-2x faster for a single output (a sum into one scalar),
+     // and these tiles first won at eight outputs
+-    // (dev/benchmarks/timing/cpu_narrow_gemm.py).
++    // (dev/benchmarks/timing/cpu_narrow_gemm.py). NEON's tiles, of four
++    // lanes, first win at four outputs (on an M3 Pro, 0.42-0.69x of the
++    // scalar loop at four and six outputs under RNA, RU, RO and RZ).
++#if defined(__aarch64__)
++    constexpr int64_t NARROW_TILE = 4;
++#else
+     constexpr int64_t NARROW_TILE = 8;
++#endif
+ 
+     // One K-step after another, each element's steps in K order (see
+     // cpu/gemm_rne_tile.cpp's tile_steps, whose structure this is). FTI, FTJ
+diff --git a/mptorch/csrc/cpu/gemm_odd_tile.cpp b/mptorch/csrc/cpu/gemm_odd_tile.cpp
+--- a/mptorch/csrc/cpu/gemm_odd_tile.cpp
++++ b/mptorch/csrc/cpu/gemm_odd_tile.cpp
+@@ -62,6 +62,9 @@
+ #include <cmath>
+ #include <cstdlib>
+ #include <cstring>
++#if defined(__aarch64__)
++#include <utility>
++#endif
+ 
+ #if defined(__x86_64__)
+ #include <immintrin.h>
+@@ -76,8 +79,17 @@ namespace mptorch::gemm_cpu
+     // the passes, for gemm_rne_tile.cpp's reasons (its NARROW_TILE): the
+     // passes on one lane or a few cost up to 2x the scalar loop, and the
+     // palette tiles call these functions on column and row groups, so the
+-    // tile is not handed back.
++    // tile is not handed back. On NEON the passes set the directed
++    // roundings through FPCR, three writes a K-step for the products and
++    // three more for the split tile's sums, a cost per K-step whatever the
++    // tile's width. On an M3 Pro the narrow path ran 1.1-4.4x faster than
++    // the passes from 4 to 36 outputs, about as fast at 40-45, slower on
++    // rows from 48 on, and 1.3-3.3x slower at 64 lanes.
++#if defined(__aarch64__)
++    constexpr int64_t NARROW_TILE = 40;
++#else
+     constexpr int64_t NARROW_TILE = 4;
++#endif
+ 
+     namespace odd = mptorch::gemm::odd;
+ 
+@@ -289,6 +301,36 @@ namespace mptorch::gemm_cpu
+         sums[l] = s[l];
+     }
+ 
++#if defined(__aarch64__)
++    // The same for n <= N outputs, N a multiple of four; the lanes from n
++    // on repeat output n - 1 and are not stored. Clang vectorizes the lane
++    // loop four lanes at a time at a multiple of four and from 17 lanes on,
++    // and finds 5-7, 9-11 and 13-15 not worth it: those ran 1.6-2.2x
++    // slower a step on an M3 Pro than their size padded.
++    template <int KIND, int N>
++    [[gnu::always_inline]] inline void narrow_lanes_padded(const float *__restrict__ a_pack,
++                                                           const float *__restrict__ b_pack,
++                                                           float *__restrict__ sums, int64_t n,
++                                                           int64_t tk, int64_t tj,
++                                                           const BinaryKParams &pm,
++                                                           const BinaryKParams &pa)
++    {
++      float s[N];
++      int64_t ai[N], bj[N];
++      for (int l = 0; l < N; ++l)
++      {
++        const int64_t o = l < n ? l : n - 1;
++        s[l] = sums[o], ai[l] = (o / tj) * tk, bj[l] = o % tj;
++      }
++      for (int64_t k = 0; k < tk; ++k)
++        for (int l = 0; l < N; ++l)
++          s[l] = narrow_step<KIND>(a_pack[ai[l] + k], b_pack[k * tj + bj[l]], s[l], pm, pa);
++      for (int l = 0; l < N; ++l)
++        if (l < n)
++          sums[l] = s[l];
++    }
++#endif
++
+     template <int KIND>
+     [[gnu::always_inline]] inline void narrow_steps(const float *__restrict__ a_pack,
+                                                     const float *__restrict__ b_pack,
+@@ -296,6 +338,25 @@ namespace mptorch::gemm_cpu
+                                                     int64_t tk, int64_t tj, const BinaryKParams &pm,
+                                                     const BinaryKParams &pa)
+     {
++#if defined(__aarch64__)
++      // one output or two in lanes of their own (padded to four, they ran
++      // up to 7% slower); from three, the narrowest padded size that holds
++      // them
++      static_assert(NARROW_TILE % 4 == 0, "lanes in fours");
++      const int64_t n = ti * tj;
++      if (n == 1)
++        narrow_lanes<KIND, 1>(a_pack, b_pack, sums, tk, tj, pm, pa);
++      else if (n == 2)
++        narrow_lanes<KIND, 2>(a_pack, b_pack, sums, tk, tj, pm, pa);
++      else
++        [&]<int... Q>(std::integer_sequence<int, Q...>)
++        {
++          (void)((n <= 4 * (Q + 1) &&
++                  (narrow_lanes_padded<KIND, 4 * (Q + 1)>(a_pack, b_pack, sums, n, tk, tj, pm, pa),
++                   true)) ||
++                 ...);
++        }(std::make_integer_sequence<int, NARROW_TILE / 4>{});
++#else
+       static_assert(NARROW_TILE == 4, "a narrow_lanes per size below the cut-off");
+       const int64_t n = ti * tj;
+       if (n == 1)
+@@ -304,6 +365,7 @@ namespace mptorch::gemm_cpu
+         narrow_lanes<KIND, 2>(a_pack, b_pack, sums, tk, tj, pm, pa);
+       else
+         narrow_lanes<KIND, 3>(a_pack, b_pack, sums, tk, tj, pm, pa);
++#endif
+     }
+ 
+     template <int KIND, class Ops>
+```
+
+What I ran on it. The hunk's two files were compiled with the extension's
+flags, linked into a copy of the package, and imported through
+`PYTHONPATH`; the final comment edits leave both objects byte-identical to
+the ones tested.
+- **Words.** A scratch script (`prop_check.py`) hashes every result of 7,752
+  calls. It covers every M x N with M N < 40 (the whole narrow range) at
+  K = 5, 37 and 300, some with an inf (so NaN hand-backs). The calls are the
+  split, product-only and fused macs, under the odd carrier and under RNA,
+  RU, RD, RZ and RO, plus an odd palette. The hash under the default setting
+  equals the hash under `MPTORCH_CPU_SIMD=0`, and HEAD's scalar loop's.
+- **The odd tile sweep** against the hunk's `gemm_odd_tile.cpp`: `isa neon`,
+  0 mismatches in each of the 10 formats, `PASS: 10 formats checked, 0
+  mismatches` (15:00). Its narrow passes now run the padded 4-lane path
+  for its rows and columns of three and its 1 x 3 and 3 x 1 tiles.
+- **Tests.** `test_cpu_simd.py`, `test_carrier_rounding.py`,
+  `test_accumulators.py`, `test_reductions.py`, `test_number_formats.py`,
+  `test_gemm_mixed_palette.py`, `test_cpu_tile_state.py`,
+  `test_gemm_dispatch.py` and `test_fixedpoint_exact_route.py`: 3,096
+  passed, 2,252 skipped. A pytest plugin confirmed that the copy's
+  `_C.abi3.so` was the one loaded.
+- **Timing:** the tables above.
+- **Size:** `gemm_odd_tile.o` grows from 19 KB to 49 KB: 12 sizes x 3
+  kinds. One `narrow_lanes` per size, unpadded, made it 139 KB.
+
+### AN-b's threshold on MPS
+
+`fixedpoint_gemm.py exact --device mps --all-sizes --rounds 15 --sizes 96
+128 144 160 176 192 224 256`, three runs, (25, 14). The kernel and the route
+in ms a call, the range over the runs:
+
+| n | steps | the kernel | the route | route / kernel |
+|---|---|---|---|---|
+| 144 | 2^21.5 | 0.205-0.232 | 0.219-0.234 | 1.01-1.07 |
+| 160 | 2^22.0 | 0.238-0.270 | 0.225-0.257 | 0.90-0.97 |
+| 176 | 2^22.4 | 0.295-0.305 | 0.236-0.261 | 0.79-0.88 |
+| 192 | 2^22.8 | 0.315-0.332 | 0.243-0.268 | 0.77-0.83 |
+| 224 | 2^23.4 | 0.417-0.437 | 0.281-0.296 | 0.66-0.68 |
+| 256 | 2^24 | 0.543-0.555 | 0.299-0.312 | 0.55-0.56 |
+
+The route breaks even between 144^3 and 160^3, so 2^22 sits at the crossing.
+The gains match M10b's (192^3: 0.78; 256^3: 0.61). The 96^3 and 128^3 rows
+come first in each run, and launch noise swamps them (the kernel's 128^3
+took 0.20-0.41 ms). Without `--all-sizes` both rows take the kernel below
+2^22, as they should.
+
+### For Linux
+
+1. **The hunk above.** It sets NEON's cut-offs to 4 for the word tiles and
+   40 for the odd tiles, and pads the odd narrow path to fours. Odd tiles of
+   4 to 39 outputs run 1.1-4.4x faster, the odd palette edge 1.19-1.21x
+   faster, and qsum is unchanged. The one loss is the fused tile at 3
+   outputs, 2-3% slower.
+2. **The sweep's coverage, if you take it.** `cpu_odd_tile_sweep.cpp`'s
+   narrow passes (1 x 1 to 3 x 1, and the rows of eight) reach only 4 of the
+   12 lane counts on arm64 (1 and 2, and 4 and 8 padded). Here only
+   `prop_check.py`'s calls through the ops cover the sizes from 4 to 39. A sweep pass over those sizes, padded lanes
+   included, would gate them.
+3. **AVX2** switches MXCSR per pass as NEON switches FPCR, so its odd tiles'
+   crossover may also lie above 4 outputs. If it does, GCC's vectorizer may
+   need the same padding.
+4. **The odd word tiles** hand narrow tiles back to a scalar loop that costs
+   14-19 ns a step at 1 to 4 outputs here. A narrow path in registers, as
+   the odd tiles have, would likely help there too. I didn't build one.
+
+### Open
+
+- Nothing waits on the Mac for M11 or M12.
