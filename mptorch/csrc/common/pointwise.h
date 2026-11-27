@@ -501,7 +501,7 @@ namespace mptorch::pointwise
                                                                  SaturationMode saturation_mode)
   {
     SuperfpRound<T, RM> r{};
-    r.p = make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode);
+    r.p = make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed, saturation_mode);
     if constexpr (RM == RoundMode::SR)
       r.st = make_stochastic_superfp<T>(r.p, is_signed, spec);
     r.is_signed = is_signed;

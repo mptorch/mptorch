@@ -125,10 +125,12 @@ using SuperfpParams = SuperfpParamsT<float>;
 
 // Builds the constants for a superfp format with man_bits, exp_bits,
 // normal_binades and bias, in the carrier T, which defaults to binary32 as in
-// make_binaryK_params.
+// make_binaryK_params. is_signed and saturation_mode decide which codes at
+// the top of the range are reserved, as they do there.
 template <class T = float>
 CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int exp_bits, int normal_binades,
-                                                              int bias, SaturationMode saturation_mode)
+                                                              int bias, bool is_signed,
+                                                              SaturationMode saturation_mode)
 {
     using F = FloatTraits<T>;
     SuperfpParamsT<T> p;
@@ -145,9 +147,11 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
     p.round_tie = round_p.tie;
     p.round_shift = round_p.shift;
 
-    // The top binade's last code is +infinity except under SAT_FINITE, as in
-    // binaryK; superfp reserves no code for NaN, signed or not.
-    const int reserved_codes = (saturation_mode != SaturationMode::SAT_FINITE);
+    // P3109's reserved codes, as in binaryK: the top binade's last code is
+    // +infinity except under SAT_FINITE, and in an unsigned format the NaN is
+    // above it. A signed format's NaN is the code that would hold -0.0 (the
+    // sign bit alone), which costs no magnitude code.
+    const int reserved_codes = (saturation_mode != SaturationMode::SAT_FINITE) + (is_signed ? 0 : 1);
     NormalRangeParamsT<T> normal_p =
         make_normal_range_params<T>(exp_bits, man_bits, bias, saturation_mode, reserved_codes);
     p.saturation_mode = normal_p.saturation_mode;

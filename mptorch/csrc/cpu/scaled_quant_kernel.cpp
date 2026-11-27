@@ -185,7 +185,7 @@ namespace
                            RoundMode round_mode, SaturationMode saturation_mode)
   {
     const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode);
+        man_bits, exp_bits, normal_binades, bias, IsSigned, saturation_mode);
     switch (round_mode)
     {
     case RoundMode::RNE:
@@ -222,7 +222,7 @@ namespace
   {
     using T = carrier_t<scalar_t>;
     const SuperfpParamsT<T> p = make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias,
-                                                       saturation_mode);
+                                                       IsSigned, saturation_mode);
     const StochasticT<T> st = make_stochastic_superfp<T>(p, IsSigned, prng_bits);
     scaled_kernel_sr(a, o, size, s, l, seed, [=](scalar_t x, T sv, word_of<scalar_t> rv) -> scalar_t
                      { return static_cast<scalar_t>(

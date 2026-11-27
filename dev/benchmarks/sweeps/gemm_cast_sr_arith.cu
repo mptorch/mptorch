@@ -240,7 +240,7 @@ static int run_bk(int man, int expb, int bias, int rbits, bool sgn, SaturationMo
 static int run_sfp(int man, int expb, int nb, int bias, int rbits, bool sgn, SaturationMode sat,
                    bool verbose)
 {
-    SuperfpParams pfast = make_superfp_params(man, expb, nb, bias, sat);
+    SuperfpParams pfast = make_superfp_params(man, expb, nb, bias, sgn, sat);
     SuperfpParams pslow = pfast; pslow.fast_rne = false;
     if (!pfast.fast_rne)
         return -1;
@@ -406,13 +406,13 @@ static void gemm_bench()
     const int man=3,expb=4,bias=7,nb=1,rb=8;
     BinaryKParams bpf=make_binaryK_params(man,expb,bias,true,SaturationMode::SAT_NONE,false);
     BinaryKParams bps=bpf; bps.fast_rne=false;
-    SuperfpParams spf=make_superfp_params(man,expb,nb,bias,SaturationMode::SAT_NONE);
+    SuperfpParams spf=make_superfp_params(man,expb,nb,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams sps=spf; sps.fast_rne=false;
     // nb=8 drops superfp's normal cutoff to |x| >= 2: operands and products
     // stay supernormal but the running sum crosses into the normal arm, which
     // is the only arm this change touches. With nb=1 the cutoff is 2^8 and
     // nothing reaches it.
-    SuperfpParams wpf=make_superfp_params(man,expb,8,bias,SaturationMode::SAT_NONE);
+    SuperfpParams wpf=make_superfp_params(man,expb,8,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams wps=wpf; wps.fast_rne=false;
     M=K=N=1024; int iters=5;
     std::vector<float> hA(M*K),hB((size_t)N*K); srand(1234);
@@ -469,12 +469,12 @@ static void gemm_bench()
     const SubnormalsMode sm=SubnormalsMode::SUBNORMALS;
     BinaryKParams bpf=make_binaryK_params(man,expb,bias,true,SaturationMode::SAT_NONE,false);
     BinaryKParams bps=bpf; bps.fast_rne=false;
-    SuperfpParams spf=make_superfp_params(man,expb,1,bias,SaturationMode::SAT_NONE);
+    SuperfpParams spf=make_superfp_params(man,expb,1,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams sps=spf; sps.fast_rne=false;
     // nb=8 drops superfp's normal cutoff to |x| >= 2, so the running sum
     // crosses into the normal arm -- the only arm this change touches. With
     // nb=1 the cutoff is 2^8 and nothing reaches it.
-    SuperfpParams wpf=make_superfp_params(man,expb,8,bias,SaturationMode::SAT_NONE);
+    SuperfpParams wpf=make_superfp_params(man,expb,8,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams wps=wpf; wps.fast_rne=false;
     std::vector<float> A((size_t)M*K),B((size_t)K*N),C((size_t)M*N),ref;
     srand(1234);

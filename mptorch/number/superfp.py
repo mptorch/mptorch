@@ -51,8 +51,18 @@ class SuperFP(FloatFormat):
       ``normal_binades`` describes the layout.
     * There is no ``subnormals`` mode, because the format has no subnormals.
 
-    The format reserves no code for NaN, so being signed or not does not
-    change its largest value. Its single zero is unsigned, as in a binaryK.
+    Its zero, infinities and NaN are encoded as IEEE P3109 encodes them in a
+    :class:`BinaryK`:
+
+    * The format has a single zero, unsigned, at the all-zero code. No cast
+      returns ``-0.0``.
+    * In a signed format the NaN is the code with only the sign bit set
+      (which would otherwise encode ``-0.0``). In an unsigned format it is the
+      top code.
+    * The largest finite value is the highest code not reserved for infinity
+      or NaN. An unsigned format's largest value is therefore one code below
+      that of the signed format with the same fields.
+
     Like :class:`BinaryK`, the object is frozen, and therefore hashable, so
     that the code turning it into kernel arguments can cache its result keyed
     on the format.
@@ -75,11 +85,12 @@ class SuperFP(FloatFormat):
 
     Raises:
         ValueError: for ``man_bits < 0``, ``exp_bits < 1``, a
-            ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, or the finite
-            domain with a saturation mode other than ``SAT_FINITE``; and, as
-            for :class:`BinaryK`, for a format that neither carrier can
-            simulate. Each call checks the format against its own carrier
-            (see :class:`FormatRangeWarning`).
+            ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, normal
+            binades that hold no finite value (their codes all go to the
+            infinity and the NaN), or the finite domain with a saturation mode
+            other than ``SAT_FINITE``; and, as for :class:`BinaryK`, for a
+            format that neither carrier can simulate. Each call checks the
+            format against its own carrier (see :class:`FormatRangeWarning`).
         TypeError: as for :class:`BinaryK`.
 
     Example::
@@ -124,6 +135,7 @@ class SuperFP(FloatFormat):
             self.exp_bits,
             self.normal_binades,
             self.bias,
+            self.is_signed,
             self.saturation,
             self.prng_bits,
             carrier=torch.float64,
@@ -132,9 +144,14 @@ class SuperFP(FloatFormat):
 
     @property
     def max_finite(self) -> float:
-        """The largest finite value. It is the top code of the top binade,
-        or the code below it when the top code is an infinity (outside the
-        finite domain). The format has no NaN code.
+        """The largest finite value, counted in code points as P3109 counts it.
+
+        The highest codes of the top binade can be reserved: in an unsigned
+        format the top code is the NaN, and in the extended domain the next
+        code down (the top code, if the format is signed) is the infinity.
+        With no mantissa bits, the reserved codes move the largest finite
+        value one or two binades down. It is the value that a saturating mode
+        clamps to.
 
         Example::
 
@@ -143,8 +160,10 @@ class SuperFP(FloatFormat):
             448.0
             >>> SuperFP(3, 4, 2, 7, saturation=SaturationMode.SAT_FINITE).max_finite
             480.0
+            >>> SuperFP(3, 4, 2, 7, is_signed=False).max_finite
+            416.0
         """
-        reserved = int(self.saturation is not SaturationMode.SAT_FINITE)  # as in `_superfp_extent`
+        reserved = _superfp_reserved(self.is_signed, self.saturation)
         return _largest_finite(self.exp_bits, self.man_bits, self.bias, reserved)
 
 
@@ -153,6 +172,7 @@ def check_superfp(
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool = True,
     saturation: SaturationMode = SaturationMode.SAT_NONE,
     prng_bits: int = 0,
     *,
@@ -162,9 +182,8 @@ def check_superfp(
 ) -> None:
     """Check whether a carrier can hold a superfp format.
 
-    Behaves as :func:`check_binaryK`. It takes no ``is_signed``: a superfp
-    reserves no code for NaN, signed or not, so signedness does not change
-    its range.
+    Behaves as :func:`check_binaryK`, and takes its arguments in the same
+    order.
 
     Args:
         man_bits (int): stored mantissa bits.
@@ -173,6 +192,8 @@ def check_superfp(
             keep a full mantissa; the codes of the others encode the
             supernormal powers of two.
         bias (int): the exponent bias.
+        is_signed (bool): whether the format has a sign bit. An unsigned
+            format spends its top code on NaN. Default: ``True``.
         saturation (SaturationMode): overflow behaviour and domain.
             Default: ``SaturationMode.SAT_NONE``.
         prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
@@ -186,10 +207,13 @@ def check_superfp(
         ValueError: as :func:`check_binaryK`, with a negative ``man_bits`` or
             ``exp_bits`` in place of its bounds on ``P``, and also for a
             ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, which leaves
-            the format no normal binade or no supernormal codes.
+            the format no normal binade or no supernormal codes, and for
+            normal binades whose codes all go to the infinity and the NaN.
+        TypeError: if ``is_signed`` is not a ``bool``.
     """
+    _check_is_signed(is_signed, "check_superfp")
     error, warning = _superfp_findings(
-        man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier
+        man_bits, exp_bits, normal_binades, bias, is_signed, saturation, prng_bits, carrier
     )
     if error is not None:
         raise ValueError(error)
@@ -202,6 +226,7 @@ def check_superfp_carrier(
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool = True,
     saturation: SaturationMode = SaturationMode.SAT_NONE,
     prng_bits: int = 0,
     *,
@@ -214,9 +239,13 @@ def check_superfp_carrier(
 
     Raises:
         ValueError: as :func:`check_superfp`.
+        TypeError: as :func:`check_superfp`.
     """
+    _check_is_signed(is_signed, "check_superfp_carrier")
     _report_per_call(
-        *_superfp_findings(man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier)
+        *_superfp_findings(
+            man_bits, exp_bits, normal_binades, bias, is_signed, saturation, prng_bits, carrier
+        )
     )
 
 
@@ -225,6 +254,7 @@ def check_superfp_storage(
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool = True,
     saturation: SaturationMode = SaturationMode.SAT_NONE,
     *,
     storage: torch.dtype,
@@ -238,10 +268,12 @@ def check_superfp_storage(
 
     Raises:
         ValueError: as :func:`check_binaryK_storage`.
+        TypeError: as :func:`check_superfp`.
     """
+    _check_is_signed(is_signed, "check_superfp_storage")
     _report_per_call(
         *_superfp_storage_findings(
-            man_bits, exp_bits, normal_binades, bias, saturation, storage, elementwise
+            man_bits, exp_bits, normal_binades, bias, is_signed, saturation, storage, elementwise
         )
     )
 
@@ -249,11 +281,41 @@ def check_superfp_storage(
 # --- how the checks reach their findings -------------------------------------
 
 
-def _superfp_label(man_bits: int, exp_bits: int, normal_binades: int, bias: int) -> str:
-    """The format written as a constructor call, for messages."""
+def _check_is_signed(is_signed: object, name: str) -> None:
+    """Raise a ``TypeError`` for an ``is_signed`` that is not a ``bool``.
+
+    The public checks take ``is_signed`` before ``saturation``, as
+    :func:`check_binaryK` does, so a call that passes ``saturation`` in its
+    place would otherwise check a signed format in the default mode.
+    """
+    if not isinstance(is_signed, bool):
+        raise TypeError(
+            f"{name}: is_signed must be a bool, got {is_signed!r}. The arguments after bias "
+            "are is_signed, saturation and prng_bits, in check_binaryK's order"
+        )
+
+
+def _superfp_reserved(is_signed: bool, saturation: SaturationMode) -> int:
+    """Return the number of codes at the top of the range that are not finite values.
+
+    They are P3109's, as for a binaryK (`make_superfp_params`): the infinity
+    outside the finite domain, and in an unsigned format the NaN above it. A
+    signed format's NaN is the code that would hold -0.0, which takes no
+    magnitude code.
+    """
+    return (saturation is not SaturationMode.SAT_FINITE) + (0 if is_signed else 1)
+
+
+def _superfp_label(
+    man_bits: int, exp_bits: int, normal_binades: int, bias: int, is_signed: bool = True
+) -> str:
+    """The format written as a constructor call, for messages, leaving out
+    ``is_signed`` when it is ``True``."""
     return (
         f"SuperFP(man_bits={man_bits}, exp_bits={exp_bits}, "
-        f"normal_binades={normal_binades}, bias={bias})"
+        f"normal_binades={normal_binades}, bias={bias}"
+        + ("" if is_signed else ", is_signed=False")
+        + ")"
     )
 
 
@@ -284,27 +346,64 @@ def _superfp_regions_error(label: str, exp_bits: int, normal_binades: int) -> st
     return None
 
 
+def _superfp_top_error(
+    label: str,
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    is_signed: bool,
+    saturation: SaturationMode,
+    carrier: _Carrier,
+) -> str | None:
+    """Return an error for a format whose normal binades hold no finite value, or ``None``.
+
+    Call it only after `_width_error` and `_superfp_regions_error` have
+    passed. A normal binade has ``2**man_bits`` codes, so with no mantissa
+    bits, or one, the codes reserved at the top of the range
+    (`_superfp_reserved`) can be every code the normal binades have. The
+    largest finite value would then be a supernormal, but the cast saturates
+    only in the normal region, and its supernormal region rounds up to the
+    bottom of the normal region, which would be a reserved code.
+    """
+    reserved = _superfp_reserved(is_signed, saturation)
+    top_field, _, _ = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
+    if top_field >= (1 << exp_bits) - normal_binades:
+        return None
+    special = {
+        (True, False): "the infinity",
+        (False, True): "the NaN",
+        (True, True): "the infinity and the NaN",
+    }[(saturation is not SaturationMode.SAT_FINITE, not is_signed)]
+    codes = normal_binades << man_bits
+    owner = "its only normal code goes" if codes == 1 else f"its {codes} normal codes all go"
+    return (
+        f"{label} has no finite normal value: {owner} to {special}, and the cast needs its "
+        "largest finite value in a normal binade. Give it more normal binades or mantissa bits"
+    )
+
+
 def _superfp_extent(
     label: str,
     man_bits: int,
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool,
     saturation: SaturationMode,
     carrier: _Carrier,
 ) -> _Extent:
     """Compute a superfp format's range as an `_Extent`.
 
-    Call it only after `_width_error` and `_superfp_regions_error` have
-    passed. The normal region is the top ``normal_binades`` binades, which
-    have a full mantissa. Below it, the
+    Call it only after `_width_error`, `_superfp_regions_error` and
+    `_superfp_top_error` have passed. The normal region is the top
+    ``normal_binades`` binades, which have a full mantissa. Below it, the
     ``(binades - normal_binades) * 2**man_bits`` codes that the other binades
     would have used for mantissas encode zero (one code) and successive
     powers of two (all the others): the supernormals.
     """
     binades = 1 << exp_bits
-    # superfp reserves no code for NaN, signed or not (`make_superfp_params`)
-    reserved = saturation is not SaturationMode.SAT_FINITE
+    reserved = _superfp_reserved(is_signed, saturation)
     top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
     normal_cutoff = binades - bias - normal_binades
     # the exponent of the smallest supernormal (`superfp_region_cutoffs`)
@@ -332,6 +431,7 @@ def _superfp_findings(
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool,
     saturation: SaturationMode,
     prng_bits: int,
     carrier: torch.dtype,
@@ -339,19 +439,24 @@ def _superfp_findings(
     """Return the findings of ``carrier`` on a superfp format, as ``(error, warning)``.
 
     The superfp counterpart of `_binaryK_findings`, with the region-layout
-    check added after the width checks.
+    checks added after the width checks.
     """
-    label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
+    label = _superfp_label(man_bits, exp_bits, normal_binades, bias, is_signed)
 
     def find(c: _Carrier) -> tuple[str | None, str | None]:
         error = (
             _width_error(label, exp_bits, man_bits, prng_bits, c)
             or _exponent_error(label, exp_bits, bias)
             or _superfp_regions_error(label, exp_bits, normal_binades)
+            or _superfp_top_error(
+                label, man_bits, exp_bits, normal_binades, bias, is_signed, saturation, c
+            )
         )
         if error is not None:
             return error, None
-        ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, c)
+        ext = _superfp_extent(
+            label, man_bits, exp_bits, normal_binades, bias, is_signed, saturation, c
+        )
         return _range_findings(ext, c)
 
     return _pointing_wider(find, carrier)
@@ -363,6 +468,7 @@ def _superfp_storage_findings(
     exp_bits: int,
     normal_binades: int,
     bias: int,
+    is_signed: bool,
     saturation: SaturationMode,
     storage: torch.dtype,
     elementwise: bool,
@@ -372,13 +478,19 @@ def _superfp_storage_findings(
 
     The superfp counterpart of `_binaryK_storage_findings`.
     """
-    label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
+    label = _superfp_label(man_bits, exp_bits, normal_binades, bias, is_signed)
     if (
         _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None
         or _superfp_regions_error(label, exp_bits, normal_binades) is not None
+        or _superfp_top_error(
+            label, man_bits, exp_bits, normal_binades, bias, is_signed, saturation, _BINARY64
+        )
+        is not None
     ):
         return None, None  # as for binaryK: the carrier check reports this
-    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY64)
+    ext = _superfp_extent(
+        label, man_bits, exp_bits, normal_binades, bias, is_signed, saturation, _BINARY64
+    )
     if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
         return None, None
     return _storage_findings(ext, storage, elementwise, saturation)

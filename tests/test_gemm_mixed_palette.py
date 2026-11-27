@@ -30,7 +30,7 @@ SUPERFP_FORMATS = [
     (8, 5, 1, 15),  # supernormal_cutoff far below -127: the no_underflow arm,
     # where the smallest supernormal is 0 and the flush threshold is the
     # largest float32 below 2^-127 rather than a power of two
-    (0, 4, 1, 7),  # man_bits == 0: fast path off, integer path only
+    (0, 4, 2, 7),  # man_bits == 0: fast path off, integer path only
 ]
 
 SATURATION_MODES = [

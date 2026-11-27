@@ -2,19 +2,19 @@
 No quantizer and no GEMM returns -0.0.
 
 IEEE P3109 has a single zero, code point 0, and it is unsigned: in a signed
-binaryK the encoding that would hold -0.0 is the format's NaN, and superfp
-spends no code on a negative zero either. The kernels simulate a format's
-values in a carrier, binary32 or binary64, that does have -0.0 and produces it
-readily: an underflow that keeps its sign, a directed mode negating a magnitude
-that rounded away, a -0.0 input passed through. So every zero a cast returns
-has to be made +0.0, and the casts do it where the zero is made rather than on
-the way out: the clip functions of mptorch/csrc/common/bit_helper.h drop the
-sign with the magnitude, superfp's region arms return a bare zero, the
-float-arithmetic fast paths select +0.0, and the one signed zero that can still
-arise afterwards, a directed mode's negation of a magnitude that rounded to
-zero, is handled by bit_helper.h's negate_magnitude. The checks here are on
-the sign bit, because -0.0 == 0.0 is true and a value comparison, which is what
-the rest of the suite makes, lets a -0.0 through.
+format, binaryK or superfp, the encoding that would hold -0.0 is the format's
+NaN. The kernels simulate a format's values in a carrier, binary32 or binary64,
+that does have -0.0 and produces it readily: an underflow that keeps its sign,
+a directed mode negating a magnitude that rounded away, a -0.0 input passed
+through. So every zero a cast returns has to be made +0.0, and the casts do it
+where the zero is made rather than on the way out: the clip functions of
+mptorch/csrc/common/bit_helper.h drop the sign with the magnitude, superfp's
+region arms return a bare zero, the float-arithmetic fast paths select +0.0,
+and the one signed zero that can still arise afterwards, a directed mode's
+negation of a magnitude that rounded to zero, is handled by bit_helper.h's
+negate_magnitude. The checks here are on the sign bit, because -0.0 == 0.0 is
+true and a value comparison, which is what the rest of the suite makes, lets a
+-0.0 through.
 
 A float64 tensor is rounded in binary64 by separate instantiations of the same
 casts, so the elementwise and GEMM checks run again on float64 inputs down to
@@ -84,7 +84,7 @@ SUPERFP_FORMATS = [
     (3, 4, 1, 7),
     (4, 4, 2, 7),
     (2, 3, 1, 3),
-    (0, 4, 1, 7),
+    (0, 4, 3, 7),
     (5, 5, 1, 15),
     (3, 4, 8, 7),
 ]
@@ -126,7 +126,7 @@ BINARYK_FORMATS64 = [
     (63, 53, None),
     (14, 4, 1019),
 ]
-SUPERFP_FORMATS64 = [(3, 4, 1, 7), (0, 4, 1, 7), (20, 10, 1020, 511), (3, 4, 1, 917)]
+SUPERFP_FORMATS64 = [(3, 4, 1, 7), (0, 4, 3, 7), (20, 10, 1020, 511), (3, 4, 1, 917)]
 
 # (wl, fl): a step below 1, of 4, of 2**-120 near binary32's subnormals, and
 # 22 or 23 magnitude bits, all of binary32's mantissa unsigned; in binary64 the

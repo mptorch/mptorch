@@ -12,9 +12,9 @@
 //
 //   * mismatches, per mode, with the numerically smallest input that shows one;
 //   * -0.0 results, per mode and per side. P3109's zero is code point 0 and it
-//     is unsigned -- in a signed binaryK the encoding that would hold -0.0 is
-//     the format's NaN -- and superfp has no -0.0 either, so neither side may
-//     ever return one. The shipped casts drop the sign where a zero is made,
+//     is unsigned -- in a signed format, binaryK or superfp, the encoding
+//     that would hold -0.0 is the format's NaN -- so neither side may ever
+//     return one. The shipped casts drop the sign where a zero is made,
 //     inside the clips and the region arms; the reference drops it on the
 //     value at its return. Two different rules, compared here from opposite
 //     ends.
@@ -294,7 +294,7 @@ static void run_case(const Cfg &c)
 {
     BinaryKParams bp = make_binaryK_params(c.man_bits, c.exp_bits, c.bias, c.is_signed, c.sat,
                                            c.subm == SubnormalsMode::EXTENDED_NORMALS);
-    SuperfpParams sp = make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.sat);
+    SuperfpParams sp = make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.is_signed, c.sat);
     Counts h;
     memset(&h, 0, sizeof(h));
     run_exhaustive(c, bp, sp, &h);
@@ -1022,9 +1022,10 @@ static void image_run(const Cfg &c, ImageCounts *h)
 {
     const bool ext = c.subm == SubnormalsMode::EXTENDED_NORMALS;
     BinaryKParams bp32 = make_binaryK_params(c.man_bits, c.exp_bits, c.bias, c.is_signed, c.sat, ext);
-    SuperfpParams sp32 = make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.sat);
+    SuperfpParams sp32 = make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.is_signed, c.sat);
     BinaryKParamsT<double> bp64 = make_binaryK_params<double>(c.man_bits, c.exp_bits, c.bias, c.is_signed, c.sat, ext);
-    SuperfpParamsT<double> sp64 = make_superfp_params<double>(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.sat);
+    SuperfpParamsT<double> sp64 =
+        make_superfp_params<double>(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.is_signed, c.sat);
 
     // the top of SR's carrier-arithmetic region, as a magnitude
     double sr_below;
@@ -1304,6 +1305,11 @@ static void short_list()
     sf(2, 4, 16, 7, true, O);     // none left: the regions invert
     sf(3, 4, 1, 21, true, O);     // the supernormal floor at 2^-125
     sf(3, 4, 1, 22, false, F);    // a binade below it
+    // P3109's reserved codes in an unsigned format: the NaN on the top code
+    // and the infinity below it, and with one mantissa bit the two fill the
+    // top binade, so the largest value is the top code of the binade below
+    sf(3, 4, 1, 7, false, O);
+    sf(1, 4, 2, 7, false, X);
     sf(13, 8, 2, 127, true, O);   // a cutoff far below binary32's range, -2080640
     // A cutoff below int's range, 8 - 1022 * 2^22, which
     // superfp_region_cutoffs clamps. It is even, which a clamp to an odd value
@@ -1490,7 +1496,8 @@ static SrMeanResult sr_mean_case(const Cfg &c, bool old)
 {
     const BinaryKParams bp = make_binaryK_params(c.man_bits, c.exp_bits, c.bias, c.is_signed, c.sat,
                                                  c.subm == SubnormalsMode::EXTENDED_NORMALS);
-    const SuperfpParams sp = make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.sat);
+    const SuperfpParams sp =
+        make_superfp_params(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.is_signed, c.sat);
     constexpr int RU = 2, RZ = 4, SR = 6;
     const int n = c.rand_bits;
 

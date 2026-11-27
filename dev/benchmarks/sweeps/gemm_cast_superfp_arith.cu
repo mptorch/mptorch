@@ -138,7 +138,7 @@ static const char *satname(SaturationMode s)
 static int run_case(int man, int expb, int nb, int bias, bool is_signed, SaturationMode sat,
                     bool verbose)
 {
-    SuperfpParams pfast = make_superfp_params(man, expb, nb, bias, sat);
+    SuperfpParams pfast = make_superfp_params(man, expb, nb, bias, is_signed, sat);
     SuperfpParams pslow = pfast;
     pslow.fast_rne = false;
     if (!pfast.fast_rne)
@@ -325,7 +325,7 @@ static void chk(const char*n){ std::vector<float> h(M*N); CHECK(cudaMemcpy(h.dat
 // operands at or above 2^normal_cutoff.
 static void gemm_bench(int man,int expb,int nb,int bias,float scale,const char *regime)
 {
-    SuperfpParams pf=make_superfp_params(man,expb,nb,bias,SaturationMode::SAT_NONE);
+    SuperfpParams pf=make_superfp_params(man,expb,nb,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams ps=pf; ps.fast_rne=false;
     SuperfpCutoffs co=superfp_region_cutoffs(man,expb,nb,bias);
     printf("\nGEMM 1024^3, split mac, superfp man=%d exp=%d nb=%d bias=%d (fast gate: %s)\n",
@@ -365,7 +365,7 @@ static void gemm_bench(int man,int expb,int nb,int bias,float scale,const char *
 // bit, so a timing run is also a (much smaller) correctness check.
 static void gemm_bench(int man,int expb,int nb,int bias,float scale,const char*label)
 {
-    SuperfpParams pf=make_superfp_params(man,expb,nb,bias,SaturationMode::SAT_NONE);
+    SuperfpParams pf=make_superfp_params(man,expb,nb,bias,true,SaturationMode::SAT_NONE);
     SuperfpParams ps=pf; ps.fast_rne=false;
     const int M=192,K=192,N=192;
     std::vector<float> A((size_t)M*K),B((size_t)K*N),C((size_t)M*N),ref;

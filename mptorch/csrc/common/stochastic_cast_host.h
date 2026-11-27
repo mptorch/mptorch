@@ -69,7 +69,7 @@ namespace mptorch::stochastic_cast
       j.spec = sr_encode(format[4], f.bits, false, carrier, variant, op);
       j.sf = make_superfp_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]),
                                     static_cast<int>(format[2]), static_cast<int>(format[3]),
-                                    static_cast<SaturationMode>(format[6]));
+                                    j.is_signed, static_cast<SaturationMode>(format[6]));
     }
     else
     {

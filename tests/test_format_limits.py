@@ -699,10 +699,10 @@ def test_binary64_holds_every_format_binary32_holds():
     for man_bits, exp_bits, nb, bias in itertools.product(
         range(0, 24), range(1, 11), (1, 2, 7, 30, 255), (-130, 0, 7, 22, 127, 500)
     ):
-        for sat, prng_bits in itertools.product(
-            (SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE), (0, 12)
+        for signed, sat, prng_bits in itertools.product(
+            (True, False), (SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE), (0, 12)
         ):
-            args = (man_bits, exp_bits, nb, bias, sat, prng_bits)
+            args = (man_bits, exp_bits, nb, bias, signed, sat, prng_bits)
             if _superfp_findings(*args, F32) == (None, None):
                 b32 += 1
                 b64 += _superfp_findings(*args, F64) == (None, None)

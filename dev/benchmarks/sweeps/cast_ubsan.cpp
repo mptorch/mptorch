@@ -263,7 +263,7 @@ namespace
       for (bool is_signed : {true, false})
         for (SaturationMode sat : {SaturationMode::SAT_NONE, SaturationMode::SAT_FINITE})
         {
-          SuperfpParamsT<T> p = make_superfp_params<T>(f.man, f.exp, f.binades, f.bias, sat);
+          SuperfpParamsT<T> p = make_superfp_params<T>(f.man, f.exp, f.binades, f.bias, is_signed, sat);
           superfp_casts(d, xs, is_signed, p, f.man);
           if constexpr (std::is_same_v<T, float>)
             if (p.fast_rne)

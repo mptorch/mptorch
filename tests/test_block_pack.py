@@ -810,9 +810,14 @@ def _idempotent(fmt: BlockFormat) -> bool:
 @pytest.mark.parametrize("name", [n for n, f in FORMATS.items() if _idempotent(f)])
 def test_idempotent(device, name):
     """Quantizing a quantized tensor changes nothing, where ``_idempotent``
-    says it should."""
+    says it should. An unsigned element gets non-negative inputs: a negative
+    one sets the first pass's scale and then rounds to zero, so the second
+    pass can choose a scale half as large, under which an element doubles and
+    can land on the code P3109 reserves for the unsigned NaN."""
     fmt = FORMATS[name]
     x = _inputs((8, 96), device)
+    if not fmt.elem.is_signed:
+        x = x.abs()
     q = block_quantize(x, fmt, tensor_scale=0.05 if fmt.has_tensor_scale else None)
     q2 = block_quantize(q, fmt, tensor_scale=0.05 if fmt.has_tensor_scale else None)
     assert torch.equal(q, q2)

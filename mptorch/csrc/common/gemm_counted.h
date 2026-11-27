@@ -123,7 +123,8 @@ namespace mptorch::gemm
   CUDA_HOST_DEVICE_INLINE events::EventThresholdsT<T> thresholds_of(const MPTORCH_THREAD SuperfpWidths &w,
                                                                     const MPTORCH_THREAD SuperfpCommon &c)
   {
-    return events::superfp_thresholds<T>(w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.sat);
+    return events::superfp_thresholds<T>(w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed,
+                                         c.sat);
   }
 
   // A base Args' Mac, its policies wrapped: a split mac's product and sum

@@ -342,7 +342,14 @@ def test_the_mac_resolves_to_the_flat_wrappers_spec():
     assert spec_for_mac(blocked).op is ops.custom_matmul_binaryK_superfp_accumulated.default
     assert spec_for_mac(tree).op is ops.custom_matmul_superfp_binaryK_accumulated.default
     # The result holds the accumulate format's values, or the outer format's.
-    assert spec_for_mac(SplitMac(B8, S12)).stored[0][1] == (5, 5, 16, 15, SaturationMode.SAT_NONE)
+    assert spec_for_mac(SplitMac(B8, S12)).stored[0][1] == (
+        5,
+        5,
+        16,
+        15,
+        True,
+        SaturationMode.SAT_NONE,
+    )
     assert spec_for_mac(tree).stored[0][1][:2] == (16, 11)
 
 

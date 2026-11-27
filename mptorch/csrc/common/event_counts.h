@@ -167,16 +167,17 @@ namespace mptorch::events
     return t;
   }
 
-  // superfp: no NaN code, the infinity's outside the finite domain; below
-  // the top normal_binades binades are the supernormals
-  // (superfp_region_cutoffs' normal_cutoff).
+  // superfp: P3109's reserved codes, as for binaryK (the infinity's outside
+  // the finite domain, and in an unsigned format the NaN's); below the top
+  // normal_binades binades are the supernormals (superfp_region_cutoffs'
+  // normal_cutoff).
   template <class T>
   CUDA_HOST_DEVICE_INLINE EventThresholdsT<T> superfp_thresholds(int man_bits, int exp_bits,
                                                                  int normal_binades, int bias,
-                                                                 SaturationMode saturation)
+                                                                 bool is_signed, SaturationMode saturation)
   {
     EventThresholdsT<T> t;
-    const int reserved = saturation != SaturationMode::SAT_FINITE;
+    const int reserved = (saturation != SaturationMode::SAT_FINITE) + (is_signed ? 0 : 1);
     t.pos_max = largest_finite_word<T>(exp_bits, man_bits, bias, reserved);
     t.neg_max = t.pos_max;
     t.normal_min = pow2_word<T>(superfp_region_cutoffs(man_bits, exp_bits, normal_binades, bias).normal_cutoff);

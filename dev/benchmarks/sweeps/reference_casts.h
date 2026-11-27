@@ -120,7 +120,7 @@ struct Ref
 // The zero.
 //
 // P3109's zero is code point 0 and there is no other: the standard has no
-// negative zero, and superfp spends no code on one. Whatever sign the rounding
+// negative zero, in a binaryK or a superfp format. Whatever sign the rounding
 // below leaves on a zero, the value it stands for is +0.0, so every cast here
 // returns through this. It tests the value where the shipped casts'
 // unsigned_zero tests the carrier's word, so the two have to agree on what a
@@ -444,8 +444,8 @@ CUDA_HOST_DEVICE_INLINE bool ref_sat_finite(SaturationMode saturation_mode)
 // are 0 .. 2^(exp_bits + man_bits) - 1, code c decodes to exponent field
 // c >> man_bits and trailing significand c mod 2^man_bits, and the top one or
 // two are not finite -- +infinity outside SAT_FINITE (the extended domain), and
-// NaN above it when `nan_code` is set (an unsigned binaryK format; superfp
-// passes false). The largest finite value is the highest code left, decoded in
+// NaN above it when `nan_code` is set (an unsigned format, binaryK or
+// superfp). The largest finite value is the highest code left, decoded in
 // value space, and a finite result saturates against its magnitude. Counted in
 // uint64_t, so exp_bits + man_bits stops at 63 -- binary64 itself -- which every
 // sweep grid respects.
@@ -1030,7 +1030,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, int man_bits
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
         {
             quantize_bits = ref_clip_normal<UnderflowMode::NEAREST_EVEN, T>(target, target, exp_bits, man_bits, bias,
-                                                                           saturation_mode, false);
+                                                                           saturation_mode, !is_signed);
             quantized = R::value(quantize_bits);
         }
         else
@@ -1064,7 +1064,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, int man_bits
         quantize_bits = (man_bits > 0) ? ref_round_nearest_even<T>(target, man_bits)
                                        : ref_round_nearest_even_pow2<T>(target);
         quantize_bits = ref_clip_normal<UnderflowMode::NEAREST_EVEN, T>(target, quantize_bits, exp_bits, man_bits, bias,
-                                                                       saturation_mode, false);
+                                                                       saturation_mode, !is_signed);
         quantized = R::value(quantize_bits);
     }
 
@@ -1096,7 +1096,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, int man_bits
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
         {
             quantize_bits = ref_clip_normal<UnderflowMode::NEAREST_AWAY, T>(target, target, exp_bits, man_bits, bias,
-                                                                           saturation_mode, false);
+                                                                           saturation_mode, !is_signed);
             quantized = R::value(quantize_bits);
         }
         else
@@ -1125,7 +1125,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, int man_bits
     {
         quantize_bits = ref_round_nearest_away<T>(target, man_bits);
         quantize_bits = ref_clip_normal<UnderflowMode::NEAREST_AWAY, T>(target, quantize_bits, exp_bits, man_bits, bias,
-                                                                       saturation_mode, false);
+                                                                       saturation_mode, !is_signed);
         quantized = R::value(quantize_bits);
     }
 
@@ -1158,7 +1158,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, int man_bits, int exp
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
         {
             quantize_bits = ref_clip_normal<UnderflowMode::AWAY, T>(target, target, exp_bits, man_bits, bias,
-                                                                   saturation_mode, false);
+                                                                   saturation_mode, !is_signed);
             quantized = R::value(quantize_bits);
         }
         else
@@ -1227,7 +1227,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, int man_bits, int exp
                 quantize_bits += R::ONE << R::MAN;
         }
         quantize_bits = ref_clip_normal<UnderflowMode::AWAY, T>(target, quantize_bits, exp_bits, man_bits, bias,
-                                                               saturation_mode, false);
+                                                               saturation_mode, !is_signed);
         quantized = R::value(quantize_bits);
     }
 
@@ -1235,10 +1235,11 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, int man_bits, int exp
 }
 
 // unsigned helper for cast_superfp_up/cast_superfp_down: assumes
-// origin_float >= 0.
+// origin_float >= 0. nan_code is set for an unsigned format, whose top code
+// is its NaN (ref_clip_normal).
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, int man_bits, int exp_bits, int normal_binades,
-                                                   int bias, SaturationMode saturation_mode)
+                                                   int bias, SaturationMode saturation_mode, bool nan_code)
 {
     using R = Ref<T>;
     using word_t = typename R::word_t;
@@ -1258,7 +1259,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, int man_bits,
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
         {
             quantize_bits = ref_clip_normal<UnderflowMode::AWAY, T>(target, target, exp_bits, man_bits, bias,
-                                                                   saturation_mode, false);
+                                                                   saturation_mode, nan_code);
             quantized = R::value(quantize_bits);
         }
         else
@@ -1290,7 +1291,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, int man_bits,
     {
         quantize_bits = ref_round_up<T>(target, man_bits);
         quantize_bits = ref_clip_normal<UnderflowMode::AWAY, T>(target, quantize_bits, exp_bits, man_bits, bias,
-                                                               saturation_mode, false);
+                                                               saturation_mode, nan_code);
         quantized = R::value(quantize_bits);
     }
 
@@ -1299,7 +1300,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, int man_bits,
 
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, int man_bits, int exp_bits, int normal_binades,
-                                                     int bias, SaturationMode saturation_mode)
+                                                     int bias, SaturationMode saturation_mode, bool nan_code)
 {
     using R = Ref<T>;
     using word_t = typename R::word_t;
@@ -1319,7 +1320,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, int man_bit
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
         {
             quantize_bits = ref_clip_normal<UnderflowMode::ZERO, T>(target, target, exp_bits, man_bits, bias,
-                                                                   saturation_mode, false);
+                                                                   saturation_mode, nan_code);
             quantized = R::value(quantize_bits);
         }
         else
@@ -1344,7 +1345,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, int man_bit
     {
         quantize_bits = ref_round_down<T>(target, man_bits);
         quantize_bits = ref_clip_normal<UnderflowMode::ZERO, T>(target, quantize_bits, exp_bits, man_bits, bias,
-                                                               saturation_mode, false);
+                                                               saturation_mode, nan_code);
         quantized = R::value(quantize_bits);
     }
 
@@ -1369,16 +1370,18 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, int man_bits, int exp_
     {
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
             return R::value(ref_clip_normal<UnderflowMode::ZERO, T>(target, target, exp_bits, man_bits, bias,
-                                                                   saturation_mode, false));
+                                                                   saturation_mode, !is_signed));
         return origin_float;
     }
 
     if (origin_float >= T(0))
         return reference_zero(
-            cast_superfp_absolute_up(origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode));
+            cast_superfp_absolute_up(origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode,
+                                     !is_signed));
     else
         return reference_zero(
-            -cast_superfp_absolute_down(-origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode));
+            -cast_superfp_absolute_down(-origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode,
+                                        !is_signed));
 }
 
 template <class T>
@@ -1396,16 +1399,18 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_down(T origin_float, int man_bits, int ex
     {
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
             return R::value(ref_clip_normal<UnderflowMode::ZERO, T>(target, target, exp_bits, man_bits, bias,
-                                                                   saturation_mode, false));
+                                                                   saturation_mode, !is_signed));
         return origin_float;
     }
 
     if (origin_float >= T(0))
         return reference_zero(
-            cast_superfp_absolute_down(origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode));
+            cast_superfp_absolute_down(origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode,
+                                       !is_signed));
     else
         return reference_zero(
-            -cast_superfp_absolute_up(-origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode));
+            -cast_superfp_absolute_up(-origin_float, man_bits, exp_bits, normal_binades, bias, saturation_mode,
+                                      !is_signed));
 }
 
 template <class T>
@@ -1450,7 +1455,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Ref<T
         // saturates it to max_num like any other out-of-range exponent
         if (ref_sat_finite(saturation_mode) && (target & R::MAN_MASK) == 0)
             return R::value(ref_clip_normal<UnderflowMode::NONE, T>(target, target, exp_bits, man_bits, bias,
-                                                                    saturation_mode, false));
+                                                                    saturation_mode, !is_signed));
         return origin_float;
     }
 
@@ -1480,8 +1485,8 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Ref<T
         const RefSplit sp = ref_split<T>(target & R::ABS, q);
         const bool up = ref_sr_up(ref_sr_x_bits(sp.rem, sp.d, n), r, n, variant);
         const T v = ref_grid_value<T>(sp.whole + (up ? 1 : 0), q);
-        const word_t quantize_bits = ref_clip_normal<UnderflowMode::NONE, T>(target, R::bits(v) | sign, exp_bits,
-                                                                             man_bits, bias, saturation_mode, false);
+        const word_t quantize_bits = ref_clip_normal<UnderflowMode::NONE, T>(
+            target, R::bits(v) | sign, exp_bits, man_bits, bias, saturation_mode, !is_signed);
         return reference_zero(R::value(quantize_bits));
     }
     return reference_zero(sign ? -out : out);

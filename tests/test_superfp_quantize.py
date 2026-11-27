@@ -483,7 +483,15 @@ def test_superfp_stochastic(device):
 @pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(
     "fmt",
-    [(3, 4, 2, 7, True), (0, 3, 1, 2, True), (4, 4, 1, 10, True), (2, 5, 3, 30, False)],
+    [
+        (3, 4, 2, 7, True),
+        (0, 3, 2, 2, True),
+        (4, 4, 1, 10, True),
+        (2, 5, 3, 30, False),
+        (3, 4, 2, 7, False),
+        (1, 3, 2, 3, False),
+        (0, 3, 3, 2, False),
+    ],
     ids=str,
 )
 @pytest.mark.parametrize("saturation", [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE])
@@ -510,3 +518,118 @@ def test_max_finite_is_the_top_of_the_range(device, fmt, saturation):
     ).tolist()
     above = top if saturation is SaturationMode.SAT_FINITE else math.inf
     assert q == [top, above, above]
+
+
+def _cfg_code_points(is_signed: bool, saturation: SaturationMode) -> tuple[list[float], float]:
+    """Return the non-negative finite values of ``CFG``'s format, and the value
+    the first reserved code would have had.
+
+    They are decoded from the magnitude codes 0 .. 31 as IEEE P3109 assigns
+    them, independently of the library: code 0 is the zero, codes 1 .. 15 the
+    supernormals ``2**(code - 19)``, and codes 16 .. 31 the normal values
+    ``(1 + m/4) * 2**(field - 7)`` with ``field = code >> 2`` and
+    ``m = code & 3``. An unsigned format's top code is its NaN, and in the
+    extended domain the highest code left is the infinity.
+    """
+
+    def value(code: int) -> float:
+        if code < 16:
+            return 0.0 if code == 0 else 2.0 ** (code - 19)
+        return (1 + (code & 3) / 4) * 2.0 ** ((code >> 2) - 7)
+
+    reserved = (saturation is not SaturationMode.SAT_FINITE) + (not is_signed)
+    first_reserved = 32 - reserved
+    return [value(c) for c in range(first_reserved)], value(first_reserved)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("is_signed", [True, False], ids=["signed", "unsigned"])
+@pytest.mark.parametrize("saturation", [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE])
+def test_the_code_points_are_p3109s(device, is_signed, saturation):
+    """``CFG`` is E3M2B4, the 6-bit format of the paper that introduced
+    supernormals (Pun et al., IEEE Embedded Systems Letters, 2026), whose
+    Table VI lists its codes: P3109's zero, infinity and NaN, so a signed
+    format's NaN takes the code that would hold -0.0 and an unsigned format's
+    takes the top code. Every value decoded from the codes is a fixed point of
+    every deterministic mode, the casts return no other value, and the value
+    of the first reserved code overflows."""
+    values, first_reserved = _cfg_code_points(is_signed, saturation)
+    fmt = SuperFP(**CFG, is_signed=is_signed, saturation=saturation)
+    assert fmt.max_finite == max(values)
+    if is_signed and saturation is SaturationMode.SAT_NONE:
+        assert (min(values[1:]), max(values)) == (2.0**-18, 1.5)  # Table VI's ends
+
+    def quantize(x: torch.Tensor, mode: RoundMode) -> torch.Tensor:
+        return superfp_quantize(
+            x, **CFG, is_signed=is_signed, rounding_mode=mode, saturation_mode=saturation
+        )
+
+    exact = torch.tensor(values, device=device)
+    dense = torch.cat(
+        [torch.zeros(1), torch.exp2(torch.linspace(-21.0, 1.0, 100_001)), torch.tensor([1e30])]
+    ).to(device)
+    overflow = math.inf if saturation is SaturationMode.SAT_NONE else max(values)
+    allowed = set(values) | {overflow}
+    for mode in ALL_MODES:
+        assert torch.equal(quantize(exact, mode), exact), mode
+        assert set(quantize(dense, mode).tolist()) <= allowed, mode
+        assert quantize(torch.tensor([first_reserved], device=device), mode).item() == overflow
+    assert set(quantize(dense, RoundMode.RNE).tolist()) == allowed
+    assert math.isnan(quantize(torch.tensor([math.nan], device=device), RoundMode.RNE).item())
+
+
+@pytest.mark.parametrize(
+    "fields", [(3, 4, 2, 7), (2, 3, 4, 7), (1, 3, 2, 3), (0, 3, 3, 2), (4, 5, 1, 15)], ids=str
+)
+@pytest.mark.parametrize("is_signed", [True, False], ids=["signed", "unsigned"])
+@pytest.mark.parametrize("saturation", [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE])
+def test_the_top_codes_are_counted_as_for_binaryK(fields, is_signed, saturation):
+    """A superfp's normal binades are the top binades of the binaryK format
+    with the same fields, and its reserved codes are the same ones, so the
+    two formats have the same largest finite value."""
+    from mptorch.number import BinaryK
+
+    man_bits, exp_bits, normal_binades, bias = fields
+    K = exp_bits + man_bits + int(is_signed)
+    binaryK = BinaryK(K, man_bits + 1, bias=bias, is_signed=is_signed, saturation=saturation)
+    superfp = SuperFP(
+        man_bits, exp_bits, normal_binades, bias, is_signed=is_signed, saturation=saturation
+    )
+    assert superfp.max_finite == binaryK.max_finite
+
+
+@pytest.mark.parametrize(
+    ("fields", "is_signed", "saturation", "owner"),
+    [
+        ((0, 3, 1, 3), True, SaturationMode.SAT_NONE, "its only normal code goes to the infinity"),
+        ((0, 3, 1, 3), False, SaturationMode.SAT_FINITE, "its only normal code goes to the NaN"),
+        ((0, 3, 2, 3), False, SaturationMode.SAT_NONE, "its 2 normal codes all go"),
+        ((1, 3, 1, 3), False, SaturationMode.SAT_NONE, "its 2 normal codes all go"),
+    ],
+    ids=str,
+)
+def test_normal_binades_of_reserved_codes_only_are_refused(fields, is_signed, saturation, owner):
+    """A format whose normal binades have no code left once the infinity and
+    the NaN have theirs is refused, by the class and by the quantizer: its
+    largest finite value would be a supernormal, and the cast saturates only
+    in the normal region."""
+    with pytest.raises(ValueError, match=f"has no finite normal value: {owner}"):
+        SuperFP(*fields, is_signed=is_signed, saturation=saturation)
+    with pytest.raises(ValueError, match="has no finite normal value"):
+        superfp_quantize(torch.ones(1), *fields, is_signed=is_signed, saturation_mode=saturation)
+
+
+def test_the_checks_take_is_signed_before_saturation():
+    """``check_superfp`` and its two twins take ``is_signed`` where
+    ``check_binaryK`` does, after ``bias``, and refuse anything but a ``bool``
+    there, such as a saturation mode passed in the place it used to have."""
+    from mptorch.number import check_superfp, check_superfp_carrier, check_superfp_storage
+
+    sat = SaturationMode.SAT_FINITE
+    with pytest.raises(TypeError, match="is_signed must be a bool"):
+        check_superfp(2, 3, 4, 7, sat)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="is_signed must be a bool"):
+        check_superfp_carrier(2, 3, 4, 7, sat, carrier=torch.float32)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="is_signed must be a bool"):
+        check_superfp_storage(2, 3, 4, 7, sat, storage=torch.float16)  # ty: ignore[invalid-argument-type]
+    check_superfp(2, 3, 4, 7, False, SaturationMode.SAT_FINITE)

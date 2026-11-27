@@ -46,7 +46,7 @@ namespace mptorch_mps
   }
 
   inline std::string superfp_format_lines(int64_t man_bits, int64_t exp_bits,
-                                          int64_t normal_binades, int64_t bias,
+                                          int64_t normal_binades, int64_t bias, bool is_signed,
                                           int64_t saturation_mode)
   {
     return "#define MPT_FORMATS 1\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
@@ -54,8 +54,8 @@ namespace mptorch_mps
            std::to_string(static_cast<int>(man_bits)) + ", " +
            std::to_string(static_cast<int>(exp_bits)) + ", " +
            std::to_string(static_cast<int>(normal_binades)) + ", " +
-           std::to_string(static_cast<int>(bias)) + ", SaturationMode(" +
-           std::to_string(saturation_mode) + "));\n}\n";
+           std::to_string(static_cast<int>(bias)) + ", " + (is_signed ? "true" : "false") +
+           ", SaturationMode(" + std::to_string(saturation_mode) + "));\n}\n";
   }
 
   inline std::string fixedpoint_format_lines(int64_t wl, int64_t fl, bool is_signed, bool symmetric)

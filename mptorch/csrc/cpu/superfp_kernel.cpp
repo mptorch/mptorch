@@ -42,7 +42,7 @@ namespace
                            RoundMode round_mode, SaturationMode saturation_mode)
   {
     const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode);
+        man_bits, exp_bits, normal_binades, bias, IsSigned, saturation_mode);
 
     switch (round_mode)
     {
@@ -95,7 +95,7 @@ namespace
                               int prng_bits, uint64_t seed, SaturationMode saturation_mode)
   {
     const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode);
+        man_bits, exp_bits, normal_binades, bias, IsSigned, saturation_mode);
     // The stochastic rounding's constants, built once; prng_bits holds the
     // number of random bits and the SR variant (common/stochastic_host.h).
     const StochasticT<carrier_t<scalar_t>> st = make_stochastic_superfp<carrier_t<scalar_t>>(p, IsSigned, prng_bits);

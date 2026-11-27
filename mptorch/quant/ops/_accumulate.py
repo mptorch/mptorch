@@ -200,6 +200,7 @@ def _superfp_accumulation(
         outer_exp_bits,
         outer_normal_binades,
         outer_bias,
+        outer_is_signed,
         outer_saturation_mode,
     )
     return _Accumulation(

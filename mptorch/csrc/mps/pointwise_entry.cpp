@@ -76,7 +76,7 @@ namespace
         mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
         mptorch::carrier_bits(x.scalar_type() == at::kDouble), prng_bits, round_mode, name);
     const RoundMode rm = canonical(round_mode, prng_bits, name);
-    return {mptorch_mps::superfp_format_lines(man_bits, exp_bits, normal_binades, bias,
+    return {mptorch_mps::superfp_format_lines(man_bits, exp_bits, normal_binades, bias, is_signed,
                                               saturation_mode),
             is_signed, rm, prng_bits};
   }

@@ -137,7 +137,8 @@ struct SuperfpMultiplierT
                                                bool is_signed, SaturationMode saturation_mode,
                                                int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                        saturation_mode))
     {
     }
 
@@ -174,7 +175,8 @@ struct SuperfpMultiplierT<T, RoundMode::SR>
                                                bool is_signed, SaturationMode saturation_mode,
                                                int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode)),
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                        saturation_mode)),
           sr(make_stochastic_superfp<T>(params, is_signed, prng_bits))
     {
     }
@@ -276,7 +278,8 @@ struct SuperfpAdderT
                                           bool is_signed, SaturationMode saturation_mode,
                                           int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                        saturation_mode))
     {
     }
 
@@ -312,7 +315,8 @@ struct SuperfpAdderT<T, RoundMode::SR>
                                           bool is_signed, SaturationMode saturation_mode,
                                           int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode)),
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                        saturation_mode)),
           sr(make_stochastic_superfp<T>(params, is_signed, prng_bits))
     {
     }

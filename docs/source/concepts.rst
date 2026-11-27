@@ -550,6 +550,27 @@ of codes used this way, of which :math:`n - 1` are supernormals. There are no
 subnormals. The bias has no default: it is part of the format's design and
 must be given.
 
+The zero, the infinities and the NaN are encoded as P3109 encodes them in a
+BinaryK (see `Relation to IEEE P3109`_):
+
+- The single zero, which is unsigned, is code 0.
+- In a signed format, the NaN is the code with only the sign bit set, the
+  one that would read as :math:`-0`. In an unsigned format, it is the top
+  code.
+- In the extended domain, :math:`+\infty` is the highest code left.
+
+So an unsigned format's largest finite value is one code below that of the
+signed format with the same fields. A format whose normal binades hold no
+code for a finite value is refused. This happens with no mantissa bits or one,
+and one or two normal binades.
+
+For example, the 6-bit format E3M2B4 of the paper that introduced
+supernormals (Pun et al., IEEE Embedded Systems Letters, 2026) is
+``SuperFP(man_bits=2, exp_bits=3, normal_binades=4, bias=7)``. Its four normal
+binades run from :math:`2^{-3}` up to its largest value, 1.5, with
+:math:`+\infty` at the code that would have held 1.75. Its 15 supernormals run
+from :math:`2^{-18}` to :math:`2^{-4}`.
+
 In the supernormal region a value rounds to one of the two powers of two
 around it. To nearest, the midpoint between :math:`2^e` and :math:`2^{e+1}`
 is :math:`1.5 \cdot 2^e`, and a tie goes to the power of two with the even

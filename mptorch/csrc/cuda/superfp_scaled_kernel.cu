@@ -64,7 +64,8 @@ namespace
     {
         using T = carrier_t<scalar_t>;
         const char *op = "superfp_quant_scaled";
-        const SuperfpParamsT<T> p = make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, sat);
+        const SuperfpParamsT<T> p =
+            make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, is_signed, sat);
         switch (rm)
         {
         case RoundMode::RNE:

@@ -163,7 +163,7 @@ BINARYK = [
 SUPERFP = [
     (3, 4, 1, 7, True, SaturationMode.SAT_NONE),
     (2, 5, 2, 15, True, SaturationMode.SAT_FINITE),
-    (0, 4, 1, 7, True, SaturationMode.SAT_NONE),
+    (0, 4, 2, 7, True, SaturationMode.SAT_NONE),
     (4, 3, 1, 3, False, SaturationMode.SAT_PROPAGATE),
     (9, 3, 1, 3, True, SaturationMode.SAT_NONE),
     (3, 4, 1, 7, True, SaturationMode.SAT_FINITE_EXTENDED),

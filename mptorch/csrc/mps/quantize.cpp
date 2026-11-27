@@ -156,7 +156,8 @@ Tensor superfp_quantize_mps(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
   check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
                      prng_bits, round_mode, "superfp_quantize_mps");
   return quantize("superfp_quantize_mps", a, round_mode, is_signed, prng_bits,
-                  superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+                  superfp_format_lines(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                       saturation_mode));
 }
 
 Tensor fixedpoint_quantize_mps(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
@@ -194,7 +195,8 @@ void superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_
   check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
                      prng_bits, round_mode, "superfp_quantize_mps_");
   quantize_into("superfp_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
-                superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+                superfp_format_lines(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                     saturation_mode));
 }
 
 void fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
@@ -232,7 +234,8 @@ Tensor superfp_quantize_scaled_mps(Tensor a, Tensor scale, int64_t block_size, i
   check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
                      prng_bits, round_mode, op);
   return quantize_scaled(op, a, scale, block_size, round_mode, is_signed, prng_bits,
-                         superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+                         superfp_format_lines(man_bits, exp_bits, normal_binades, bias, is_signed,
+                                              saturation_mode));
 }
 
 Tensor fixedpoint_quantize_scaled_mps(Tensor a, Tensor scale, int64_t block_size, int64_t wl, int64_t fl,

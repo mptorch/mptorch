@@ -363,7 +363,8 @@ static void run_case(Cfg c)
     c.normal_cutoff = superfp_region_cutoffs(c.man_bits, c.exp_bits, c.normal_binades, c.bias).normal_cutoff;
     const BinaryKParamsT<double> bp = make_binaryK_params<double>(c.man_bits, c.exp_bits, c.bias, c.is_signed, c.sat,
                                                                   c.subm == SubnormalsMode::EXTENDED_NORMALS);
-    const SuperfpParamsT<double> sp = make_superfp_params<double>(c.man_bits, c.exp_bits, c.normal_binades, c.bias, c.sat);
+    const SuperfpParamsT<double> sp = make_superfp_params<double>(c.man_bits, c.exp_bits, c.normal_binades, c.bias,
+                                                                  c.is_signed, c.sat);
     Counts h;
     run_sweep(c, bp, sp, &h);
     ++checked;
@@ -744,6 +745,11 @@ static void short_list()
     run_case(sf(3, 4, 1, superfp_bias_for_cutoff(3, 4, 1, -1060), true, O));     // sh = -17
     run_case(sf(0, 6, 2, superfp_bias_for_cutoff(0, 6, 2, -1072), false, F));    // sh = -29, the window's bottom
     run_case(sf(2, 4, 16, 7, true, O));                                           // no supernormal codes
+    // P3109's reserved codes in an unsigned format: the NaN on the top code
+    // and the infinity below it, and with one mantissa bit the two fill the
+    // top binade
+    run_case(sf(3, 4, 1, 7, false, O));
+    run_case(sf(1, 4, 2, 7, false, O));
     // wide mantissas, whose supernormal cutoffs are below int's range and
     // clamped (superfp_region_cutoffs): odd, then twice even, which a clamp
     // to an odd value would flip, and round to odd reads it

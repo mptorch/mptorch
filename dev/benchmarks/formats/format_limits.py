@@ -302,7 +302,9 @@ def superfp_grid(
 ) -> Grid:
     normal_cutoff = ((1 << exp_bits) - 1 - bias) - normal_binades + 1
     super_cutoff = normal_cutoff - ((1 << exp_bits) - normal_binades) * (1 << man_bits) + 1
-    reserved = saturation != "SAT_FINITE"  # superfp spends no code on a NaN
+    # P3109's reserved codes, as for binaryK: the infinity outside the finite
+    # domain, and in an unsigned format the NaN above it
+    reserved = (saturation != "SAT_FINITE") + (0 if is_signed else 1)
     _, top_code, top_exp = _normal_range_top(exp_bits, man_bits, bias, reserved)
     sign = "s" if is_signed else "u"
     return Grid(
@@ -1358,6 +1360,7 @@ def _enforced(grid: Grid, a) -> str:
                     a.exp,
                     a.normal_binades,
                     a.bias,
+                    a.signed,
                     SaturationMode[a.saturation],
                     getattr(a, "prng_bits", 0),
                     carrier=getattr(torch, grid.carrier.dtype),
@@ -1413,6 +1416,7 @@ def _enforced_storage(grid: Grid, a, st: Storage, elementwise: bool) -> str:
                     a.exp,
                     a.normal_binades,
                     a.bias,
+                    a.signed,
                     SaturationMode[a.saturation],
                     storage=getattr(torch, st.name),
                     elementwise=elementwise,

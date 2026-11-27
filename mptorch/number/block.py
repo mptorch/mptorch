@@ -409,9 +409,9 @@ class BlockFormat(Number):
             raise ValueError(error)
         binary32_error = _block_part_error("element", elem, torch.float32)
 
-        # under SAT_FINITE an unsigned binaryK still reserves its top code for
-        # P3109's NaN; a signed one keeps its NaN at -0's code, and superfp has none
-        reserved = 0 if elem.is_signed or isinstance(elem, SuperFP) else 1
+        # under SAT_FINITE an unsigned binaryK or superfp still reserves its top
+        # code for P3109's NaN; a signed one keeps its NaN at -0's code
+        reserved = 0 if elem.is_signed else 1
         _, top_exp, top_code = _top_of_range(mf.exp_bits, mf.man_bits, mf.bias, reserved, _BINARY64)
         top = Fraction((1 << mf.man_bits) + top_code) * Fraction(2) ** (top_exp - mf.man_bits)
         if self.elem_max is None:
@@ -723,6 +723,7 @@ def _block_part_error(
             f.exp_bits,
             f.normal_binades,
             f.bias,
+            f.is_signed,
             SaturationMode.SAT_FINITE,
             f.prng_bits,
             carrier,
@@ -756,7 +757,7 @@ def _part_label(f: "BinaryK | SuperFP | FixedPoint | None") -> str:
     if isinstance(f, FixedPoint):
         return _fixedpoint_label(f.wl, f.fl, f.is_signed, f.symmetric)
     if isinstance(f, SuperFP):
-        return _superfp_label(f.man_bits, f.exp_bits, f.normal_binades, f.bias)
+        return _superfp_label(f.man_bits, f.exp_bits, f.normal_binades, f.bias, f.is_signed)
     if isinstance(f, BinaryK):
         return _binaryK_label(f.K, f.P, _bias(f), f.is_signed, f.subnormals)
     return repr(f)

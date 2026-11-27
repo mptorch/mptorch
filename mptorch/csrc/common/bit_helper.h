@@ -333,11 +333,11 @@ template <class W>
 using WordTraits = FloatTraits<typename CarrierOfWord<W>::type>;
 
 // Turns a -0.0 word into +0.0 and leaves every other word alone. IEEE P3109
-// has one zero, code point 0, and it is unsigned: in a signed binaryK format
-// the code that would hold -0.0 is the format's NaN, and superfp spends no
-// code on a negative zero either. So a result that rounds to zero is +0.0
-// whatever the sign of the value that got there, a -0.0 input included: the
-// value simulated is the format's, not the carrier's.
+// has one zero, code point 0, and it is unsigned: in a signed format, binaryK
+// or superfp, the code that would hold -0.0 is the format's NaN. So a result
+// that rounds to zero is +0.0 whatever the sign of the value that got there,
+// a -0.0 input included: the value simulated is the format's, not the
+// carrier's.
 //
 // A mask on the word, not a select: g++ compiles `((w << 1) == 0) ? 0u : w`
 // to a branch and this to a cmov, and vectorizes this form in a loop. A
@@ -687,10 +687,10 @@ struct NormalRangeParamsT
 // bias, in the carrier T. The top of the range is counted in code points,
 // the way IEEE P3109 assigns them (arXiv:2606.04028, Section VII): of the
 // top binade's 2^man_bits codes, the last `reserved_codes` hold no finite
-// value, and max_num is the largest code left. binaryK reserves P3109's
-// codes: +infinity except under SAT_FINITE (that is, in the extended domain,
-// SAT_FINITE_EXTENDED included) and, in an unsigned format, the NaN above
-// it. superfp reserves only the infinity.
+// value, and max_num is the largest code left. binaryK and superfp both
+// reserve P3109's codes: +infinity except under SAT_FINITE (that is, in the
+// extended domain, SAT_FINITE_EXTENDED included) and, in an unsigned format,
+// the NaN above it.
 //
 // With man_bits <= 1 the reserved codes can outnumber the top binade's, and
 // the largest finite code is then one or two binades lower. A format whose

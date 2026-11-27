@@ -71,7 +71,8 @@ namespace
     if (host.elem_family == static_cast<int>(BlockFamily::SUPERFP))
       s += "    c.elem_sfp = make_superfp_params<float>(" + i(at(BlockFmtField::ELEM_MAN_BITS)) + ", " +
            i(at(BlockFmtField::ELEM_EXP_BITS)) + ", " + i(at(BlockFmtField::ELEM_NORMAL_BINADES)) + ", " +
-           i(at(BlockFmtField::ELEM_BIAS)) + ", SaturationMode::SAT_FINITE);\n";
+           i(at(BlockFmtField::ELEM_BIAS)) + ", " + b(host.elem_signed) +
+           ", SaturationMode::SAT_FINITE);\n";
     else
       s += "    c.elem_bk = make_binaryK_params<float>(" + i(at(BlockFmtField::ELEM_MAN_BITS)) + ", " +
            i(at(BlockFmtField::ELEM_EXP_BITS)) + ", " + i(at(BlockFmtField::ELEM_BIAS)) + ", " +
@@ -83,7 +84,8 @@ namespace
       if (host.scale_family == static_cast<int>(BlockFamily::SUPERFP))
         s += "    c.scale_sfp = make_superfp_params<float>(" + i(at(BlockFmtField::SCALE_MAN_BITS)) + ", " +
              i(at(BlockFmtField::SCALE_EXP_BITS)) + ", " + i(at(BlockFmtField::SCALE_NORMAL_BINADES)) + ", " +
-             i(at(BlockFmtField::SCALE_BIAS)) + ", SaturationMode::SAT_FINITE);\n";
+             i(at(BlockFmtField::SCALE_BIAS)) + ", " + b(at(BlockFmtField::SCALE_SIGNED) != 0) +
+             ", SaturationMode::SAT_FINITE);\n";
       else
         s += "    c.scale_bk = make_binaryK_params<float>(" + i(at(BlockFmtField::SCALE_MAN_BITS)) + ", " +
              i(at(BlockFmtField::SCALE_EXP_BITS)) + ", " + i(at(BlockFmtField::SCALE_BIAS)) + ", " +

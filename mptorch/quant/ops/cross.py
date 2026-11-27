@@ -74,7 +74,14 @@ def _binaryK_superfp_spec(
     if mul_bias is None:
         mul_bias = _binaryK_bias(mul_K, mul_P, mul_is_signed)
     mul = (mul_K, mul_P, mul_bias, mul_is_signed, saturation_mode, subnormals_mode)
-    acc = (acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_saturation_mode)
+    acc = (
+        acc_man_bits,
+        acc_exp_bits,
+        acc_normal_binades,
+        acc_bias,
+        acc_is_signed,
+        acc_saturation_mode,
+    )
     return _cross_spec(
         torch.ops.mptorch.custom_matmul_binaryK_superfp.default,
         (
@@ -128,7 +135,7 @@ def _superfp_binaryK_spec(
         acc_saturation_mode = saturation_mode
     if acc_bias is None:
         acc_bias = _binaryK_bias(acc_K, acc_P, acc_is_signed)
-    mul = (mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, saturation_mode)
+    mul = (mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, saturation_mode)
     acc = (acc_K, acc_P, acc_bias, acc_is_signed, acc_saturation_mode, acc_subnormals_mode)
     return _cross_spec(
         torch.ops.mptorch.custom_matmul_superfp_binaryK.default,

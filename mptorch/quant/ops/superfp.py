@@ -136,7 +136,14 @@ def superfp_quantize(
     dtype = x.dtype
     wide, widen = _call_carrier(carrier, dtype)
     check_superfp_carrier(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=_CARRIER[wide]
+        man_bits,
+        exp_bits,
+        normal_binades,
+        bias,
+        is_signed,
+        saturation_mode,
+        prng_bits,
+        carrier=_CARRIER[wide],
     )
     if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_superfp_storage(
@@ -144,6 +151,7 @@ def superfp_quantize(
             exp_bits,
             normal_binades,
             bias,
+            is_signed,
             saturation_mode,
             storage=dtype,
             elementwise=True,
@@ -216,7 +224,14 @@ def superfp_quantize_(
     dtype = x.dtype
     wide, widen = _call_carrier(carrier, dtype)
     check_superfp_carrier(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=_CARRIER[wide]
+        man_bits,
+        exp_bits,
+        normal_binades,
+        bias,
+        is_signed,
+        saturation_mode,
+        prng_bits,
+        carrier=_CARRIER[wide],
     )
     if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_superfp_storage(
@@ -224,6 +239,7 @@ def superfp_quantize_(
             exp_bits,
             normal_binades,
             bias,
+            is_signed,
             saturation_mode,
             storage=dtype,
             elementwise=True,
@@ -271,7 +287,7 @@ def _superfp_quant_spec(
         rounding_mode.value,
         saturation_mode.value,
     )
-    fields = (man_bits, exp_bits, normal_binades, bias, saturation_mode)
+    fields = (man_bits, exp_bits, normal_binades, bias, is_signed, saturation_mode)
     return _quant_spec(
         ops,
         args,
@@ -330,11 +346,18 @@ def _superfp_spec(
         acc_normal_binades = acc_normal_binades or 0
         acc_bias = acc_bias or 0
 
-    mul = (mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, saturation_mode)
+    mul = (mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, saturation_mode)
     rounded: list[_Format] = [(_superfp_findings, (*mul, mul_prng_bits))]
     stored: tuple[_Stored, ...] = ()
     if accumulate_quant:
-        acc = (acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_saturation_mode)
+        acc = (
+            acc_man_bits,
+            acc_exp_bits,
+            acc_normal_binades,
+            acc_bias,
+            acc_is_signed,
+            acc_saturation_mode,
+        )
         rounded.append((_superfp_findings, (*acc, acc_prng_bits)))
         stored = ((check_superfp_storage, acc),)
 
@@ -647,7 +670,14 @@ def _superfp_fma_spec(
     rounded: list[_Format] = []
     stored: tuple[_Stored, ...] = ()
     if fma_quant:
-        fma = (fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias, saturation_mode)
+        fma = (
+            fma_man_bits,
+            fma_exp_bits,
+            fma_normal_binades,
+            fma_bias,
+            fma_is_signed,
+            saturation_mode,
+        )
         rounded.append((_superfp_findings, (*fma, fma_prng_bits)))
         stored = ((check_superfp_storage, fma),)
 
@@ -937,15 +967,17 @@ def _superfp_mixed_spec(
     rounded = _palette_formats(
         _superfp_findings,
         zip(mul_mb_l, mul_eb_l, mul_nb_l, mul_bias_l, strict=True),
-        (saturation_mode, mul_prng_bits),
+        (mul_is_signed, saturation_mode, mul_prng_bits),
     )
     stored: tuple[_Stored, ...] = ()
     if accumulate_quant:
         acc_widths = tuple(zip(acc_mb_l, acc_eb_l, acc_nb_l, acc_bias_l, strict=True))
         rounded += _palette_formats(
-            _superfp_findings, acc_widths, (acc_saturation_mode, acc_prng_bits)
+            _superfp_findings, acc_widths, (acc_is_signed, acc_saturation_mode, acc_prng_bits)
         )
-        stored = _palette_formats(check_superfp_storage, acc_widths, (acc_saturation_mode,))
+        stored = _palette_formats(
+            check_superfp_storage, acc_widths, (acc_is_signed, acc_saturation_mode)
+        )
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp_mixed.default,
@@ -1161,8 +1193,10 @@ def _superfp_fma_mixed_spec(
     stored: tuple[_Stored, ...] = ()
     if fma_quant:
         widths = tuple(zip(fma_mb_l, fma_eb_l, fma_nb_l, fma_bias_l, strict=True))
-        rounded = _palette_formats(_superfp_findings, widths, (saturation_mode, fma_prng_bits))
-        stored = _palette_formats(check_superfp_storage, widths, (saturation_mode,))
+        rounded = _palette_formats(
+            _superfp_findings, widths, (fma_is_signed, saturation_mode, fma_prng_bits)
+        )
+        stored = _palette_formats(check_superfp_storage, widths, (fma_is_signed, saturation_mode))
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default,

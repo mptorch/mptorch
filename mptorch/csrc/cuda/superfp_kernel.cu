@@ -97,7 +97,7 @@ namespace
         };
 
         const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
-            man_bits, exp_bits, normal_binades, bias, saturation_mode);
+            man_bits, exp_bits, normal_binades, bias, is_signed, saturation_mode);
 
         switch (round_mode)
         {
@@ -139,7 +139,7 @@ namespace
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
         const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
-            man_bits, exp_bits, normal_binades, bias, saturation_mode);
+            man_bits, exp_bits, normal_binades, bias, is_signed, saturation_mode);
         auto quantizer = SuperfpQuantizer<scalar_t, RoundMode::SR>{p, is_signed, prng_bits};
 
         int64_t max_threads = std::max(vec_size, rem_size);

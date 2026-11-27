@@ -22,16 +22,14 @@ normal binades, writing ``n = (2**exp_bits - b) * 2**man_bits``:
   ``2**supernormal_cutoff`` up to ``2**(normal_cutoff-1)``;
 * codes n and above are the normal region, ``(1 + t*2**-man_bits) *
   2**(e-bias)`` for the top b binades;
-* the extended domain (``SAT_NONE``, ``SAT_PROPAGATE``, ``SAT_FINITE_EXTENDED``)
-  spends the top code on an infinity, the finite domain (``SAT_FINITE``) does
-  not.
+* the special values are encoded as IEEE P3109 encodes them in a binaryK
+  (``binaryK_values.py``): a signed format's NaN is the code with only the
+  sign bit set, which a binary float would read as -0.0, and an unsigned
+  format's NaN is its top code; the extended domain (``SAT_NONE``,
+  ``SAT_PROPAGATE``, ``SAT_FINITE_EXTENDED``) spends the highest code left on
+  an infinity, the finite domain (``SAT_FINITE``) does not.
 
-SuperFP spends no code on a NaN, and none on a negative zero: a signed format's
-sign-bit-with-no-magnitude code encodes nothing, which is one of the two
-reasons the kernels never return -0.0 (P3109's single unsigned zero is the
-other). A NaN still passes through the cast unchanged, since what the kernels
-simulate is a value and not an encoding -- ``nan`` is printed for that reason,
-with ``(no code point)`` against it under ``--annotate``.
+The format has one zero, unsigned, and the kernels never return -0.0.
 
 Examples::
 
@@ -76,7 +74,7 @@ class Entry:
         negative: bool = False,
     ):
         self.code = code
-        self.kind = kind  # finite | inf | nan | unused
+        self.kind = kind  # finite | inf | nan
         self.region = region  # zero | supernormal | normal
         self.m = m
         self.e = e
@@ -113,12 +111,23 @@ def region_cutoffs(man_bits: int, exp_bits: int, normal_binades: int, bias: int)
     return normal_cutoff, supernormal_cutoff
 
 
-def sampled_codes(man_bits: int, exp_bits: int, normal_binades: int, per: int = 64) -> list[int]:
+def top_magnitude_code(man_bits: int, exp_bits: int, is_signed: bool) -> tuple[int, int]:
+    """The largest magnitude code that is not the NaN, and the NaN's code."""
+    codes = 1 << (exp_bits + man_bits)
+    if is_signed:
+        return codes - 1, codes  # the NaN is what a binary float reads as -0.0
+    return codes - 2, codes - 1  # the top code is the NaN
+
+
+def sampled_codes(
+    man_bits: int, exp_bits: int, normal_binades: int, is_signed: bool, per: int = 64
+) -> list[int]:
     """Magnitude codes of a format too wide to enumerate, for ``--verify``:
     the first and last 2**12 supernormal codes and 2**12 random ones, each
     normal field's first and last ``per`` codes and ``per`` random ones, and
-    2**16 codes anywhere. The top code, and so the infinity, is among them."""
-    top_magnitude = (1 << (exp_bits + man_bits)) - 1
+    2**16 codes anywhere. The top code below the NaN, and so the infinity, is
+    among them."""
+    top_magnitude, _ = top_magnitude_code(man_bits, exp_bits, is_signed)
     supernormal_codes = ((1 << exp_bits) - normal_binades) << man_bits
     rng = random.Random(man_bits * 1000 + exp_bits)
     n = 1 << 12
@@ -153,7 +162,7 @@ def enumerate_format(
     codes and their negatives."""
     normal_cutoff, supernormal_cutoff = region_cutoffs(man_bits, exp_bits, normal_binades, bias)
     supernormal_codes = ((1 << exp_bits) - normal_binades) << man_bits
-    top_magnitude = (1 << (exp_bits + man_bits)) - 1
+    top_magnitude, nan_code = top_magnitude_code(man_bits, exp_bits, is_signed)
     inf_magnitude = top_magnitude if saturation != "SAT_FINITE" else None
 
     entries: list[Entry] = []
@@ -176,18 +185,9 @@ def enumerate_format(
             if src.code == 0:
                 continue
             entries.append(
-                Entry(
-                    (1 << (exp_bits + man_bits)) | src.code,
-                    src.kind,
-                    src.region,
-                    src.m,
-                    src.e,
-                    negative=True,
-                )
+                Entry(nan_code | src.code, src.kind, src.region, src.m, src.e, negative=True)
             )
-        # the sign bit with no magnitude: superfp has no -0.0 and no NaN code
-        entries.append(Entry(1 << (exp_bits + man_bits), "unused"))
-    entries.append(Entry(-1, "nan"))  # a value the cast keeps, with no encoding
+    entries.append(Entry(nan_code, "nan"))
     return entries
 
 
@@ -326,7 +326,6 @@ def main() -> int:
     p.add_argument("--order", choices=("value", "code"), default="value")
     p.add_argument("--style", choices=("dec", "hex", "both"), default="dec")
     p.add_argument("--annotate", action="store_true", help="prefix each line with its code point")
-    p.add_argument("--unused", action="store_true", help="print the codes that encode nothing")
     p.add_argument("--summary", action="store_true", help="format, regions and counts, on stderr")
     p.add_argument(
         "--verify", action="store_true", help="round-trip every value through the kernel"
@@ -373,26 +372,22 @@ def main() -> int:
         args.bias,
         args.signed,
         args.saturation,
-        sampled_codes(args.man, args.exp, args.normal_binades) if sample else None,
+        sampled_codes(args.man, args.exp, args.normal_binades, args.signed) if sample else None,
     )
     if sample:
-        print(f"{len(entries) - 1} code points, sampled", file=sys.stderr)
+        print(f"{len(entries)} code points, sampled", file=sys.stderr)
         return verify(entries, args) and 1
-    shown = [e for e in entries if e.kind != "unused" or args.unused]
+    shown = list(entries)
     if args.order == "value":
         shown.sort(key=Entry.sort_key)
 
     out, outside64 = [], 0
     for e in shown:
-        if e.kind == "unused":
-            text = "(unused)"
-        else:
-            text, over = format_value(e, args.style)
-            outside64 += over
+        text, over = format_value(e, args.style)
+        outside64 += over
         if args.annotate:
             width = (args.exp + args.man + 4) // 4 + 2
-            code = "(no code point)" if e.code < 0 else f"{e.code:#0{width}x}"
-            out.append(f"{code}\t{e.region or e.kind}\t{text}")
+            out.append(f"{e.code:#0{width}x}\t{e.region or e.kind}\t{text}")
         else:
             out.append(text)
     print("\n".join(out))
@@ -405,12 +400,12 @@ def main() -> int:
             f"{'' if args.signed else ' unsigned'} {args.saturation}\n"
             f"  normal region 2**{normal_cutoff} and up, supernormal region "
             f"2**{supernormal_cutoff} to 2**{normal_cutoff - 1}, below that zero\n"
-            f"  {len(entries) - 1} code points: "
+            f"  {len(entries)} code points: "
             f"{sum(e.kind == 'finite' for e in entries)} finite "
             f"({sum(e.region == 'supernormal' for e in entries)} supernormal, "
             f"{sum(e.region == 'normal' for e in entries)} normal), "
             f"{sum(e.kind == 'inf' for e in entries)} infinite, "
-            f"{sum(e.kind == 'unused' for e in entries)} unused, no NaN code",
+            f"{sum(e.kind == 'nan' for e in entries)} NaN",
             file=sys.stderr,
         )
         if mags:

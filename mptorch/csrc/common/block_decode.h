@@ -1059,7 +1059,7 @@ namespace mptorch::block
     if (c.elem_family == static_cast<int>(BlockFamily::SUPERFP))
       c.elem_sfp = make_superfp_params<T>(at(BlockFmtField::ELEM_MAN_BITS), at(BlockFmtField::ELEM_EXP_BITS),
                                           at(BlockFmtField::ELEM_NORMAL_BINADES), at(BlockFmtField::ELEM_BIAS),
-                                          SaturationMode::SAT_FINITE);
+                                          c.elem_signed, SaturationMode::SAT_FINITE);
     else
       c.elem_bk = make_binaryK_params<T>(at(BlockFmtField::ELEM_MAN_BITS), at(BlockFmtField::ELEM_EXP_BITS),
                                          at(BlockFmtField::ELEM_BIAS), c.elem_signed, SaturationMode::SAT_FINITE,
@@ -1068,9 +1068,10 @@ namespace mptorch::block
     if (at(BlockFmtField::SCALE_KIND) == static_cast<int>(ScaleKind::MINIFLOAT))
     {
       if (c.scale_family == static_cast<int>(BlockFamily::SUPERFP))
-        c.scale_sfp = make_superfp_params<T>(at(BlockFmtField::SCALE_MAN_BITS), at(BlockFmtField::SCALE_EXP_BITS),
-                                             at(BlockFmtField::SCALE_NORMAL_BINADES),
-                                             at(BlockFmtField::SCALE_BIAS), SaturationMode::SAT_FINITE);
+        c.scale_sfp = make_superfp_params<T>(
+            at(BlockFmtField::SCALE_MAN_BITS), at(BlockFmtField::SCALE_EXP_BITS),
+            at(BlockFmtField::SCALE_NORMAL_BINADES), at(BlockFmtField::SCALE_BIAS),
+            at(BlockFmtField::SCALE_SIGNED) != 0, SaturationMode::SAT_FINITE);
       else
         c.scale_bk = make_binaryK_params<T>(
             at(BlockFmtField::SCALE_MAN_BITS), at(BlockFmtField::SCALE_EXP_BITS), at(BlockFmtField::SCALE_BIAS),
