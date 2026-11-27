@@ -710,9 +710,10 @@ on a vendor GEMM and returns the kernel's words, word for word:
   to overflow (1,023 terms for ``FixedPoint(8, 7)`` operands into
   ``FixedPoint(25, 14)``, 131,071 into ``FixedPoint(32, 14)``), that its
   operands are float32 or float64, and that it is large enough to gain: at
-  least :math:`2^{20}` mac steps on the CPU and :math:`2^{25}` on CUDA and
-  MPS, where each call spends about 200 us launching the route's small
-  operations.
+  least :math:`2^{18}` mac steps on a CPU that runs ``torch._int_mm`` and
+  :math:`2^{16}` on one that runs the float matmul, :math:`2^{22}` on MPS,
+  and :math:`2^{25}` on CUDA, where each call spends about 200 us launching
+  the route's small operations.
 - **NaN.** A NaN operand reaches the same rows and columns as in the kernel,
   as the carrier's canonical quiet NaN, which is what the integer
   accumulator returns.

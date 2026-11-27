@@ -50,7 +50,11 @@ Q0.7 into (32, 14), the route           4.8        8.1       1.6     0.18
 =================================  ========  =========  ========  ========
 
 On CUDA about 200 us of each routed call is launching its small operations,
-which is why the route takes only calls of at least 2^25 steps there.
+which is why the route takes only calls of at least 2^25 steps there. The
+thresholds (``_exact._MIN_STEPS``) are break-evens measured with
+``--all-sizes --sizes 24 32 40 48 64 80 96 112 128 160 192 256`` on the CPU,
+once per engine at 1 and 16 threads, and ``--sizes 128 192 256 288 320 352
+384 448 512`` on CUDA.
 
 Results (2026-11-25, RTX 4060 and the Ryzen 7940HS at 4.6-4.7 GHz; ps per
 mac step; SR with the GEMM's own stochastic cast and the integer rounding

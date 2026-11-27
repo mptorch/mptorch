@@ -351,16 +351,19 @@ def test_a_compiled_layer_on_the_route_gives_the_kernels_words(monkeypatch, engi
     assert _same(compiled, eager)
 
 
-@pytest.mark.parametrize("n, routed", [(32, False), (128, True)])
-def test_small_gemms_keep_the_kernel(monkeypatch, n, routed):
-    # the default threshold on the CPU, 2^20 mac steps: 32^3 is below it and
-    # 128 x 128 x 64 is at it
+@pytest.mark.parametrize("engine", ["int", "float"])
+@pytest.mark.parametrize("routed", [False, True])
+def test_small_gemms_keep_the_kernel(monkeypatch, engine, routed):
+    # each CPU engine's threshold: a 64 x 64 x N call of exactly its mac
+    # steps takes the route, and one column fewer keeps the kernel
+    monkeypatch.setattr(exact, "_CPU_ENGINE", engine)
     seen = []
     for name in ("_int_mm", "_float_mm"):
         real = getattr(exact, name)
         monkeypatch.setattr(exact, name, lambda a, b, real=real: seen.append(1) or real(a, b))
-    a = Quant(Q07)(_inputs((n, 64 if routed else n), "cpu"))
-    b = Quant(Q07)(_inputs((64 if routed else n, n), "cpu"))
+    n = exact._MIN_STEPS[f"cpu-{engine}"] // (64 * 64) - (0 if routed else 1)
+    a = Quant(Q07)(_inputs((64, 64), "cpu"))
+    b = Quant(Q07)(_inputs((64, n), "cpu"))
     out = exact.run_exact(_route(), spec_for_mac(NARROW), a, b, False, False)
     assert bool(seen) is routed
     assert _same(out, exact._run_gemm(spec_for_mac(NARROW), a, b, False, False))

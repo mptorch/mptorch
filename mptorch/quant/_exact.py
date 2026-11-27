@@ -66,19 +66,23 @@ from .ops._spec import _GemmSpec, _run_gemm
 #: Whether calls take the route at all; the tests and timings compare both.
 _ENABLED = True
 
-#: The smallest GEMM, in mac steps (M x N x K), that takes the route on
-#: each device. The route's code conversions, NaN masks and scaling are a
-#: dozen small tensor operations, which cost more than the kernel below these
-#: sizes. Measured on a Ryzen 7940HS at 4.8 GHz and an RTX 4060 (2026-11-27),
-#: kernel / route at n^3 with Q0.7 operands into (25, 14):
+#: The smallest GEMM, in mac steps (M x N x K), that takes the route on each
+#: device, and on the CPU for each engine (``_CPU_ENGINE``). The route's code
+#: conversions, NaN masks and scaling are a dozen small tensor operations,
+#: which cost more than the kernel below these sizes. Kernel / route at n^3
+#: with Q0.7 operands into (25, 14), on a Ryzen 7940HS at 4.8 GHz and an RTX
+#: 4060 (2026-11-27), and on an M3 Pro:
 #:
-#: - CPU, 1 thread: 1.05x at 32^3, 5x at 64^3, 25x at 128^3, 53x at 256^3;
-#: - CPU, 16 threads: 0.9x at 64^3, 1.1x at 96^3, 2.3x at 128^3, 7x at 256^3;
-#: - CUDA: 0.13x at 128^3 and 0.9x at 256^3, since about 200 us of each call
-#:   is launching the small operations, then 2.9x at 384^3.
-#:
-#: MPS takes CUDA's until a Mac measures its own break-even.
-_MIN_STEPS = {"cpu": 1 << 20, "cuda": 1 << 25, "mps": 1 << 25}
+#: - the Ryzen's CPU, the int engine: 1.1x at 2^15 steps and 7x at 2^18 on
+#:   one thread; on 16 threads 0.75-0.88x at 2^16-2^16.8, where the route's
+#:   small operations go multithreaded, then 1.08x at 2^18 and 1.4x at 2^19;
+#: - the Ryzen's CPU, the float engine: 1.06x at 2^13.8 and 3.6x at 2^16 on
+#:   one thread; 0.99x at 2^15 and 1.2x at 2^16 on 16 threads;
+#: - the M3 Pro's CPU, the float engine: 1.9x at 2^15 on 1 and 11 threads;
+#: - CUDA: 0.73x at 2^24 and 0.99-1.08x at 2^24.5, since about 200 us of
+#:   each call is launching the small operations, then 1.4x at 2^25;
+#: - MPS: 0.7x at 2^18, about 1.1x at 2^21 and 1.3x at 2^22.8.
+_MIN_STEPS = {"cpu-int": 1 << 18, "cpu-float": 1 << 16, "cuda": 1 << 25, "mps": 1 << 22}
 
 #: The CPU's engine: ``"int"`` (``_int_mm``) where torch has oneDNN, whose
 #: int8 GEMM it calls, and ``"float"`` (the float matmul) where it has not.
@@ -338,13 +342,14 @@ def run_exact(
     M = a.shape[-1] if trans_a else a.shape[-2]
     N = b.shape[-2] if trans_b else b.shape[-1]
     batch = a.shape[0] if a.dim() == 3 else b.shape[0] if b.dim() == 3 else 1
+    device = f"cpu-{_CPU_ENGINE}" if a.device.type == "cpu" else a.device.type
     if (
         not _ENABLED
         or dtype not in route.dtypes
         or b.dtype is not dtype
-        or a.device.type not in _MIN_STEPS
+        or device not in _MIN_STEPS
         or K > route.k_max
-        or M * N * K * batch < _MIN_STEPS[a.device.type]
+        or M * N * K * batch < _MIN_STEPS[device]
     ):
         return _run_gemm(spec, a, b, trans_a, trans_b)
     _checked(spec, dtype)
