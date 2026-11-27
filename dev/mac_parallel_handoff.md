@@ -100,10 +100,10 @@ this document assigns to the Mac with a sync point.
 | M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | after M6b (SP-AK delivered, `64ac91e`) | yes |
 | M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | now (SP-S delivered, `d72fa3d`) | yes |
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | the baseline done (`8bbfbf6`); the second half now (step 2 delivered, the commit adding this) | yes |
-| M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | now | no |
-| M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
-| M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | now (SP-AS delivered for steps 1-2) | yes |
-| M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | done (report `adb0fea`; its hunk applied in the commit closing section 16); the new sweep pass on NEON open | yes |
+| M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | done (report `3bdad4f`; its findings set AN-b's device gate and CPU engines in `53610bc`) | no |
+| M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | done (report `cc4b223`, on `53610bc`; its threshold suggestions taken up in `2d21c0b`) | yes |
+| M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | done (report `cc4b223` on `8ef5cdd`; step 3's loops, `daa9304`, in `adb0fea`) | yes |
+| M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | done (report `adb0fea`; its hunk applied in `de279ae`, whose new sweep pass passed on NEON in `ebcf210`) | yes |
 | M13 | superfp's NaN as P3109 encodes it: the MPS source generators that now pass the sign, and the tests and sweep over the new top of an unsigned format | now (`d2b40a9`) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
@@ -195,8 +195,8 @@ timing. Lint any Python you change, as CI does:
 | **SP-AK** (delivered, `64ac91e`) | AK's palette tiles, NEON included, written on Linux and checked on x86 | M7 |
 | **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. M4 had to be merged before Linux started S, since S wraps the GEMM policies, the fixed-point ones included: merged (`e72a53b`) |
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
-| **SP-ANb** (planned) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
-| **SP-AS** (delivered for steps 1-2, the commit adding M11's brief) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
+| **SP-ANb** (delivered, `53610bc`) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
+| **SP-AS** (delivered: `8ef5cdd`, `daa9304`) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
 | **SP-AT** (delivered: `2d21c0b`, `a6b622d`) | narrow CPU tiles (the profile's finding; `odd::add` left as it is) and AN-b's thresholds | M12 |
 | **SP-SFP** (delivered, `d2b40a9`) | superfp's NaN on P3109's codes, in every builder of superfp parameters, the MPS source generators included | M13 |
 
