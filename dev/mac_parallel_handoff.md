@@ -100,6 +100,10 @@ this document assigns to the Mac with a sync point.
 | M7 | AK's NEON tiles: build, test, sweep and tune on the M3 Pro | after M6b (SP-AK delivered, `64ac91e`) | yes |
 | M8 | S's MPS part: the counting variant of `gemm.metal` and its entries | now (SP-S delivered, `d72fa3d`) | yes |
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | the baseline done (`8bbfbf6`); the second half now (step 2 delivered, the commit adding this) | yes |
+| M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | now | no |
+| M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
+| M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | at SP-AS (planned 2026-11-27) | yes |
+| M12 | AT, the odd carrier's step on a single chain: the host change under Apple clang | at SP-AT (planned 2026-11-27) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
@@ -190,6 +194,9 @@ timing. Lint any Python you change, as CI does:
 | **SP-AK** (delivered, `64ac91e`) | AK's palette tiles, NEON included, written on Linux and checked on x86 | M7 |
 | **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. M4 had to be merged before Linux started S, since S wraps the GEMM policies, the fixed-point ones included: merged (`e72a53b`) |
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
+| **SP-ANb** (planned) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
+| **SP-AS** (planned) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
+| **SP-AT** (planned) | the odd carrier's host change, if AT's profile justifies one | M12 |
 
 Linux will say at each point which commit it is, and the user relays it.
 
@@ -859,11 +866,217 @@ The bar: every batched case equal to the loop on MPS, and the timings with
 the method of the baseline. Report in `dev/mac_parallel_report.md`, a new
 section "M9: AL step 2 on MPS", committed and pushed as usual.
 
-## 13. Later, when their phases are refined
+## 13. The gaps apytypes found (planned 2026-11-27): M10 to M12
+
+A comparison with apytypes (a CPU library of custom fixed- and
+floating-point arrays, <https://github.com/apytypes/apytypes>) agreed word
+for word with mptorch wherever the two define a computation alike. It found
+four places where apytypes is faster on the CPU, and Linux plans three
+phases to close them, in this order:
+
+- **AN-b:** the exact int8 route for fixed-point GEMMs;
+- **AS:** CPU vector tiles for the directed modes;
+- **AT:** the odd carrier's step on a single chain.
+
+Each has a Mac stage below. Its section says now what the Mac will do; what
+Linux built, the commit and the measurements to compare against are filled
+in when the phase lands, as M7's section was.
+
+## 14. M10: the exact int8 route (M10a now, M10b at SP-ANb)
+
+**What AN-b is.** When every product of a fixed-point GEMM is exact in its
+multiply format and every partial sum is exact in its accumulate format, the
+result is the exact integer sum. Any exact engine then gives the same words,
+and `torch._int_mm` (int8 x int8 -> int32) gives them about 200x faster than
+the integer accumulator on the Ryzen (3.5 / 0.89 against 954 / 190 ps a step
+at 512^3, 1 / 16 threads; 0.34 against 10 on CUDA).
+
+- The route is chosen when a recipe's layer is built, where the operands'
+  quantizers are known: both `Quant(FixedPoint)` of at most 8 bits, a
+  saturating split or fused mac whose grids hold every product and sum, not
+  SR, not counted.
+- At the call, it checks a bound on K. Python only: no C++, no Metal.
+
+### 14.1 M10a, now: `torch._int_mm` on the Mac
+
+It needs only the current tree and stock PyTorch. Linux writes AN-b's device
+gate from what it finds:
+- **On MPS:** if `_int_mm` runs there and is exact, the route covers MPS.
+- **On the arm64 CPU:** the 200x on the Ryzen comes from PyTorch's x86 int8
+  GEMM. If arm64's `_int_mm` is a slow fallback, the route needs a platform
+  gate.
+
+**What Linux found on its side** (the probe below, Ryzen and RTX 4060):
+- `_int_mm` is exact on the CPU and on CUDA.
+- The CPU takes any shape. CUDA needs K and N multiples of 8, and M a
+  multiple of 32: of M = 17 to 128 it took only 32, 64, 96 and 128; M <= 16
+  is refused by torch, and other M by cuBLASLt. A transposed weight (the
+  Linear layout) works on both.
+- The words equal both of today's fixed-point paths below.
+- At 512^3, ps a step:
+
+  | path | CPU 1 thread | CPU 8 threads | CUDA |
+  |---|---|---|---|
+  | `fixedpoint_matmul`, wide accumulator (32, 14) | 1,021 | 245 | 10.5 |
+  | `fixedpoint_matmul`, accumulator (25, 14) | 983 | 244 | 10.2 |
+  | `torch._int_mm` | 3.7 | 1.0 | 0.34 |
+
+**The Mac's part:** run this probe (it picks MPS when it is there) under
+`uv run --no-sync python`, and report its output. On MPS, the wide row is
+expected to refuse, since a wide fixed-point result is not computed on MPS.
+
+```python
+import statistics
+import time
+
+import torch
+
+from mptorch.quant import fixedpoint_matmul, fixedpoint_quantize
+
+ACC = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else None
+
+
+def sync(dev):
+    if dev == "mps":
+        torch.mps.synchronize()
+    elif dev == "cuda":
+        torch.cuda.synchronize()
+
+
+def timed(fn, dev, reps=5):
+    fn()
+    sync(dev)
+    ts = []
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        fn()
+        sync(dev)
+        ts.append(time.perf_counter() - t0)
+    return statistics.median(ts)
+
+
+# 1. Does _int_mm run, and is it exact? (int64 reference on the CPU)
+g = torch.Generator().manual_seed(0)
+for dev in ["cpu", ACC]:
+    if dev is None:
+        continue
+    a = torch.randint(-128, 128, (64, 1 << 16), generator=g, dtype=torch.int8)
+    b = torch.randint(-128, 128, (1 << 16, 48), generator=g, dtype=torch.int8)
+    try:
+        out = torch._int_mm(a.to(dev), b.to(dev)).cpu()
+        print(dev, "exact:", bool((out.long() == a.long() @ b.long()).all()), out.dtype)
+    except Exception as e:
+        print(dev, "_int_mm failed:", type(e).__name__, str(e).splitlines()[0][:120])
+        continue
+    for m, k, n in [(1, 64, 64), (16, 64, 64), (17, 64, 64), (24, 64, 64), (64, 60, 64), (64, 64, 60)]:
+        x = torch.ones(m, k, dtype=torch.int8, device=dev)
+        y = torch.ones(k, n, dtype=torch.int8, device=dev)
+        try:
+            torch._int_mm(x, y)
+            r = "ok"
+        except Exception as e:
+            r = str(e).splitlines()[0][:90]
+        print(" ", dev, (m, k, n), r)
+    w = torch.randint(-128, 128, (32, 64), generator=g, dtype=torch.int8)
+    x = torch.randint(-128, 128, (64, 64), generator=g, dtype=torch.int8)
+    got = torch._int_mm(x.to(dev), w.to(dev).t()).cpu().long()
+    print(" ", dev, "transposed weight (Linear layout):", torch.equal(got, x.long() @ w.long().t()))
+
+# 2. Speed at 512^3: _int_mm against today's fixed-point GEMM on the same values
+n = 512
+a = fixedpoint_quantize(torch.rand(n, n, generator=g) - 0.5, 8, 7)
+b = fixedpoint_quantize(torch.rand(n, n, generator=g) - 0.5, 8, 7)
+ai, bi = (a * 128).to(torch.int8), (b * 128).to(torch.int8)
+paths = {
+    # wide: the accumulate format outgrows float32, the result is float64 (not on MPS)
+    "fixedpoint_matmul, wide (32, 14)": lambda a, b: fixedpoint_matmul(a, b, mul_wl=16, mul_fl=14, acc_wl=32, acc_fl=14),
+    # not wide, the integer accumulator: what MPS can run
+    "fixedpoint_matmul, (25, 14)": lambda a, b: fixedpoint_matmul(a, b, mul_wl=16, mul_fl=14, acc_wl=25, acc_fl=14),
+}
+exact = (torch._int_mm(ai, bi).double() / 2**14)
+for name, f in paths.items():
+    print(f"words equal, {name}:", torch.equal(f(a, b).double(), exact))
+for threads in (1, torch.get_num_threads()):
+    torch.set_num_threads(threads)
+    for name, f in paths.items():
+        print(f"cpu {threads} thr, {name}: {timed(lambda: f(a, b), 'cpu') / n**3 * 1e12:.4g} ps/step")
+    print(f"cpu {threads} thr, torch._int_mm: {timed(lambda: torch._int_mm(ai, bi), 'cpu') / n**3 * 1e12:.4g} ps/step")
+if ACC is not None:
+    ad, bd, aid, bid = a.to(ACC), b.to(ACC), ai.to(ACC), bi.to(ACC)
+    for name, f in paths.items():
+        try:
+            print(f"{ACC}, {name}: {timed(lambda: f(ad, bd), ACC, 10) / n**3 * 1e12:.4g} ps/step")
+        except Exception as e:
+            print(f"{ACC}, {name}: refused ({str(e).splitlines()[0][:80]})")
+    try:
+        print(f"{ACC}, torch._int_mm: {timed(lambda: torch._int_mm(aid, bid), ACC, 10) / n**3 * 1e12:.4g} ps/step")
+    except Exception as e:
+        print(f"{ACC}, torch._int_mm failed: {str(e).splitlines()[0][:80]}")
+```
+
+### 14.2 M10b, at SP-ANb: the route on the Mac
+
+**What Linux built:** (filled in at SP-ANb).
+
+**The Mac's part:**
+- `tests/test_fixedpoint_exact_route.py`, `tests/test_fixedpoint_layers.py`,
+  `tests/test_fixedpoint_mps.py` and the suite, on the commit.
+- Timing on the arm64 CPU, and on MPS if M10a enabled it:
+  `dev/benchmarks/timing/fixedpoint_gemm.py` with the route on and off
+  (`_exact._ENABLED`), alternated, at 1 and 11 threads.
+
+## 15. M11, at SP-AS: the NEON word tiles
+
+**What AS is.** On the CPU the vector tiles (phase P's `cpu/gemm_rne_tile.cpp`,
+AK's palette tiles, the odd tiles) serve RNE only. The other deterministic
+modes run the scalar casts, which branch on the sign and the binade.
+- On the Ryzen, RZ takes 10.9 ns a mac step on one thread (21 ns with the
+  odd carrier), against 0.44 for RNE, and slower than apytypes's 12.3.
+- AS adds a branchless word form of the binaryK casts for RU, RD, RZ, RNA
+  and RO, `common/cast_binaryK_word.h` (host only; never in the Metal
+  prelude). Over it come vector tiles for the split, product-only and fused
+  macs, NEON included, and optionally the elementwise quantizers' loop.
+
+**What Linux built:** (filled in at SP-AS).
+
+**The Mac's part:**
+- Build; `tests/test_cpu_simd.py` (the new modes' cases), the carrier
+  rounding and accumulator tests, and the suite.
+- `dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp` and the word tile sweep
+  under Apple clang, as section 4.3 builds the others, each with its
+  `control`, which must mismatch.
+- Timing: the GEMM under RU, RD and RZ (nearest and odd carriers) at 1 and
+  11 threads, alternated with `MPTORCH_CPU_SIMD=0`. Add the elementwise
+  quantizers if step 3 was built.
+- NEON layout choices, if the M3 Pro prefers one: measure, report and
+  propose. The tile files are Linux's, so a NEON-only change goes to Linux
+  as a hunk.
+
+## 16. M12, at SP-AT: the odd carrier's step on a single chain
+
+**What AT is.** A `qsum` of a whole vector is one output, so one k-order
+chain. On the Ryzen it costs 27 ns an element with the odd carrier against
+8.4 with the nearest carrier, because the host's binary32 `odd::add`
+(`common/carrier_odd.h`, binary64 arithmetic) adds about 19 ns to each step's
+latency. AT profiles it and ships a lower-latency `odd::add` only if it gains
+at least 1.3x.
+
+**What Linux built:** (filled in at SP-AT, or "closed" if the profile says
+so).
+
+**The Mac's part:**
+- `tests/test_carrier_rounding.py`, `tests/test_accumulators.py`'s odd cases,
+  `dev/benchmarks/sweeps/cpu_odd_tile_sweep.cpp` under Apple clang (with its
+  control), and the suite.
+- Timing: `qsum` of 2^20 values with both carriers, at 1 thread, before and
+  after, alternated.
+
+## 17. Later, when their phases are refined
 
 None of these is planned in detail; each will get its own brief:
-- **AN** (integer operands for the fixed-point GEMM): a code-tile branch in
-  the Metal GEMM kernel, beside the CPU's and CUDA's.
+- **AN** (integer operands for the fixed-point GEMM): its step 1 (AN-b) is
+  M10a and M10b; the rest, a code-tile branch in the Metal GEMM kernel beside the
+  CPU's and CUDA's, stays for later.
 - **AO** (CPU vector tiles for the fixed-point GEMM): NEON, as M7.
 - **AP** (a fast RNE path for the elementwise fixed-point quantizer): the
   Metal quantizer (`quantize.metal`, a root: cold cache).
@@ -871,7 +1084,7 @@ None of these is planned in detail; each will get its own brief:
   accumulator): possibly a 128-bit accumulator, which Metal would emulate
   further or refuse.
 
-## 14. What to report, per task
+## 18. What to report, per task
 
 - the commit the task ran at, the machine and its state (AC power, thermal);
 - each command, and the lines of its output that the task's bar names;
