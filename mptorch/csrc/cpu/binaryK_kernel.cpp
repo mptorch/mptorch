@@ -3,6 +3,7 @@
 #include "../common/modes.h"
 #include "../common/dispatch.h"
 #include "utils.h"
+#include "binaryK_quant_vector.h"
 #include <ATen/ops/empty_like.h>
 
 using namespace at;
@@ -72,6 +73,21 @@ namespace
     const BinaryKParamsT<carrier_t<scalar_t>> p = make_binaryK_params<carrier_t<scalar_t>>(
         man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
+
+    // A float32 tensor in a format whose cast the vector loops of
+    // cpu/binaryK_quant_vector.cpp compute runs them, with the scalar loop's
+    // words.
+    if constexpr (std::is_same_v<scalar_t, float> && IsSigned)
+    {
+      const mptorch_cpu::VectorQuantFn f =
+          mptorch_cpu::vector_quants.run[static_cast<int>(round_mode)];
+      if (f && mptorch_cpu::vector_quant_format(round_mode, subnormals_mode, p))
+      {
+        at::parallel_for(0, size, mptorch_cpu::quant_grain_size, [=](int64_t begin, int64_t end)
+                         { f(a + begin, o + begin, end - begin, p); });
+        return;
+      }
+    }
 
     switch (round_mode)
     {

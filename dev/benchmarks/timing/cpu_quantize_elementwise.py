@@ -26,6 +26,14 @@ Each row of a pair therefore first refills a scratch tensor from the source
 out of place or in place. The difference between the two rows is the output
 allocation and its first-touch page faults, which is all the in-place op saves:
 the kernel reads and writes the same number of bytes either way.
+
+On float32 in every deterministic mode the binaryK rows run the vector loops
+of ``cpu/binaryK_quant_vector.cpp``. ``MPTORCH_CPU_SIMD=0`` keeps the scalar
+loop: alternate the two settings for an A/B. Pin glibc's malloc thresholds
+(``MALLOC_MMAP_THRESHOLD_=1073741824 MALLOC_TRIM_THRESHOLD_=2147483648``), or
+every out-of-place call maps its output afresh and pays its page faults. On
+sixteen threads under WSL the medians were bimodal even so (2.0 or 3.6 ms for
+one SR row whose code was the same in both settings), so repeat those runs.
 """
 
 import statistics

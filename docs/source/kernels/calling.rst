@@ -466,6 +466,17 @@ Performance notes
   step), under ``RU`` and ``RD`` from 10.0 to 2.1 ns, and under ``RNA`` and
   ``RO`` from 3.4-3.8 to 1.0 ns; 3.4-9.3x faster on sixteen threads.
 
+  The elementwise quantizer (:func:`~mptorch.quant.binaryK_quantize`, its
+  in-place twin, and a :class:`~mptorch.quant.Quant` of a BinaryK) runs
+  vector code on a float32 tensor in every deterministic mode, with the
+  scalar loop's words: under ``RoundMode.RNE`` for the formats the RNE tiles
+  take, and in the five other modes for the formats theirs take. On
+  2\ :sup:`22` elements and one Ryzen thread an element takes 0.22 ns under
+  ``RNE`` (1.33 ns in the scalar loop), 0.44-0.51 ns under ``RNA`` and
+  ``RO`` (1.4 ns), 0.70 ns under ``RZ`` (4.6 ns), and 1.0 ns under ``RU``
+  and ``RD`` (4.6-4.9 ns). On sixteen threads every mode runs at about the
+  speed of a copy.
+
   Stochastic rounding, every other format and every other accumulate
   algorithm run the scalar loop, and so does every call under the
   environment variable ``MPTORCH_CPU_SIMD=0``, which is read when mptorch

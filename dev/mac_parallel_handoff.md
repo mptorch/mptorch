@@ -1088,8 +1088,8 @@ modes run the scalar casts, which branch on the sign and the binade.
   prelude). Over it come vector tiles for the split, product-only and fused
   macs, NEON included, and optionally the elementwise quantizers' loop.
 
-**What Linux built** (steps 1 and 2, the commit adding this text; step 3,
-the elementwise quantizers, follows in its own commit):
+**What Linux built** (steps 1 and 2 in `8ef5cdd`; step 3, the elementwise
+quantizer, in the commit adding this line):
 - `common/cast_binaryK_word.h`: the five casts as straight-line copies of
   the shipped casts' arms, one selected by mask, from the existing
   `BinaryKParams` fields. It admits signed formats under SUBNORMALS with 1
@@ -1124,14 +1124,36 @@ the elementwise quantizers, follows in its own commit):
   - split RU and RD about 9,990 -> 2,050 / 910-1,040 -> 255;
   - split RNA and RO 3,390-3,770 -> 980-1,030 / 460-500 -> 120-133;
   - the fused macs 3-5x.
+- **Step 3, the elementwise quantizer:**
+  - `cpu/binaryK_quant_vector.{h,cpp}` holds one vector loop per
+    deterministic mode and ISA (NEON included): RNE over the shipped
+    `cast_binaryK_rne_fast`, the five others over the word casts.
+    `binaryK_quantize` and its in-place twin take them on float32 tensors,
+    for the formats whose scalar cast the loops compute
+    (`vector_quant_format`), through an `if constexpr` branch in
+    `cpu/binaryK_kernel.cpp`'s deterministic driver.
+  - No NaN hand-back is needed: a cast reads one element.
+  - Gates:
+    - `dev/benchmarks/sweeps/cpu_quant_vector_sweep.cpp`: every word through
+      the shipped loops, out of place and in place, against the scalar
+      casts, 0 mismatches at AVX-512 and AVX2; its control bites;
+    - `tests/test_cpu_simd.py`'s quantizer cases (random words, chunks,
+      unaligned starts, in place). The test bites: a build that dropped each
+      chunk's last element changed exactly the admitted formats' keys.
+  - Linux, `dev/benchmarks/timing/cpu_quantize_elementwise.py`, 2^22
+    float32 E4M3, one thread, ms: RNE 5.57 -> 0.93, RNA 5.73 -> 2.12, RU and
+    RD 19.2-20.6 -> 4.2, RZ 19.2 -> 2.93, RO 6.06 -> 1.85. On sixteen threads
+    the six modes run at about a copy's speed.
 
 **The Mac's part:**
 - Build; `tests/test_cpu_simd.py` (the new modes' cases), the carrier
   rounding and accumulator tests, and the suite.
-- `dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp` and
-  `cpu_word_tile_sweep.cpp` under Apple clang, as section 4.3 builds the
-  others (both files' headers give their build lines; the tile sweep
-  compiles `cpu/gemm_word_tile.cpp` and `cpu/gemm_word_odd_tile.cpp` in),
+- `dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp`,
+  `cpu_word_tile_sweep.cpp` and `cpu_quant_vector_sweep.cpp` under Apple
+  clang, as section 4.3 builds the others (each file's header gives its build
+  line; the tile sweep compiles `cpu/gemm_word_tile.cpp` and
+  `cpu/gemm_word_odd_tile.cpp` in, the quantizer sweep
+  `cpu/binaryK_quant_vector.cpp`),
   each with its `control`, which must mismatch. The NEON arms have never run
   anywhere.
 - **Timing:** the GEMM under RU, RD, RZ, RNA and RO, with the nearest and
@@ -1139,11 +1161,17 @@ the elementwise quantizers, follows in its own commit):
   `MPTORCH_CPU_SIMD=0`. The plan's timing script is simple to reproduce:
   `binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=11,
   rounding_mode=m)` at 512^3, `carrier_rounding=RoundMode.RO` for the odd
-  rows. Add the elementwise quantizers once step 3 lands.
-- **Vectorization:** check that the NEON tiles vectorize. Count vector
+  rows. The elementwise quantizer: `cpu_quantize_elementwise.py` at one
+  thread and 11, alternated with `MPTORCH_CPU_SIMD=0`. The glibc thresholds
+  in the tool's docstring do not apply to macOS's allocator: if the
+  out-of-place rows look noisy, compare the in-place rows, which allocate
+  nothing.
+- **Vectorization:** check that the NEON code vectorizes. Count vector
   instructions in the `split_ru_neon`, `split_rz_neon` and similar functions
-  of the tile objects, as Linux did for AVX-512, where the RU/RD tiles first
-  came out scalar.
+  of the tile objects, and in `rne_neon`, `rz_neon`, `ru_neon` and the
+  others of `binaryK_quant_vector.o`, as Linux did for AVX-512, where the
+  RU/RD tiles
+  first came out scalar.
 - NEON layout choices, if the M3 Pro prefers one: measure, report and
   propose. The tile files are Linux's, so a NEON-only change goes to Linux
   as a hunk.

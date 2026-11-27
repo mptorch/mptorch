@@ -1,20 +1,26 @@
-"""The CPU GEMM's vectorized RNE tiles return the scalar kernel's words.
+"""The CPU's vector code returns the scalar loops' words.
 
-``cpu/gemm_rne_tile.cpp`` runs a binaryK RNE GEMM's packed tiles through a
-vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
-it, ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
-(``carrier_rounding=RoundMode.RO``), ``cpu/gemm_palette_tile.h`` runs both per
-palette entry for the palette GEMMs, and ``cpu/pointwise_rne.cpp`` serves the
-fused pointwise ops (``qadd`` and its siblings), and ``cpu/gemm_word_tile.cpp`` serves the
-deterministic modes without a fast path (RNA, RU, RD, RZ and RO, over
-``common/cast_binaryK_word.h``); ``MPTORCH_CPU_SIMD``, read when the
-extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
-So each case here runs in an interpreter per setting, and their results must
-agree bit for bit, NaNs included. The cases are the tiles'
-(split, product only, fused, conv), their edges (ragged tiles, batches,
-transposes, zeros, binary32 subnormals, overflow, infinities, NaNs, float16
-and bfloat16 operands), and formats they hand back to the scalar loop
-(unsigned, NORMALS, SAT_PROPAGATE), which must agree trivially.
+The vector code, each run where its formats admit it:
+
+- ``cpu/gemm_rne_tile.cpp``, a binaryK RNE GEMM's packed tiles, over the
+  shipped ``cast_binaryK_rne_fast``, and ``cpu/gemm_odd_tile.cpp``, the same
+  with the odd carrier step (``carrier_rounding=RoundMode.RO``);
+- ``cpu/gemm_word_tile.cpp`` and ``cpu/gemm_word_odd_tile.cpp``, the same under
+  RNA, RU, RD, RZ and RO, over ``common/cast_binaryK_word.h``;
+- ``cpu/gemm_palette_tile.h``, the RNE tiles per palette entry;
+- ``cpu/pointwise_rne.cpp``, the fused pointwise ops (``qadd`` and its
+  siblings);
+- ``cpu/binaryK_quant_vector.cpp``, the elementwise quantizer under RNE
+  (over ``cast_binaryK_rne_fast``) and the five modes the word casts serve.
+
+``MPTORCH_CPU_SIMD``, read when the extension loads, picks the scalar loop
+(``0``) or caps the ISA (``avx2``), so each case here runs in an interpreter
+per setting, and their results must agree bit for bit, NaNs included. The
+cases are the tiles' (split, product only, fused, conv), their edges (ragged
+tiles, batches, transposes, zeros, binary32 subnormals, overflow, infinities,
+NaNs, float16 and bfloat16 operands), the quantizer's (random words, parallel
+chunks, unaligned starts, the in-place op), and formats they hand back to the
+scalar loop (unsigned, NORMALS, SAT_PROPAGATE), which must agree trivially.
 """
 
 import os
@@ -244,6 +250,39 @@ _CASES = textwrap.dedent(
         out[f"pointwise-{dtype}-normals"] = qadd(
             x, y, Quant(BinaryK(8, 4, subnormals=SubnormalsMode.NORMALS))
         )
+    # the elementwise quantizer's vector loops (cpu/binaryK_quant_vector.cpp):
+    # random words (NaN payloads, subnormals and infinities among them) over
+    # several parallel chunks and a ragged tail, a start off every vector
+    # boundary, the in-place op, the edges of the formats the loops take
+    # (one and 22 stored mantissa bits, a bias, saturation), and formats and
+    # dtypes that keep the scalar loop, which must agree trivially
+    from mptorch.quant import binaryK_quantize, binaryK_quantize_
+
+    g = torch.Generator().manual_seed(12)
+    words = torch.randint(-(2**31), 2**31 - 1, (20003,), generator=g, dtype=torch.int32)
+    w0 = torch.cat([words.view(torch.float32), x0, torch.tensor(specials)])
+    quant_formats = {
+        torch.float32: [
+            (8, 4, {}), (16, 11, {}), (12, 7, {}), (6, 3, {}), (8, 2, {}), (30, 23, {}),
+            (8, 4, dict(bias=3)), (8, 4, dict(saturation_mode=SaturationMode.SAT_FINITE)),
+            (31, 24, {}), (8, 4, dict(saturation_mode=SaturationMode.SAT_PROPAGATE)),
+            (8, 4, dict(is_signed=False)), (8, 4, dict(subnormals_mode=SubnormalsMode.NORMALS)),
+            (8, 4, dict(subnormals_mode=SubnormalsMode.EXTENDED_NORMALS)),
+        ],
+        torch.float16: [(8, 4, {})],
+        torch.bfloat16: [(8, 4, {})],
+    }  # fmt: skip
+    for dtype, fmts in quant_formats.items():
+        w = w0.to(dtype)
+        for k, p, kw in fmts:
+            for mode in (RoundMode.RNE, *WORD_MODES):
+                q = dict(rounding_mode=mode, **kw)
+                key = f"quant-{dtype}-{k}p{p}-{sorted(kw.items())}-{mode.name}"
+                out[key] = binaryK_quantize(w, k, p, **q)
+                out[key + "-offset"] = binaryK_quantize(w[3:], k, p, **q)
+                y = w.clone()
+                binaryK_quantize_(y[1:], k, p, **q)
+                out[key + "-in-place"] = y
     torch.save(out, sys.argv[1])
     """
 )
