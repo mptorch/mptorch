@@ -527,7 +527,9 @@ fits in its 53 bits:
 - MPS has no binary64, so these exact sums need the CPU or CUDA.
 - No mac sums in a finite fixed-point register, one with a fixed binary
   point that saturates or drops the bits below it: the fixed-point GEMM
-  (below) takes fixed-point formats only.
+  (below) takes fixed-point formats only. Its exact sums of 8-bit codes run
+  on an integer GEMM, with the same words ("Exact sums on an integer GEMM",
+  below).
 
 .. literalinclude:: ../../snippets/exact_accumulation.py
    :language: python
@@ -677,6 +679,56 @@ integer accumulator, fused      20.1 ps    23.6 ps    9.8 ns       6.3 ns
   arithmetic. The carrier path takes 5.0 ps a step under RNE, 19-23 ps under
   the other deterministic modes and 61 ps under SR, against 10.4, 17-110 and
   62 ps for the BinaryK split mac.
+
+**Exact sums on an integer GEMM.** When the operands are values of
+fixed-point formats of at most 8 bits, a multiply format that holds every
+product and an accumulate format whose grid is as fine as the products' keep
+every step exact for sums up to some length. No step rounds or saturates,
+and the result is the exact integer sum of the operands' codes, scaled. Any
+exact engine computes that sum, in any order, so a pass that qualifies runs
+on a vendor GEMM and returns the kernel's words, word for word:
+
+- **The engine.** ``torch._int_mm`` (an int8 x int8 GEMM into int32) on
+  CUDA, on MPS, and on a CPU whose PyTorch has oneDNN. On a CPU without
+  oneDNN, where ``torch._int_mm`` is a scalar loop, PyTorch's float matmul:
+  each partial sum is an integer number of the products' steps, so float32
+  sums exactly while there are at most :math:`2^{24}` of them (1,024 terms of
+  ``FixedPoint(8, 7)`` products) and float64 beyond. It takes float64 too
+  when ``torch.set_float32_matmul_precision`` has lowered float32's
+  precision, and inside a compiled graph, which cannot read that setting.
+
+- **Where.** In a layer built from a :class:`~mptorch.quant.GemmFormats`
+  (:meth:`~mptorch.quant.GemmFormats.affine`,
+  :meth:`~mptorch.quant.GemmFormats.matmul`, and so recipes, ``convert`` and
+  ``simulate``), for each pass whose two operand quantizers are a ``Quant``
+  of such a format. The flat functions and :func:`~mptorch.quant.qmatmul`
+  do not know their operands' formats and always run the kernel.
+- **When.** The mac saturates and rounds deterministically, and the planner
+  above sends the call to the integer accumulator (an exact sum of 8-bit
+  codes longer than a few hundred terms always goes there). Each call checks
+  that its sum is short enough for neither the accumulate format nor int32
+  to overflow (1,023 terms for ``FixedPoint(8, 7)`` operands into
+  ``FixedPoint(25, 14)``, 131,071 into ``FixedPoint(32, 14)``), that its
+  operands are float32 or float64, and that it is large enough to gain: at
+  least :math:`2^{20}` mac steps on the CPU and :math:`2^{25}` on CUDA and
+  MPS, where each call spends about 200 us launching the route's small
+  operations.
+- **NaN.** A NaN operand reaches the same rows and columns as in the kernel,
+  as the carrier's canonical quiet NaN, which is what the integer
+  accumulator returns.
+- **Memory.** On ``torch._int_mm`` it adds the operands' codes (a byte an
+  element) and an int32 product computed in blocks of at most 64 MB; on the
+  float matmul nothing in float32, and float64 copies of the operands past
+  float32's exact range. Nothing is saved for backward.
+
+At :math:`512^3`, with ``FixedPoint(8, 7)`` operands into
+``FixedPoint(25, 14)``, a step takes 6.7 ps on one Ryzen thread and 2.9 ps on
+sixteen, against 1,000 and 136 ps for the kernel; on the RTX 4060 1.8 ps
+against 9.8 at :math:`512^3`, and 0.18-0.24 against 8.6 from :math:`2048^3`
+into ``FixedPoint(32, 14)`` (``dev/benchmarks/timing/fixedpoint_gemm.py
+exact``, 2026-11-27). On an M3 Pro, ``torch._int_mm`` runs at about 2 ps a
+step on the GPU, against 24 for the kernel, and the float matmul at 1.3
+(float32) and 5.0 (float64) on the CPU, against 746.
 
 Palettes: a format per output element
 -------------------------------------

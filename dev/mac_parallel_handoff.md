@@ -1016,14 +1016,65 @@ if ACC is not None:
 
 ### 14.2 M10b, at SP-ANb: the route on the Mac
 
-**What Linux built:** (filled in at SP-ANb).
+**What Linux built** (the commit adding this text; Python only, no C++, no
+Metal), with M10a's findings in it:
+- `mptorch/quant/_exact.py`. `exact_route(mac, a_slot, b_slot)` decides
+  once, when a pass is built; `run_exact` checks each call and hands every
+  other call to the kernel (`_run_gemm`).
+- `mptorch/quant/recipe.py`: `_linear_pass`, `_matmul_pass` and
+  `_wide_forward` take each pass's two operand slots, so every layer built
+  from a `GemmFormats` (recipes, `convert`, `simulate`) gets the route.
+- **When a call takes it:**
+  - both operand slots are a `Quant(FixedPoint)` whose codes fit int8;
+  - the mac saturates and rounds deterministically, its multiply format
+    holds every product, and its accumulate grid is as fine;
+  - the planner sends the call to the integer accumulator. Its NaN is the
+    canonical quiet one on the CPU and CUDA, and the route writes that NaN
+    where a NaN operand reaches. The carrier path's NaN differs between the
+    CPU and CUDA, so its calls keep the kernel;
+  - K is short enough that no partial sum overflows;
+  - the operands are float32 or float64, on the CPU, CUDA or **MPS**;
+  - the call is at least `_MIN_STEPS[device]` mac steps.
+- **Two engines, from M10a:**
+  - `torch._int_mm` on CUDA, on MPS (no padding there), and on a CPU whose
+    torch has oneDNN;
+  - torch's float matmul on a CPU without oneDNN (`_CPU_ENGINE`, set from
+    `torch.backends.mkldnn.is_available()`): float32 while every partial sum
+    stays within 2^24 product steps, float64 beyond, then -0.0 turned to
+    +0.0 (the kernel's sum is never -0.0). It takes float64 too when
+    `torch.set_float32_matmul_precision` is lowered, and inside a compiled
+    graph.
+
+  So the Mac's CPU takes the float engine by default. The tests run both CPU
+  engines, forced (`cpu-int`, `cpu-float`), plus CUDA and MPS.
+- **MPS's threshold is CUDA's**, 2^25 mac steps, for now.
+- **Unchecked on Linux:** MPS's own integer-accumulator NaN word. The route
+  writes the canonical quiet NaN (0x7fc00000), and the NaN test holds it to
+  the kernel's words.
+- **Linux's results** (`dev/benchmarks/timing/fixedpoint_gemm.py exact`, ps
+  a mac step, kernel -> route):
+  - one Ryzen thread at 512^3: 1,001 -> 6.7 (`_int_mm`), 18.2 (float);
+  - 16 threads: 136 -> 2.9 (`_int_mm`), 4.5 (float);
+  - RTX 4060: 9.8 -> 1.8 at 512^3, and 8.6 -> 0.18 at 4096^3 (wide
+    accumulator).
 
 **The Mac's part:**
-- `tests/test_fixedpoint_exact_route.py`, `tests/test_fixedpoint_layers.py`,
-  `tests/test_fixedpoint_mps.py` and the suite, on the commit.
-- Timing on the arm64 CPU, and on MPS if M10a enabled it:
-  `dev/benchmarks/timing/fixedpoint_gemm.py` with the route on and off
-  (`_exact._ENABLED`), alternated, at 1 and 11 threads.
+- `tests/test_fixedpoint_exact_route.py` (its MPS cases skip on Linux),
+  `tests/test_fixedpoint_layers.py`, `tests/test_fixedpoint_mps.py` and the
+  suite, on the commit. If the NaN test fails on MPS, report the words:
+  Linux then gives MPS its own NaN, or keeps MPS on the kernel for NaN
+  operands.
+- **Timing**, each alternating the kernel and the route on the same
+  operands:
+  - the CPU: `dev/benchmarks/timing/fixedpoint_gemm.py exact --device cpu
+    --threads 1 --sizes 256 512`, then `--threads 11`, each with
+    `--cpu-engine float` (the default there) and `--cpu-engine int`;
+  - MPS: `exact --device mps --sizes 256 512 1024 --all-sizes`, which takes
+    the route below the threshold too.
+- **The thresholds** (`_MIN_STEPS`: 2^20 mac steps on the CPU, 2^25 on MPS)
+  were chosen on the Ryzen and the RTX 4060. Report where the route starts
+  to win on the M3 Pro's CPU and GPU, with `--all-sizes` and a few small
+  `--sizes` (64 to 512), and Linux sets them.
 
 ## 15. M11, at SP-AS: the NEON word tiles
 

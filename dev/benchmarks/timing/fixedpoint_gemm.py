@@ -21,12 +21,36 @@ Run from the repository root::
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py ops --device cpu --threads 1
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py layer --device cuda
     .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py ops --device mps    # on a Mac
+    .venv/bin/python dev/benchmarks/timing/fixedpoint_gemm.py exact --device cpu --threads 1
 
 Modes: ``ops`` times each row at n^3 (2048 on CUDA, 1024 on MPS, 512 on the
 CPU by default), ~1 min on CUDA, ~3 min on one CPU thread; ``layer`` times a
 ``QLinear(1024, 1024)`` step on 4096 rows, ~1 min on CUDA. Each round runs
 every row once, in an order reversed every other round, and each row keeps
-its minimum.
+its minimum. ``exact`` times the exact integer route (``mptorch/quant/_exact.py``:
+Q0.7 operands, whose every product and sum (25, 14) and (32, 14) hold, on
+``torch._int_mm``) against the kernel on the same operands, at n^3, and at
+``--sizes`` too; a size below the route's threshold takes the kernel either
+way unless ``--all-sizes`` lowers it, and ``--cpu-engine int|float`` forces
+the CPU's engine (``torch._int_mm`` or the float matmul; by default ``int``
+where torch has oneDNN).
+
+``exact`` (2026-11-27, Ryzen 7940HS at 4.8 GHz and RTX 4060), ps per mac
+step, the kernel against the route; (25, 14) holds sums of up to 1,023
+terms, so at n >= 1024 its route takes the kernel:
+
+=================================  ========  =========  ========  ========
+row                                1 thread  16 thr.    CUDA      CUDA
+                                   512^3     512^3      512^3     4096^3
+=================================  ========  =========  ========  ========
+Q0.7 into (25, 14), the kernel        1,001        136       9.8
+Q0.7 into (25, 14), the route           6.7        2.9       1.8
+Q0.7 into (32, 14), the kernel          998        154       9.8      8.6
+Q0.7 into (32, 14), the route           4.8        8.1       1.6     0.18
+=================================  ========  =========  ========  ========
+
+On CUDA about 200 us of each routed call is launching its small operations,
+which is why the route takes only calls of at least 2^25 steps there.
 
 Results (2026-11-25, RTX 4060 and the Ryzen 7940HS at 4.6-4.7 GHz; ps per
 mac step; SR with the GEMM's own stochastic cast and the integer rounding
@@ -83,20 +107,24 @@ GEMM's line (the arm64 host's choice) 3,211 (RNA) and 3,592 (RO), against
 import argparse
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import torch
 
+import mptorch.quant._exact as exact_route
 from mptorch import FixedPoint, RoundMode
 from mptorch.quant import (
     QLinear,
     Quant,
+    SplitMac,
     binaryK_gemm_formats,
     binaryK_matmul,
     fixedpoint_gemm_formats,
     fixedpoint_matmul,
     fixedpoint_matmul_fma,
 )
+from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops.fixedpoint import _fixedpoint_spec
 
 R = RoundMode
@@ -223,6 +251,42 @@ def ops(args: argparse.Namespace) -> None:
             print(f"{label:5s} {name:55s} {t * 1e3:9.2f} ms {t / n**3 * 1e12:8.2f} ps/step")
 
 
+def _exact_rows(n: int, device: str) -> dict[str, Callable[[], object]]:
+    """The exact route against the kernel, on Q0.7 operands of n x n, into the
+    narrow (25, 14) and the wide (32, 14) accumulators (no wide row on MPS)."""
+    g = torch.Generator().manual_seed(0)
+    q = Quant(FixedPoint(8, 7))
+    a = q(torch.rand(n, n, generator=g) - 0.5).to(device)
+    b = q(torch.rand(n, n, generator=g) - 0.5).to(device)
+    rows: dict[str, Callable[[], object]] = {}
+    accs = [("(25, 14)", FixedPoint(25, 14))]
+    if device != "mps":
+        accs.append(("(32, 14), wide", FixedPoint(32, 14)))
+    for label, acc in accs:
+        mac = SplitMac(FixedPoint(16, 14), acc)
+        spec, route = spec_for_mac(mac), exact_route.exact_route(mac, q, q)
+        assert route is not None
+        rows[f"Q0.7 into {label}, the kernel"] = partial(
+            exact_route._run_gemm, spec, a, b, False, True
+        )
+        rows[f"Q0.7 into {label}, the exact route"] = partial(
+            exact_route.run_exact, route, spec, a, b, False, True
+        )
+    return rows
+
+
+def exact(args: argparse.Namespace) -> None:
+    if args.cpu_engine is not None:
+        exact_route._CPU_ENGINE = args.cpu_engine
+    print(f"the CPU's engine: {exact_route._CPU_ENGINE}")
+    if args.all_sizes:
+        exact_route._MIN_STEPS = dict.fromkeys(exact_route._MIN_STEPS, 0)
+    for n in args.sizes or [args.n or {"cuda": 2048, "mps": 1024}.get(args.device, 512)]:
+        best = _alternated(_exact_rows(n, args.device), args.rounds, args.device)
+        for name, t in best.items():
+            print(f"n={n:5d} {name:45s} {t * 1e3:9.3f} ms {t / n**3 * 1e12:9.3f} ps/step")
+
+
 def _layer_rows(
     device: str, mode: RoundMode, x: torch.Tensor, g: torch.Tensor
 ) -> dict[str, Callable[[], object]]:
@@ -275,17 +339,24 @@ def layer(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
-    parser.add_argument("mode", choices=["ops", "layer"])
+    parser.add_argument("mode", choices=["ops", "layer", "exact"])
     parser.add_argument("--device", default="cuda", choices=["cpu", "cuda", "mps"])
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--n", type=int, default=None)
     parser.add_argument("--rounds", type=int, default=6)
     parser.add_argument("--modes", nargs="+", default=["RNE", "SR"], choices=list(MODES))
+    parser.add_argument("--sizes", nargs="+", type=int, default=None, help="exact: the n to time")
+    parser.add_argument(
+        "--all-sizes", action="store_true", help="exact: take the route below its threshold too"
+    )
+    parser.add_argument(
+        "--cpu-engine", choices=["int", "float"], default=None, help="exact: force the CPU's engine"
+    )
     args = parser.parse_args()
     if args.threads is not None:
         torch.set_num_threads(args.threads)
     torch.manual_seed(0)
-    ops(args) if args.mode == "ops" else layer(args)
+    {"ops": ops, "layer": layer, "exact": exact}[args.mode](args)
 
 
 if __name__ == "__main__":

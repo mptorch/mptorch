@@ -50,6 +50,7 @@ from mptorch.number import BinaryK, BlockFormat, FixedPoint, Number, RoundMode, 
 from mptorch.number import presets as number_presets
 from mptorch.number.block import _block_label, _part_label
 
+from ._exact import exact_route, exact_runner, exact_runner_nd
 from .attention import AttentionFormats
 from .conv import _conv_formats
 from .events import _CountedCall, _CountingQuant, _SiteTally
@@ -88,8 +89,7 @@ from .modules.linear import CustomArithLinear
 from .modules.matmul import CustomArithMatmul
 from .norm import NormFormats, SoftmaxFormats
 from .ops._counted import _counted_parts, _counting_built
-from .ops._operands import _gemm_nd
-from .ops._spec import _GemmSpec, _run_gemm
+from .ops._spec import _GemmSpec
 from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
 from .pointwise import ActivationFormats, PointwiseFormats
 from .reduce import ReductionFormats
@@ -193,13 +193,21 @@ _Count = Callable[[Any, "_GemmSpec | None"], "_GemmSpec | None"] | None
 
 
 def _linear_pass(
-    mac: Any, hook: Callable, block_hook: Callable, where: str, count: _Count = None
+    mac: Any,
+    hook: Callable,
+    block_hook: Callable,
+    where: str,
+    count: _Count = None,
+    operands: tuple[Any, Any] = (None, None),
 ) -> Callable | None:
     """One Linear pass's hook: none without a mac (PyTorch's own product),
     ``block_hook`` over a ``BlockMac``'s GEMM and its two operands' quantizers,
     and ``hook`` over any other mac's resolved GEMM, which refuses a wide
     fixed-point result as a ``where`` pass (``gemm._spec_matmul``). ``count``
-    makes the GEMM's counting spec."""
+    makes the GEMM's counting spec. ``operands`` are the quantizers of the
+    GEMM's two operands, in its order, from which a fixed-point GEMM whose
+    every step is exact takes the integer route (`_exact`); a counted pass
+    keeps the kernel, which counts its steps."""
     if mac is None:
         return None
     if isinstance(mac, BlockMac):
@@ -207,14 +215,22 @@ def _linear_pass(
             count(mac, None)
         return block_hook(spec_for_block_mac(mac), cast_quant(mac.a), cast_quant(mac.b))
     spec = spec_for_mac(mac)
+    route = None
     if count is not None:
         spec = count(mac, spec)
+    else:
+        route = exact_route(mac, *operands)
     assert spec is not None
-    return hook(_spec_matmul(spec, _run_gemm, where))
+    return hook(_spec_matmul(spec, exact_runner(route), where))
 
 
 def _matmul_pass(
-    mac: Any, hook: Callable, block_hook: Callable, where: str, count: _Count = None
+    mac: Any,
+    hook: Callable,
+    block_hook: Callable,
+    where: str,
+    count: _Count = None,
+    operands: tuple[Any, Any] = (None, None),
 ) -> Callable | None:
     """One matmul pass's hook, as :func:`_linear_pass` builds a Linear one."""
     if mac is None:
@@ -224,26 +240,38 @@ def _matmul_pass(
             count(mac, None)
         return block_hook(mac)
     spec = spec_for_mac(mac)
+    route = None
     if count is not None:
         spec = count(mac, spec)
+    else:
+        route = exact_route(mac, *operands)
     assert spec is not None
-    return hook(_spec_matmul(spec, _gemm_nd, where))
+    return hook(_spec_matmul(spec, exact_runner_nd(route), where))
 
 
 def _wide_forward(
-    mac: Any, hook: Callable, runner: Callable, count: _Count = None
+    mac: Any,
+    hook: Callable,
+    runner_for: Callable,
+    count: _Count = None,
+    operands: tuple[Any, Any] = (None, None),
 ) -> Callable | None:
     """The forward hook that leaves a wide fixed-point result in float64, for
     the container's ``_wide_fwd``, or ``None`` when ``mac``'s result is never
-    wide."""
+    wide. ``runner_for`` gives the runner for a route (`_exact`'s
+    ``exact_runner`` or ``exact_runner_nd``), as :func:`_linear_pass` uses
+    ``operands``."""
     if not isinstance(mac, SplitMac | FusedMac):
         return None
     spec = spec_for_mac(mac)
     if not spec.wide:
         return None
+    route = None
     if count is not None:
         spec = count(mac, spec)
-    return hook(partial(runner, spec))
+    else:
+        route = exact_route(mac, *operands)
+    return hook(partial(runner_for(route), spec))
 
 
 # --- counting (simulate(events=True)) ------------------------------------------
@@ -504,11 +532,23 @@ class GemmFormats:
         ``output_quant``. ``_tally`` (``simulate(events=True)``'s) makes a
         container that counts its casts there."""
         fwd_count, igrad_count, wgrad_count = (_counting(_tally, p) for p in _PASSES)
+        # each pass's two operands, in its GEMM's order: x @ w^T, g @ w, g^T @ x
+        fwd_ops = (self.input_quant, self.weight_quant)
         igrad = _linear_pass(
-            self.igrad_mac, _linear_igrad, _block_linear_igrad, "gradient", igrad_count
+            self.igrad_mac,
+            _linear_igrad,
+            _block_linear_igrad,
+            "gradient",
+            igrad_count,
+            (self.igrad_quant, self.weight_quant),
         )
         wgrad = _linear_pass(
-            self.wgrad_mac, _linear_wgrad, _block_linear_wgrad, "gradient", wgrad_count
+            self.wgrad_mac,
+            _linear_wgrad,
+            _block_linear_wgrad,
+            "gradient",
+            wgrad_count,
+            (self.wgrad_quant, self.input_quant),
         )
         if self.palette:
             if _tally is not None:
@@ -518,12 +558,14 @@ class GemmFormats:
             return self._affine_slots(_PaletteAffineFormats(palette, **hooks), _tally)
         formats = QAffineFormats(
             fwd_math=_linear_pass(
-                self.fwd_mac, _linear_fwd, _block_linear_fwd, "forward", fwd_count
+                self.fwd_mac, _linear_fwd, _block_linear_fwd, "forward", fwd_count, fwd_ops
             ),
             bwd_igrad_math=igrad,
             bwd_wgrad_math=wgrad,
         )
-        formats._wide_fwd = _wide_forward(self.fwd_mac, _linear_fwd, _run_gemm, fwd_count)
+        formats._wide_fwd = _wide_forward(
+            self.fwd_mac, _linear_fwd, exact_runner, fwd_count, fwd_ops
+        )
         if isinstance(self.fwd_mac, BlockMac):
             # the weight's quantizer, which QLinear.freeze_packed_ packs a frozen weight with
             formats._block_weight = cast_quant(self.fwd_mac.b)
@@ -585,16 +627,20 @@ class GemmFormats:
         """
         macs = (self.fwd_mac, self.igrad_mac, self.wgrad_mac)
         fwd_count, igrad_count, wgrad_count = (_counting(_tally, p) for p in _PASSES)
+        # each pass's two operands, in its GEMM's order: a @ b, g @ b^T, a^T @ g
+        fwd_ops = (self.input_quant, self.weight_quant)
+        agrad_ops = (self.igrad_quant, self.weight_quant)
+        bgrad_ops = (self.input_quant, self.wgrad_quant)
         if self.palette:
             if _tally is not None:
                 _tally.gap("fwd", "mac", "a palette mac")
             formats = _PaletteMatmulFormats(
                 _Palette("matmul", self.fwd_mac, self.output_quant),
                 bwd_agrad_math=_matmul_pass(
-                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count, agrad_ops
                 ),
                 bwd_bgrad_math=_matmul_pass(
-                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count, bgrad_ops
                 ),
             )
         elif all(isinstance(m, BlockMac) for m in macs):
@@ -605,16 +651,18 @@ class GemmFormats:
         else:
             formats = QMatmulFormats(
                 fwd_math=_matmul_pass(
-                    macs[0], _matmul_fwd, _block_matmul_fwd, "forward", fwd_count
+                    macs[0], _matmul_fwd, _block_matmul_fwd, "forward", fwd_count, fwd_ops
                 ),
                 bwd_agrad_math=_matmul_pass(
-                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count
+                    macs[1], _matmul_agrad, _block_matmul_agrad, "gradient", igrad_count, agrad_ops
                 ),
                 bwd_bgrad_math=_matmul_pass(
-                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count
+                    macs[2], _matmul_bgrad, _block_matmul_bgrad, "gradient", wgrad_count, bgrad_ops
                 ),
             )
-            formats._wide_fwd = _wide_forward(macs[0], _matmul_fwd, _gemm_nd, fwd_count)
+            formats._wide_fwd = _wide_forward(
+                macs[0], _matmul_fwd, exact_runner_nd, fwd_count, fwd_ops
+            )
         for slot, name, value in (
             ("a_quant", "input_quant", self.input_quant),
             ("b_quant", "weight_quant", self.weight_quant),
