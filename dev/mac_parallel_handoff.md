@@ -104,6 +104,7 @@ this document assigns to the Mac with a sync point.
 | M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
 | M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | now (SP-AS delivered for steps 1-2) | yes |
 | M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | done (report `adb0fea`; its hunk applied in the commit closing section 16); the new sweep pass on NEON open | yes |
+| M13 | superfp's NaN as P3109 encodes it: the MPS source generators that now pass the sign, and the tests and sweep over the new top of an unsigned format | now (`d2b40a9`) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
@@ -197,6 +198,7 @@ timing. Lint any Python you change, as CI does:
 | **SP-ANb** (planned) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
 | **SP-AS** (delivered for steps 1-2, the commit adding M11's brief) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
 | **SP-AT** (delivered: `2d21c0b`, `a6b622d`) | narrow CPU tiles (the profile's finding; `odd::add` left as it is) and AN-b's thresholds | M12 |
+| **SP-SFP** (delivered, `d2b40a9`) | superfp's NaN on P3109's codes, in every builder of superfp parameters, the MPS source generators included | M13 |
 
 Linux will say at each point which commit it is, and the user relays it.
 
@@ -1270,7 +1272,91 @@ The report's three requests:
 under Apple clang (about 15 min), since its new pass runs NEON's padded lanes
 in a sweep for the first time.
 
-## 17. Later, when their phases are refined
+## 17. M13, at SP-SFP: superfp's NaN, as P3109 encodes it
+
+**What changed** (`d2b40a9`, on Linux 2026-11-27, at the user's request).
+Superfp formats reserved no code for NaN. The rule is now P3109's, as for a
+binaryK, and as the supernormals paper requires (Pun et al., IEEE Embedded
+Systems Letters, 2026; its Table VI is E3M2B4, which is
+`SuperFP(man_bits=2, exp_bits=3, normal_binades=4, bias=7)`):
+- a signed format's NaN is the sign-only code, the one that would read as
+  -0.0. It takes no magnitude code, so **signed formats keep every value
+  they had**;
+- an unsigned format's NaN is its top code, and in the extended domain the
+  code below it is the infinity. **An unsigned format's largest value is
+  one code lower than before**: unsigned E3M2B4's is 1.25 in the extended
+  domain (it was 1.5) and 1.5 in the finite one (1.75);
+- a format whose normal binades hold only those reserved codes (no
+  mantissa bits or one, and one or two normal binades) is refused with
+  "has no finite normal value". Its largest finite value would be a
+  supernormal, and the cast rounds the top of the supernormal region up to
+  the bottom of the normal one, which would be a reserved code.
+
+`make_superfp_params` takes `is_signed` after `bias`, as
+`make_binaryK_params` does, and so does `events::superfp_thresholds`.
+Python's `check_superfp`, `check_superfp_carrier` and
+`check_superfp_storage` take it after `bias` too.
+
+**What Linux checked.**
+- The suite on the CPU and CUDA: the three tests the change broke were
+  fixed (as described in the commit), and their files pass.
+- `binary_identity.py`: every device function and fatbin member is
+  identical to `de279ae`'s build, and binaryK and fixed-point CPU units
+  compiled against both header trees are byte-identical.
+- The sweeps:
+  - `cast_all_modes_sweep short` and `cast_double_sweep short` pass, with
+    new unsigned rows for this change;
+  - `cast_ubsan` passes;
+  - `format_limits.py`'s audits pass in both carriers, and so do
+    `superfp_values.py --verify` on E3M2B4 in every signedness and domain.
+
+**What touches the Mac.** Linux compiles none of these:
+- **The MPS source generators.**
+  - `mps/quantize_tail.h`'s `superfp_format_lines` takes `is_signed` and
+    writes it into the tail's `make_superfp_params<float>(...)` call. Its
+    callers are `mps/quantize.cpp` (three) and `mps/pointwise_entry.cpp`.
+  - `mps/block_entry.cpp`'s `block_cast_source` writes the element's and
+    the scale's sign into its two `make_superfp_params<float>` calls.
+- **Headers the Metal sources include.**
+  - `common/cast_superfp.h`: the builder's signature.
+  - `common/event_counts.h`, `common/gemm_policy.h`,
+    `common/gemm_counted.h`, `common/block_decode.h` and
+    `common/pointwise.h`: the calls.
+  - `common/bit_helper.h`: comments only, but it is in the prelude. Every
+    kernel's source text changes, so the first suite compiles cold (about
+    10 min).
+- **Two of the Mac's files, edited on Linux** because their formats became
+  refused. `tests/test_mps.py`'s and `dev/benchmarks/mps_backend.py`'s
+  `SUPERFP` lists had `(0, 4, 1, 7)`, signed, in the extended domain, whose
+  only normal code is the infinity. It is now `(0, 4, 2, 7)`: still no
+  mantissa bits, with finite normal values.
+
+**The Mac's part:**
+1. Build (`MPTORCH_ODD_ACCUMULATED=1 uv sync --group hf`), and
+   `bash dev/benchmarks/check_native.sh`: the native tools' superfp calls
+   changed.
+2. These test files, then the full suite:
+   - `tests/test_mps.py`: the superfp quantizers, in-place ops, GEMMs and
+     block ops, word for word with the CPU. Its unsigned superfp row,
+     `(4, 3, 1, 3)` under `SAT_PROPAGATE`, now reserves two codes;
+   - `tests/test_superfp_quantize.py`. Its new
+     `test_the_code_points_are_p3109s` decodes E3M2B4's codes by hand and
+     runs on MPS, signed and unsigned, in both domains;
+   - `tests/test_block_pack.py`: `sfp5_unsigned`, an unsigned superfp
+     element, and `e4m3_sfp_m0_scale`, an unsigned superfp scale. Both go
+     through `block_cast_source`;
+   - `tests/test_unsigned_zero.py`, `tests/test_gemm_mixed_palette.py`,
+     `tests/test_event_counts.py`, `tests/test_counted_gemm.py` and
+     `tests/test_pointwise_fused.py`.
+3. `python3 dev/benchmarks/mps_backend.py sweep` (about 6 min) and
+   `control`. The sweep's unsigned superfp row reaches the moved top, and
+   its new `(0, 4, 2, 7)` row is the replaced one.
+
+Report as section 19 says. A failure most likely sits in a generated tail:
+look at the source text the failing op compiled, and check that the sign
+it wrote matches the Python format's `is_signed`.
+
+## 18. Later, when their phases are refined
 
 None of these is planned in detail; each will get its own brief:
 - **AN** (integer operands for the fixed-point GEMM): its step 1 (AN-b) is
@@ -1283,7 +1369,7 @@ None of these is planned in detail; each will get its own brief:
   accumulator): possibly a 128-bit accumulator, which Metal would emulate
   further or refuse.
 
-## 18. What to report, per task
+## 19. What to report, per task
 
 - the commit the task ran at, the machine and its state (AC power, thermal);
 - each command, and the lines of its output that the task's bar names;
