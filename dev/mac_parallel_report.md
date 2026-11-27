@@ -1894,3 +1894,308 @@ without any int8 conversion.
    float32 matmul is not exact when TF32 is allowed
    (`torch.backends.cuda.matmul.allow_tf32`), so a float engine there would
    need it off, or float64.
+
+## M10b: the exact int8 route on the Mac (at `53610bc`)
+
+The route gives the kernel's words on the M3 Pro's CPU and GPU, its NaN case
+included. On the CPU its float engine runs a 512^3 call 250x faster than the
+kernel on one thread. On MPS the route wins from about 128^3, well below its
+threshold of 2^25 steps. No file changed but this report.
+
+### Tests
+
+| command | result |
+|---|---|
+| `pytest tests/test_fixedpoint_exact_route.py` | 101 passed, 33 skipped (CUDA, and four wide cases MPS refuses by design); `cpu-int`, `cpu-float` and `mps` all ran |
+| `pytest tests/test_fixedpoint_layers.py` | 51 passed, 16 skipped (CUDA) |
+| `pytest tests/test_fixedpoint_mps.py` | 257 passed |
+| `pytest tests/` | 28,430 passed, 17,155 skipped, 0 failed |
+
+**The NaN test passes on MPS** (`test_nan_operands_reach_the_same_outputs[mps]`).
+So MPS's integer-accumulator NaN is the canonical quiet `0x7fc00000` the
+route writes (`FixedPointIntMac::value` builds `INF_BITS | TIE` on Metal
+too). MPS needs no NaN of its own.
+
+### Timing (`fixedpoint_gemm.py exact`, the kernel and the route alternated)
+
+AC power, no thermal warning; ps a mac step, the kernel -> the route.
+`(25, 14)` holds sums of up to 1,023 terms, so at n = 1,024 its route takes
+the kernel (MPS's equal 1,024 row).
+
+| | 256^3 | 512^3 |
+|---|---|---|
+| CPU 1 thread, float engine (the default here), (25, 14) | 765 -> 4.9 | 767 -> 3.1 |
+| same, wide (32, 14) | 763 -> 5.4 | 771 -> 2.9 |
+| CPU 1 thread, int engine forced, (25, 14) | 760 -> 15.8 | 761 -> 15.2 |
+| CPU 11 threads, float engine, (25, 14) | 157 -> 14.9 | 146 -> 3.5 |
+| same, wide (32, 14) | 156 -> 18.1 | 149 -> 3.4 |
+| CPU 11 threads, int engine forced, (25, 14) | 157 -> 28.7 | 136 -> 6.6 |
+| MPS, `--all-sizes`, (25, 14) | 46.1 -> 25.4 | 23.8 -> 7.1 |
+
+At 1,024^3 on MPS: 22.3 -> 22.3 (the kernel both ways, as above).
+
+**The float engine is the right default on this CPU.** It is 2-5x the
+forced `_int_mm`. At 11 threads the route is slower than at one below
+512^3 (14.9 against 4.9 ps at 256^3), likely because its elementwise
+steps then spread over the efficiency cores too (torch's default here is 5
+threads; I did not profile it).
+
+**A correction to M10a: arm64's `_int_mm` depends on B's layout.** M10a
+timed it with a row-major B (`[K, N]` contiguous): 523 ps a step on one
+thread. With B the transpose of a contiguous `[N, K]` weight, which is the
+Linear layout and what the tool's rows pass (`trans_b=True`), it is 37x
+faster:
+
+| `torch._int_mm(a, b)`, 512^3 | 1 thread | 5 | 11 |
+|---|---|---|---|
+| b row-major `[K, N]` | 523 | 117 | 97 |
+| b = `w.t()`, w `[N, K]` contiguous | 14.2 | 4.4 | 14.5 |
+
+Blocking A's rows changes nothing (523-548 ps for blocks of 1 to 512 rows),
+which suggests a fallback loop that wants both operands contiguous along K. The
+float engine is still faster here (3.1 ps on one thread), so the gate
+stands. But a pass whose B is row-major (a `matmul` pass, `trans_b=False`)
+would hit the 523 ps path if the int engine were taken on such a CPU, and
+making B K-contiguous first would avoid it.
+
+### The thresholds (`--all-sizes`, ms a call, the kernel -> the route)
+
+CPU, the float engine, (25, 14):
+
+| n | 32 | 48 | 64 | 96 | 128 | 192 | 256 |
+|---|---|---|---|---|---|---|---|
+| steps | 2^15 | 2^16.8 | 2^18 | 2^19.8 | 2^21 | 2^22.8 | 2^24 |
+| 1 thread | 0.028 -> 0.015 | 0.093 -> 0.017 | 0.198 -> 0.018 | 0.663 -> 0.024 | 1.556 -> 0.033 | 5.41 -> 0.054 | 12.96 -> 0.083 |
+| 11 threads | 0.028 -> 0.015 | 0.069 -> 0.019 | 0.083 -> 0.020 | 0.195 -> 0.030 | 0.423 -> 0.033 | 1.17 -> 0.17 | 2.62 -> 0.22 |
+
+The route wins at every size measured, from 32^3 (2^15 steps, 1.9x) up. The
+CPU's threshold of 2^20 is safe, but it gives up 1.9-27x between 2^15 and
+2^20 on this machine. Nothing below 32^3 was measured.
+
+MPS, (25, 14):
+
+| n | 64 | 128 | 192 | 256 | 384 | 512 |
+|---|---|---|---|---|---|---|
+| steps | 2^18 | 2^21 | 2^22.8 | 2^24 | 2^25.8 | 2^27 |
+| ms | 0.230 -> 0.322 | 0.400 -> 0.363 | 0.353 -> 0.274 | 0.581 -> 0.352 | 1.48 -> 0.558 | 3.20 -> 1.01 |
+| route / kernel | 1.40 | 0.91 | 0.78 | 0.61 | 0.38 | 0.31 |
+
+The route loses at 64^3 and breaks even near 128^3 (2^21). It wins 1.3x at
+192^3 and 1.65x at 256^3, both below today's threshold of 2^25 (322^3).
+The small calls are launch-bound on both paths (the kernel's 128^3 took
+longer than its 192^3), so the crossing is not sharp.
+
+### For Linux
+
+1. **MPS's NaN:** nothing to do; the canonical NaN is MPS's too.
+2. **`_MIN_STEPS`:** on the M3 Pro the route wins from 2^15 steps on the
+   CPU (the smallest size measured) and from about 2^21 on MPS. Suggested:
+   MPS 2^22, which keeps a margin above the break-even and takes the 1.3-1.65x
+   at 192^3-256^3. The CPU's 2^20 could drop to 2^15 on this machine; whether
+   one CPU value suits the Ryzen too is Linux's measurement.
+3. **arm64's `_int_mm` and layout:** if the int engine is ever taken on an
+   arm64 CPU without oneDNN, give it a K-contiguous B (the Linear layout).
+   With a row-major B it runs 37x slower.
+
+## M11: the NEON word tiles (at `8ef5cdd`)
+
+The NEON word tiles run on the M3 Pro and give the scalar loop's words on
+every binary32 input, in all five modes, with both carriers. That is their
+first run anywhere. Every vector loop in both tile files vectorizes under
+Apple clang. At 512^3 the tiles take the split mac 2.7-5.7x faster than the
+scalar loop on one thread (3.7-9.6x with the odd carrier). The Ryzen's
+AVX-512 tiles are 1.4-2.3x faster still. The row loop that the RNE tiles use
+on NEON doesn't help these tiles, so there is no layout to propose. No file
+changed but this report.
+
+Machine: the M3 Pro, on AC power, with no thermal or performance warning
+recorded before or after any timing. Built flag-on
+(`MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1`) with Apple clang 21.0.0.
+
+### Tests
+
+| command | result |
+|---|---|
+| `pytest tests/test_cpu_simd.py` | 1 passed: the settings `0` (the scalar loop), the default (NEON) and `avx2` (NEON again on arm64) agree word for word, the five modes' cases included |
+| `pytest tests/test_cpu_simd.py tests/test_carrier_rounding.py tests/test_accumulators.py` | 1,789 passed, 1,521 skipped (CUDA and MPS-float64 cases) |
+| `pytest tests/` | 28,430 passed, 17,155 skipped, 0 failed (6:25); the counts are M10b's, since `test_cpu_simd.py`'s new cases are inside its one test |
+| `bash dev/benchmarks/check_native.sh` | `OK    sweeps/cpu_word_cast_sweep.cpp`, `OK    sweeps/cpu_word_tile_sweep.cpp`, `all native tools build` |
+
+### The sweeps under Apple clang
+
+Built as section 4.3 builds the others, with Homebrew's libomp for the
+standalone binaries (the build lines in the files' headers, `g++` and
+`-fopenmp` replaced):
+
+```
+FLAGS="-O3 -std=c++20 -ffp-contract=off -DMPTORCH_FAST_CAST=1 -Xpreprocessor -fopenmp \
+    -I$(brew --prefix libomp)/include -L$(brew --prefix libomp)/lib -lomp -I mptorch/csrc"
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp -o cpu_word_cast_sweep
+clang++ $FLAGS dev/benchmarks/sweeps/cpu_word_tile_sweep.cpp \
+    mptorch/csrc/cpu/gemm_word_tile.cpp mptorch/csrc/cpu/gemm_word_odd_tile.cpp -o cpu_word_tile_sweep
+```
+
+Both compile with no warning.
+
+| run | output | time (11 threads) |
+|---|---|---|
+| `cpu_word_cast_sweep` | 0 mismatches in each of the 65 comparisons (13 formats x 5 modes, all 2^32 words); `ok: 0 mismatches in all` | 3:00 |
+| `cpu_word_cast_sweep control` | a mismatch count in every comparison (166,723,584 to 2,279,603,970 in the first format); `control ok: 0 of the comparisons found no mismatch` | 2:52 |
+| `cpu_word_tile_sweep` | `the neon word tiles`; 0 mismatches in each of the 60 comparisons (6 formats x 5 modes, the default and the odd carriers); `ok: 0 mismatches in all` | 13:18 |
+| `cpu_word_tile_sweep control` | a mismatch count in every comparison (453,690,833 to 12,834,374,784); `control ok: 0 of the comparisons found no mismatch` | 14:05 |
+| `MPTORCH_CPU_SIMD=0 cpu_word_tile_sweep` | `no word tiles on this CPU or under MPTORCH_CPU_SIMD=0: nothing to check` | |
+
+The odd tiles' FPCR switches therefore give the scalar odd step's words under
+clang too.
+
+### Vectorization
+
+I recompiled both tile files with the extension's own flags (`build.ninja`'s
+`cflags` and `post_cflags`) plus clang's vectorizer remarks
+(`-Rpass=loop-vectorize -Rpass-missed=loop-vectorize
+-Rpass-analysis=loop-vectorize`). **Every `#pragma omp simd` loop
+vectorized, at width 4, in all 15 functions of each file** (5 modes x split,
+product-only and fused), in both copies of the step code (the fixed 32^3
+tile and the run-time sizes):
+
+| file | loop | vectorized |
+|---|---|---|
+| `gemm_word_tile.cpp` | the products (line 54) | 30 of 30 |
+| | the split tile's two casts (65, 68), the product-only cast (74), the fused cast (80) | 10 of 10 each |
+| | the NaN check (105) | 15 of 15 |
+| `gemm_word_odd_tile.cpp` | the casts (187 fused, 194 product-only, 201 and 205 split) | 10 of 10 each |
+| | the odd sums' down and up passes (116, 120) | 10 of 10 each |
+| | the odd products' down and up passes (86, 99) | every instance: see below |
+| | the NaN check (48) | 15 of 15 |
+
+In the odd products' fixed 32^3 copy, clang fully unrolled each row's
+32-lane loop before the loop vectorizer saw it (`FullyUnrolled` in
+`-fsave-optimization-record`). The SLP vectorizer then packed each unrolled
+row into eight four-lane stores. That is 40 store groups per tile kind and
+pass, 5 functions x 8 (lines 90 and 92 the down pass, 105 the up pass). The
+loop vectorizer took the run-time-size copy, and both copies of the fused
+tiles' up pass.
+
+The only loops not vectorized are the outer row loops (`for i`, lines 49,
+83 and 96: "the cost-model indicates that vectorization is not
+beneficial"), and their inner loops vectorized. So the RU and RD tiles
+vectorize under clang too. On x86 GCC left them scalar in their first
+form, which computed both helpers on every lane; the shipped
+direction-selected helper (`absolute_directed`) replaced it.
+
+In the built objects (`objdump -d`), 28-40% of each tile function's
+instructions are NEON ALU operations (`cmhi.4s`, `cmeq.4s`, `bit.16b`,
+`and.16b`, `ushr.4s`, `fmul.4s`, ...). The rest are loads, stores, loop
+control and the scalar remainders of the run-time-size copy.
+
+### Timing (the GEMM, the tiles against `MPTORCH_CPU_SIMD=0`)
+
+The brief's calls at 512^3 on N(0, 1) inputs:
+- split: `binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=11,
+  rounding_mode=m)`;
+- fused: `binaryK_matmul_fma(a, b, fma_K=16, fma_P=11, rounding_mode=m)`;
+- each also with `carrier_rounding=RoundMode.RO`.
+
+`MPTORCH_CPU_SIMD` is read at load, so each setting ran in its own process,
+alternated with the other in three rounds (the order reversed every round).
+Each process made one warm-up call and timed two more; the table gives the
+minimum over the rounds. RNE is the reference row: the RNE tiles under the
+default setting, and the scalar loop under `0`. The script is
+a scratch script, `word_timing.py`.
+
+ps a step, scalar -> tiles (speedup):
+
+| | 1 thread | 11 threads |
+|---|---|---|
+| split RNE | 2,967 -> 645 (4.6x) | 519 -> 116 (4.5x) |
+| split RNA | 6,186 -> 2,267 (2.7x) | 869 -> 375 (2.3x) |
+| split RU | 11,281 -> 2,918 (3.9x) | 1,381 -> 494 (2.8x) |
+| split RD | 10,796 -> 2,938 (3.7x) | 1,333 -> 495 (2.7x) |
+| split RZ | 13,049 -> 2,298 (5.7x) | 1,561 -> 391 (4.0x) |
+| split RO | 5,770 -> 2,022 (2.9x) | 824 -> 351 (2.3x) |
+| fused RNE | 1,351 -> 323 (4.2x) | 237 -> 63 (3.8x) |
+| fused RNA | 2,855 -> 1,111 (2.6x) | 373 -> 192 (1.9x) |
+| fused RU | 3,403 -> 1,400 (2.4x) | 447 -> 241 (1.9x) |
+| fused RD | 3,251 -> 1,420 (2.3x) | 441 -> 241 (1.8x) |
+| fused RZ | 3,428 -> 1,148 (3.0x) | 462 -> 210 (2.2x) |
+| fused RO | 2,855 -> 1,014 (2.8x) | 376 -> 179 (2.1x) |
+| odd split RNE | 7,042 -> 893 (7.9x) | 1,168 -> 157 (7.4x) |
+| odd split RNA | 9,154 -> 2,442 (3.7x) | 1,335 -> 390 (3.4x) |
+| odd split RU | 20,858 -> 3,044 (6.9x) | 2,538 -> 506 (5.0x) |
+| odd split RD | 20,738 -> 3,096 (6.7x) | 2,489 -> 509 (4.9x) |
+| odd split RZ | 23,990 -> 2,511 (9.6x) | 2,838 -> 402 (7.1x) |
+| odd split RO | 9,721 -> 2,246 (4.3x) | 1,452 -> 371 (3.9x) |
+| odd fused RNE | 3,041 -> 445 (6.8x) | 516 -> 81 (6.4x) |
+| odd fused RNA | 4,563 -> 1,220 (3.7x) | 677 -> 218 (3.1x) |
+| odd fused RU | 4,923 -> 1,536 (3.2x) | 741 -> 259 (2.9x) |
+| odd fused RD | 4,809 -> 1,557 (3.1x) | 730 -> 254 (2.9x) |
+| odd fused RZ | 5,229 -> 1,256 (4.2x) | 774 -> 214 (3.6x) |
+| odd fused RO | 4,579 -> 1,123 (4.1x) | 718 -> 193 (3.7x) |
+
+Against Linux's Ryzen numbers (1 thread, scalar -> tiles):
+
+| | Ryzen (AVX-512) | M3 Pro (NEON) |
+|---|---|---|
+| split RZ | 11,550 -> 1,458 (7.9x) | 13,049 -> 2,298 (5.7x) |
+| split RZ, odd carrier | 21,827 -> 1,626 (13.4x) | 23,990 -> 2,511 (9.6x) |
+| split RU and RD | about 9,990 -> 2,050 (4.9x) | 10,796-11,281 -> 2,918-2,938 (3.7-3.9x) |
+| split RNA and RO | 3,390-3,770 -> 980-1,030 | 5,770-6,186 -> 2,022-2,267 (2.7-2.9x) |
+| the fused macs | 3-5x | 2.3-3.0x (3.1-4.2x odd) |
+
+- **The scalar loop costs the same on both machines** under RZ, RU and RD
+  (within 13%). The NEON tiles are 1.4-2.3x slower than AVX-512's, with 4
+  lanes against 16.
+- **The split word tiles cost 3.1-4.6x the RNE tile** on the M3 Pro (645
+  ps), against about 3.3x for RZ on the Ryzen.
+- **RU and RD are the slowest tiles** here as there: their direction-selected
+  helper costs 27% over RZ's single helper (2,918 against 2,298).
+- On 11 threads the speedups are smaller than on one (1.8-7.1x). In these
+  five modes the scalar loop scales 7.0-8.5x from 1 to 11 threads, and the
+  tiles 5.5-6.3x. A guess I didn't profile: the six efficiency cores keep up
+  better with branchy scalar code than with vector code.
+
+### NEON layout: the row loop, measured, nothing to propose
+
+On NEON the RNE tiles run their product-only and fused tiles as a row loop
+(`gemm_rne_tile.cpp`'s `tile_rows`), because whole-tile passes cost the M3
+Pro 2-4% there. The word tiles use passes on every ISA. So I tried the row
+loop over the word casts in a scratch copy of `csrc`. It is
+`gemm_rne_tile.cpp`'s `tile_rows` with `cast_binaryK_word<RM>` in place of
+`cast_binaryK_rne_fast`, chosen by an environment variable read at load.
+Two variants:
+- the row loop for the product-only and fused tiles, as the RNE tiles do;
+- the row loop for all three.
+
+I timed both with `dev/benchmarks/timing/cpu_gemm_ab.cpp`, compiled against
+the shipped tree and the scratch tree. A scratch copy of the tool runs RNE,
+RNA, RU and RZ in place of its RNE, RU and SR. The two binaries were
+alternated in five rounds of five reps, at 256^3 and a ragged 100^3, on 1
+and 11 threads. Every output hash was the same across the variants and the
+scalar loop.
+
+Variant / passes, ns a mac:
+
+| | product-only and fused rows | all rows |
+|---|---|---|
+| split, 1 thread | 0.94-1.03 (unchanged code: see below) | **1.06-1.24** |
+| split, 11 threads | 0.95-1.02 (unchanged code) | **1.05-1.26** |
+| product-only, 1 thread | 0.98-1.05 | 0.98-1.05 |
+| fused, 1 thread | 0.96-1.02 | 0.97-1.03 |
+| product-only and fused, 11 threads | 0.94-1.05 | 0.95-1.06 |
+
+- **For the split tiles the passes win, by 6-26%.** The word casts are
+  long chains, and in one loop per row the product's cast feeds the sum's
+  (the reason `gemm_rne_tile.cpp` gives for its passes).
+- **For the product-only and fused tiles there is no preference.** The
+  effects are mixed in sign, within 6% either way, and that is this A/B's
+  resolution. The first variant leaves the split tiles' code unchanged, yet
+  their times moved 0.94-1.03x between the two binaries, and the RNE rows
+  (whose code no variant touches) moved 0.99-1.03x on one thread.
+
+So the shipped layout stands on NEON, and there is no hunk for Linux.
+
+### Open
+
+- AS step 3, the elementwise quantizers' word loop: their timing, when it
+  lands.
+- M12 waits on SP-AT.
