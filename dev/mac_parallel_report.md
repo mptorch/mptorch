@@ -2733,3 +2733,76 @@ line.
 ### Open
 
 - Nothing waits on the Mac for M12.
+
+## M13: superfp's NaN on P3109's codes, on MPS (at `01da482`, the code at `d2b40a9`)
+
+The MPS source generators that now pass the sign work. The superfp
+quantizers, in-place ops, GEMMs and block ops give the CPU's words on MPS,
+and the new code-point test passes on MPS, signed and unsigned, in both
+domains. The quantizer sweep gives 0 mismatches over all 2^32 words,
+including the unsigned row's moved top and the new `(0, 4, 2, 7)` row. A
+generator that wrote the wrong sign would be caught: a scratch build whose
+superfp tail always writes `true` fails exactly the unsigned cases, and the
+sweep's unsigned row then mismatches on about 1.03 billion words. No file
+changed but this report.
+
+Machine: the M3 Pro, on AC power, with no thermal or performance warning
+recorded. Built with `MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1 uv sync
+--group hf` (1:37; `build_config.txt` shows `-DMPTORCH_ODD_ACCUMULATED=1
+-DMPTORCH_COUNTING=1`), Apple clang 21.0.0.
+
+### What I read
+
+Every `make_superfp_params` call that Metal compiles passes the sign:
+- the tails from `mps/quantize_tail.h`'s `superfp_format_lines` (its callers
+  in `mps/quantize.cpp`, three, and `mps/pointwise_entry.cpp`);
+- `mps/block_entry.cpp`'s two calls;
+- the header calls in `common/gemm_policy.h`, `gemm_counted.h`,
+  `block_decode.h` and `pointwise.h`.
+
+`grep` finds no other generator of a superfp builder call under `mps/`.
+
+### Tests
+
+| command | result |
+|---|---|
+| `bash dev/benchmarks/check_native.sh` | every host tool `OK`, `all native tools build` |
+| `pytest tests/test_mps.py tests/test_superfp_quantize.py tests/test_block_pack.py tests/test_unsigned_zero.py tests/test_gemm_mixed_palette.py tests/test_event_counts.py tests/test_counted_gemm.py tests/test_pointwise_fused.py` | 13,018 passed, 7,045 skipped, 0 failed (8:36, the first run after the prelude changed, so every kernel it touched compiled cold) |
+| `pytest tests/test_superfp_quantize.py -k code_points` | the 4 MPS cases (signed and unsigned, `SAT_NONE` and `SAT_FINITE`) and the 4 CPU cases pass; the 4 CUDA cases skip |
+| `pytest tests/test_block_pack.py -k 'sfp5_unsigned or e4m3_sfp_m0_scale'` | 48 passed (24 of them on MPS), 24 skipped (CUDA) |
+| `pytest tests/` | 28,471 passed, 17,165 skipped, 0 failed (17:12, the rest of the kernels compiling cold) |
+
+### The sweep
+
+| command | result | time |
+|---|---|---|
+| `mps_backend.py sweep` | `216 format/mode cases, 0 mismatches in all`; every one of the 45 superfp cases (5 formats x 9 modes) 0, including `superfp 4/3/1 bias=3 SAT_PROPAGATE unsigned` and the new `superfp 0/4/2 bias=7 SAT_NONE` | 11:55 |
+| `mps_backend.py control` | `explicit FMA in the split: 248512514 mismatches`, `math_mode(fast): 2261778181 mismatches` (both must be nonzero) | 0:07 |
+
+The sweep took about twice the brief's 6 min. It prints one
+`FormatRangeWarning`, for `SuperFP(9, 3, 1, 3)`, whose bottom lies below
+binary32's smallest subnormal. That is a property of that format's bottom,
+unrelated to this change.
+
+### Would a wrong sign be caught?
+
+The brief puts the likeliest failure in a generated tail. I built a scratch
+copy of `mps/quantize_tail.h` whose `superfp_format_lines` writes `true` for
+every format, compiled `mps/quantize.cpp` and `mps/pointwise_entry.cpp`
+against it with the extension's flags, and linked them into a copy of the
+package, imported through `PYTHONPATH`. A pytest plugin confirmed that
+copy's `_C.abi3.so` was the one loaded.
+- **The tests.** `pytest tests/test_mps.py tests/test_superfp_quantize.py -k
+  'superfp or sfp or code_points'` gives 11 failed, 1,117 passed. The
+  failures are exactly the unsigned cases: `test_superfp_quantize` on
+  `(4, 3, 1, 3, unsigned, SAT_PROPAGATE)` in all 9 modes, and
+  `test_the_code_points_are_p3109s`'s two unsigned MPS cases. Every signed
+  case passes, as it should, since the copy writes their sign right.
+- **The sweep.** The sweep's unsigned row alone over all 2^32 words (its
+  `quantizers()` and `chunks()`, through a scratch script) gives 1,032,847,360
+  to 1,033,371,647 mismatches in each of the 9 modes, none on subnormal
+  inputs. The same script at HEAD gives 0 in all 9.
+
+### Open
+
+- Nothing waits on the Mac for M13.
