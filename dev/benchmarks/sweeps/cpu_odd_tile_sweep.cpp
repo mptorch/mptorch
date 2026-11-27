@@ -33,13 +33,16 @@
 // scalar steps word for word (a handed-back block or step taking the scalar
 // steps); the program prints how many blocks ran whole.
 //
-// A tile of fewer than four outputs runs a narrow path instead of the passes
-// (each output's steps as a chain of the scalar step), so the words go
-// through it too: every lane alone and in groups of three (rows sharing a,
-// columns sharing b), and each whole-tile block again as 1 x 1, 1 x 2, 1 x 3
-// and 3 x 1 tiles cut from its first rows and columns, over all its steps.
-// The per-word groups check the path's casts on every word; the blocks also
-// run it over K-blocks of 32 steps.
+// A tile of fewer than four outputs (forty on NEON) runs a narrow path
+// instead of the passes (each output's steps as a chain of the scalar step;
+// on NEON from three outputs in lanes padded to a multiple of four), so the
+// words go through it too: every lane alone and in groups of three (rows
+// sharing a, columns sharing b), and each whole-tile block again cut to each
+// count of outputs from 1 to 48 that it holds (all but the primes past 32),
+// as rows, columns and two-dimensional tiles from its first rows and
+// columns, over all its steps. The per-word groups check the path's casts on
+// every word; the blocks also run it over K-blocks of 32 steps at every lane
+// count, padded or not, and the passes on tiles of a few outputs.
 //
 // Built with the extension's host flags:
 //
@@ -49,7 +52,7 @@
 //   /tmp/cpu_odd_tile_sweep                         # the widest ISA the CPU has
 //   MPTORCH_CPU_SIMD=avx2 /tmp/cpu_odd_tile_sweep   # the AVX2 tiles on an AVX-512 CPU
 //
-// About 100 s per format on 16 threads (~17 min), most of it the narrow
+// About 110 s per format on 16 threads (~18 min), most of it the narrow
 // tiles' calls. MPTORCH_CPU_SIMD=0 leaves the tiles null, and the program
 // then says it has nothing to check.
 
@@ -60,6 +63,8 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <utility>
+#include <vector>
 
 using mptorch::gemm_cpu::odd_tiles;
 using mptorch::gemm_cpu::RneTileFn;
@@ -320,6 +325,35 @@ namespace
     }
   }
 
+  // The tiles a whole-tile block is cut to, from its first rows and columns:
+  // each count of outputs from 1 to 48 as a row (1 x n) and a column (n x 1)
+  // where the block holds one, and as the squarest two-dimensional tile and
+  // its transpose (a prime past 32 has none of the three). The narrow
+  // path's cut-off is four outputs, forty on NEON, so this runs every padded
+  // size with each count it serves, and the passes from the cut-off up.
+  std::vector<std::pair<int64_t, int64_t>> cut_shapes()
+  {
+    std::vector<std::pair<int64_t, int64_t>> shapes;
+    for (int64_t n = 1; n <= 48; ++n)
+    {
+      if (n <= 32)
+        shapes.push_back({1, n});
+      if (1 < n && n <= 32)
+        shapes.push_back({n, 1});
+      int64_t r = 0;
+      for (int64_t d = 2; d * d <= n; ++d)
+        if (n % d == 0)
+          r = d;
+      if (r && n / r <= 32)
+      {
+        shapes.push_back({r, n / r});
+        if (r != n / r)
+          shapes.push_back({n / r, r});
+      }
+    }
+    return shapes;
+  }
+
   // Mismatches over whole tiles for one format, the header's second mode.
   uint64_t whole_tiles(const BinaryKParams &p, uint64_t &ran, uint64_t &blocks)
   {
@@ -330,6 +364,7 @@ namespace
         {odd_tiles.fused, &want_fused}};
     uint64_t bad = 0, kept = 0;
     const int64_t chunks = (int64_t(1) << 32) / (LANES * SAMPLE);
+    const std::vector<std::pair<int64_t, int64_t>> shapes = cut_shapes();
 #pragma omp parallel for reduction(+ : bad, kept) schedule(dynamic, 16)
     for (int64_t chunk = 0; chunk < chunks; ++chunk)
     {
@@ -379,12 +414,13 @@ namespace
         { return float_bits(u) == float_bits(v) || (std::isnan(u) && std::isnan(v)); };
         for (int64_t l = 0; l < LANES; ++l)
           bad += !same(whole[l], want[l]) + !same(steps[l], want[l]);
-        // narrow tiles over the block's first rows and columns, all its steps
-        // (the narrow path, which the per-word passes cannot tell apart by
-        // kind: their operands make every kind's step one cast of the word)
-        for (const auto &[ti, tj] : {std::pair<int64_t, int64_t>{1, 1}, {1, 2}, {1, 3}, {3, 1}})
+        // tiles cut from the block's first rows and columns, all its steps:
+        // the narrow path, which the per-word passes cannot tell apart by
+        // kind (their operands make every kind's step one cast of the word),
+        // and the passes on a few outputs
+        for (const auto &[ti, tj] : shapes)
         {
-          alignas(64) float bn[T * 3], sn[3];
+          alignas(64) float bn[LANES], sn[LANES];
           for (int64_t k = 0; k < T; ++k)
             for (int64_t j = 0; j < tj; ++j)
               bn[k * tj + j] = b[k * T + j];

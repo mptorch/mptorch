@@ -484,7 +484,11 @@ Performance notes
   modes), such as a sum into one scalar, skips the vector code's passes,
   which would run one lane or a few and cost up to twice the scalar loop:
   under ``RNE`` it runs each output's steps as one chain, a few percent
-  faster than the scalar loop, and in the other modes the scalar loop.
+  faster than the scalar loop, and in the other modes the scalar loop. On
+  arm64 the cut-off is four outputs in the other modes with the default
+  carrier, and forty under ``RNE`` with ``carrier_rounding=RoundMode.RO``,
+  whose vector code there switches the FP unit's rounding mode at a fixed
+  cost per step.
 - **Block products and convolutions cost what their matrix products cost.**
   How much the decode of a block operand adds depends on the arithmetic
   beside it (:doc:`block`, "How the kernel decodes"). At 1024\ :sup:`3` on

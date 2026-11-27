@@ -32,7 +32,11 @@ About 1 min. Ryzen 7940HS at 4.7 GHz, 2026-11-27, every shape taken by the
 tiles, tiles / scalar: 1.23-1.98x at one output, 0.73-1.57x at two, 0.43-1.35x
 at four (the RNE and odd tiles faster, the word tiles slower), 0.07-0.58x
 from eight on; hence the cut-offs of four outputs for the RNE and odd tiles
-and eight for the word tiles.
+and eight for the word tiles. On an M3 Pro (NEON, four lanes) the word tiles
+first win at four outputs, and the odd tiles, whose passes switch the FP
+unit's rounding mode at a fixed cost per K-step, at about forty: the arm64
+cut-offs. AVX2 switches it too, but on the Ryzen a switch costs next to
+nothing, and the odd tiles keep four there.
 """
 
 import argparse

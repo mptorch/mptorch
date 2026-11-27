@@ -30,13 +30,19 @@ namespace mptorch::gemm_cpu
 {
   namespace
   {
-    // A tile of fewer than eight outputs goes back to the scalar loop
+    // A tile of fewer than NARROW_TILE outputs goes back to the scalar loop
     // whole. Each K-step's passes would then run one lane or a few, and
-    // their setup costs more than the lanes save: on one thread the scalar
-    // loop was 1.2-2x faster for a single output (a sum into one scalar),
-    // and these tiles first won at eight outputs
-    // (dev/benchmarks/timing/cpu_narrow_gemm.py).
+    // their setup costs more than the lanes save: on one thread of a Ryzen
+    // 7940HS the scalar loop was 1.2-2x faster for a single output (a sum
+    // into one scalar), and these tiles first won at eight outputs
+    // (dev/benchmarks/timing/cpu_narrow_gemm.py). NEON's tiles, of four
+    // lanes, first win at four outputs (on an M3 Pro, 0.42-0.69x of the
+    // scalar loop at four and six outputs under RNA, RU, RO and RZ).
+#if defined(__aarch64__)
+    constexpr int64_t NARROW_TILE = 4;
+#else
     constexpr int64_t NARROW_TILE = 8;
+#endif
 
     // One K-step after another, each element's steps in K order (see
     // cpu/gemm_rne_tile.cpp's tile_steps, whose structure this is). FTI, FTJ

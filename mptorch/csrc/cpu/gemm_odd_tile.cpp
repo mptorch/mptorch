@@ -62,6 +62,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#if defined(__aarch64__)
+#include <utility>
+#endif
 
 #if defined(__x86_64__)
 #include <immintrin.h>
@@ -72,12 +75,26 @@ namespace mptorch::gemm_cpu
 #if defined(MPTORCH_FAST_CAST)
   namespace
   {
-    // A tile of fewer than four outputs runs narrow_steps below in place of
-    // the passes, for gemm_rne_tile.cpp's reasons (its NARROW_TILE): the
-    // passes on one lane or a few cost up to 2x the scalar loop, and the
+    // A tile of fewer than NARROW_TILE outputs runs narrow_steps below in
+    // place of the passes, for gemm_rne_tile.cpp's reasons (its NARROW_TILE):
+    // the passes on one lane or a few cost up to 2x the scalar loop, and the
     // palette tiles call these functions on column and row groups, so the
-    // tile is not handed back.
+    // tile is not handed back. On NEON the passes set the directed
+    // roundings through FPCR, three writes a K-step for the products and
+    // three more for the split tile's sums, a cost per K-step whatever the
+    // tile's width. On an M3 Pro the narrow path ran 1.1-4.4x faster than
+    // the passes from 4 to 36 outputs, about as fast at 40-45, slower on
+    // rows from 48 on, and 1.3-3.3x slower at 64 lanes. AVX2's passes switch
+    // MXCSR the same way, but on a Ryzen 7940HS a write costs next to nothing
+    // (a write before each add of a dependent chain left it at the add's
+    // latency), and a narrow path below forty outputs lost to the passes on
+    // rows (1.9x slower at 1 x 4, fused) while gaining at most 1.27x on
+    // columns, so x86 keeps four.
+#if defined(__aarch64__)
+    constexpr int64_t NARROW_TILE = 40;
+#else
     constexpr int64_t NARROW_TILE = 4;
+#endif
 
     namespace odd = mptorch::gemm::odd;
 
@@ -289,6 +306,36 @@ namespace mptorch::gemm_cpu
         sums[l] = s[l];
     }
 
+#if defined(__aarch64__)
+    // The same for n <= N outputs, N a multiple of four; the lanes from n
+    // on repeat output n - 1 and are not stored. Clang vectorizes the lane
+    // loop four lanes at a time at a multiple of four and from 17 lanes on,
+    // and finds 5-7, 9-11 and 13-15 not worth it: those ran 1.6-2.2x
+    // slower a step on an M3 Pro than their size padded.
+    template <int KIND, int N>
+    [[gnu::always_inline]] inline void narrow_lanes_padded(const float *__restrict__ a_pack,
+                                                           const float *__restrict__ b_pack,
+                                                           float *__restrict__ sums, int64_t n,
+                                                           int64_t tk, int64_t tj,
+                                                           const BinaryKParams &pm,
+                                                           const BinaryKParams &pa)
+    {
+      float s[N];
+      int64_t ai[N], bj[N];
+      for (int l = 0; l < N; ++l)
+      {
+        const int64_t o = l < n ? l : n - 1;
+        s[l] = sums[o], ai[l] = (o / tj) * tk, bj[l] = o % tj;
+      }
+      for (int64_t k = 0; k < tk; ++k)
+        for (int l = 0; l < N; ++l)
+          s[l] = narrow_step<KIND>(a_pack[ai[l] + k], b_pack[k * tj + bj[l]], s[l], pm, pa);
+      for (int l = 0; l < N; ++l)
+        if (l < n)
+          sums[l] = s[l];
+    }
+#endif
+
     template <int KIND>
     [[gnu::always_inline]] inline void narrow_steps(const float *__restrict__ a_pack,
                                                     const float *__restrict__ b_pack,
@@ -296,6 +343,25 @@ namespace mptorch::gemm_cpu
                                                     int64_t tk, int64_t tj, const BinaryKParams &pm,
                                                     const BinaryKParams &pa)
     {
+#if defined(__aarch64__)
+      // one output or two in lanes of their own (padded to four, they ran
+      // up to 7% slower); from three, the narrowest padded size that holds
+      // them
+      static_assert(NARROW_TILE % 4 == 0, "lanes in fours");
+      const int64_t n = ti * tj;
+      if (n == 1)
+        narrow_lanes<KIND, 1>(a_pack, b_pack, sums, tk, tj, pm, pa);
+      else if (n == 2)
+        narrow_lanes<KIND, 2>(a_pack, b_pack, sums, tk, tj, pm, pa);
+      else
+        [&]<int... Q>(std::integer_sequence<int, Q...>)
+        {
+          (void)((n <= 4 * (Q + 1) &&
+                  (narrow_lanes_padded<KIND, 4 * (Q + 1)>(a_pack, b_pack, sums, n, tk, tj, pm, pa),
+                   true)) ||
+                 ...);
+        }(std::make_integer_sequence<int, NARROW_TILE / 4>{});
+#else
       static_assert(NARROW_TILE == 4, "a narrow_lanes per size below the cut-off");
       const int64_t n = ti * tj;
       if (n == 1)
@@ -304,6 +370,7 @@ namespace mptorch::gemm_cpu
         narrow_lanes<KIND, 2>(a_pack, b_pack, sums, tk, tj, pm, pa);
       else
         narrow_lanes<KIND, 3>(a_pack, b_pack, sums, tk, tj, pm, pa);
+#endif
     }
 
     template <int KIND, class Ops>

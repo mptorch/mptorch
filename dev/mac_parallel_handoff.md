@@ -103,7 +103,7 @@ this document assigns to the Mac with a sync point.
 | M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | now | no |
 | M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
 | M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | now (SP-AS delivered for steps 1-2) | yes |
-| M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | now (SP-AT delivered) | yes |
+| M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | done (report `adb0fea`; its hunk applied in the commit closing section 16); the new sweep pass on NEON open | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
@@ -1237,6 +1237,38 @@ to 2x the scalar loop (RNE odd 28.8 against 14.5 ns a step).
   against `daa9304` if convenient.
 - MPS: the exact route at the new threshold, 2^22, gains as M10b measured
   (`fixedpoint_gemm.py exact --device mps --sizes 128 160 192 256`).
+
+**Closed.** The Mac reported at `adb0fea`: the words are the scalar code's
+under Apple clang, every control bites, and MPS's 2^22 sits at the crossing.
+Linux applied its NEON-only hunk in the commit adding this paragraph, behind
+`__aarch64__` with the x86 statements verbatim:
+- `cpu/gemm_word_tile.cpp`: `NARROW_TILE` is 4 on arm64;
+- `cpu/gemm_odd_tile.cpp`: `NARROW_TILE` is 40 on arm64, because the NEON
+  passes write FPCR at 11-13 ns a write, a fixed cost per K-step; below it
+  the narrow path runs from three outputs in lanes padded to a multiple of
+  four (`narrow_lanes_padded`);
+- the x86 build's `.so` is byte-identical to `a507483`'s.
+
+The report's three requests:
+- **The sweep's coverage.** `cpu_odd_tile_sweep.cpp` now also cuts each
+  whole-tile block to every count of outputs from 1 to 48 that it holds
+  (`cut_shapes`: rows, columns, and 2-D tiles with their transposes), so
+  every padded lane count runs. Its bite was checked on x86, through a copy
+  of the file with the arm64 guards forced on and a row/column-major bug in
+  the padded path: on the first format the old sweep found 0 mismatches and
+  the new one 77,560,575. The shipped file and the unbroken copy gave 0 on
+  that format. The full sweep was not rerun (about 110 s a format now).
+- **AVX2 keeps 4.** On the Ryzen an MXCSR write costs next to nothing: a
+  write before each add of a dependent chain left the loop at the add's
+  latency (0.65 ns). The hunk's narrow path below 40, forced on for x86,
+  lost to AVX2's passes on rows (1.9x slower at 1 x 4, fused) and gained at
+  most 1.27x on columns and 2 x 2. GCC vectorizes none of the padded lanes,
+  so on x86 the padding only adds duplicate chains.
+- **The odd word tiles' narrow path** was not built.
+
+**Open for the next Mac round:** `cpu_odd_tile_sweep.cpp` at this commit
+under Apple clang (about 15 min), since its new pass runs NEON's padded lanes
+in a sweep for the first time.
 
 ## 17. Later, when their phases are refined
 
