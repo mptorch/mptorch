@@ -568,18 +568,18 @@ def get_extensions():
     # The ops of the carrier step rounded to odd (carrier_rounding=RoundMode.RO;
     # common/carrier_odd.h) are opt-in, and their kernels are units of their own:
     # the instantiation files, whose stems end in _odd or _odd_f64, the CPU's
-    # vector tiles (cpu/gemm_odd_tile.cpp) and the CUDA kernel of the test op
-    # _carrier_odd. MPTORCH_NO_ODD=1 leaves those out. Every file that holds an
-    # entry point stays, and the define makes each odd entry point and Meta
-    # kernel raise, naming this flag, before it instantiates a driver, so no
-    # symbol of a left-out unit is referenced. A file kept under this flag must
-    # not have a stem ending in _odd.
+    # vector tiles (cpu/gemm_odd_tile.cpp and cpu/gemm_word_odd_tile.cpp) and
+    # the CUDA kernel of the test op _carrier_odd. MPTORCH_NO_ODD=1 leaves those
+    # out. Every file that holds an entry point stays, and the define makes each
+    # odd entry point and Meta kernel raise, naming this flag, before it
+    # instantiates a driver, so no symbol of a left-out unit is referenced. A
+    # file kept under this flag must not have a stem ending in _odd.
     no_odd = os.getenv("MPTORCH_NO_ODD", "0") == "1"
     if no_odd:
         print("MPTORCH_NO_ODD=1: building without the kernels of the odd carrier step.")
         extra_compile_args["cxx"].append("-DMPTORCH_NO_ODD=1")
         extra_compile_args["nvcc"].append("-DMPTORCH_NO_ODD=1")
-    odd_units = {"gemm_odd_tile.cpp", "carrier_odd_kernel.cu"}
+    odd_units = {"gemm_odd_tile.cpp", "gemm_word_odd_tile.cpp", "carrier_odd_kernel.cu"}
 
     # The odd step under KAHAN, BLOCK and TREE (common/carrier_odd_accumulate.h)
     # is opt-in at build time: its 72 instantiation files, whose stems end in

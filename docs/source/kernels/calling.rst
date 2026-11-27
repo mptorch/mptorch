@@ -456,9 +456,20 @@ Performance notes
   the same roundings from the processor's rounding mode, at 1.1-1.25x and
   1.3-1.4x.
 
-  Every other mode, format and accumulate algorithm runs the scalar loop,
-  palettes included. So does every call under the environment variable
-  ``MPTORCH_CPU_SIMD=0``, which is read when mptorch loads.
+  The other deterministic modes (``RoundMode.RNA``, ``RU``, ``RD``, ``RZ``
+  and ``RO``) have vector tiles too, for single-format macs whose formats
+  have a precision from 2 to 23 bits, with the default or the odd carrier
+  step. Their casts branch on the input's sign and range in the scalar
+  loop; the tiles compute every case on every lane and select one, with the
+  scalar loop's words. At 512\ :sup:`3` on one Ryzen thread a split step
+  under ``RZ`` goes from 11.6 to 1.5 ns (21.8 to 1.6 ns with the odd carrier
+  step), under ``RU`` and ``RD`` from 10.0 to 2.1 ns, and under ``RNA`` and
+  ``RO`` from 3.4-3.8 to 1.0 ns; 3.4-9.3x faster on sixteen threads.
+
+  Stochastic rounding, every other format and every other accumulate
+  algorithm run the scalar loop, and so does every call under the
+  environment variable ``MPTORCH_CPU_SIMD=0``, which is read when mptorch
+  loads.
 - **Block products and convolutions cost what their matrix products cost.**
   How much the decode of a block operand adds depends on the arithmetic
   beside it (:doc:`block`, "How the kernel decodes"). At 1024\ :sup:`3` on

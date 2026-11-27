@@ -40,6 +40,7 @@
 #include "gemm_backend.h"
 #include "gemm_palette_tile.h"
 #include "gemm_rne_tile.h"
+#include "gemm_word_tile.h"
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h> // defines at::internal::GRAIN_SIZE
 #include <algorithm>
@@ -553,6 +554,17 @@ namespace mptorch::gemm_cpu
             static_assert(TI * TJ <= RNE_TILE_MAX);
             if (run_rne_tile<rne_tile_kind<Accumulator>::value>(mac_single, a_pack, b_pack,
                                                                   tv.sums, ti, tk, tj))
+              continue;
+          }
+          // The same for the deterministic modes with no fast path (RNA, RU,
+          // RD, RZ and RO, over common/cast_binaryK_word.h's branchless casts;
+          // cpu/gemm_word_tile.h), under the same contract. Its own trait and
+          // branch, which also name nothing new, leave the palettes and every
+          // other instantiation as they were.
+          if constexpr (!MIXED && word_tile_kind<Accumulator>::value != 0)
+          {
+            static_assert(TI * TJ <= RNE_TILE_MAX);
+            if (run_word_tile(mac_single, a_pack, b_pack, tv.sums, ti, tk, tj))
               continue;
           }
           // A palette whose Macs are such policies runs the same tiles, once

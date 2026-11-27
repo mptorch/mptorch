@@ -130,7 +130,7 @@ Forward and backward together cost 8.6-10x on CUDA. On CUDA the two
 products take three quarters of the time and the softmax the rest: an
 attention costs what its products would cost as simulated layers.
 Stochastic rounding costs about three times RNE's time on CUDA, and much
-more on the CPU, whose vector tiles take RNE only.
+more on the CPU, whose vector tiles take the deterministic modes only.
 
 Flash attention
 ---------------

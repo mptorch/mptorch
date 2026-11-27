@@ -5,7 +5,9 @@ vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
 it, ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
 (``carrier_rounding=RoundMode.RO``), ``cpu/gemm_palette_tile.h`` runs both per
 palette entry for the palette GEMMs, and ``cpu/pointwise_rne.cpp`` serves the
-fused pointwise ops (``qadd`` and its siblings); ``MPTORCH_CPU_SIMD``, read when the
+fused pointwise ops (``qadd`` and its siblings), and ``cpu/gemm_word_tile.cpp`` serves the
+deterministic modes without a fast path (RNA, RU, RD, RZ and RO, over
+``common/cast_binaryK_word.h``); ``MPTORCH_CPU_SIMD``, read when the
 extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
 So each case here runs in an interpreter per setting, and their results must
 agree bit for bit, NaNs included. The cases are the tiles'
@@ -51,6 +53,8 @@ _CASES = textwrap.dedent(
         return True
 
     ODD = has_odd()
+    # the word tiles' modes (cpu/gemm_word_tile.h)
+    WORD_MODES = (RoundMode.RNA, RoundMode.RU, RoundMode.RD, RoundMode.RZ, RoundMode.RO)
     out = {}
     shapes = [(64, 64, 64), (37, 70, 45), (5, 33, 9)]
     formats = [(8, 4, 16, 11), (16, 11, 16, 11), (12, 7, 16, 8), (6, 3, 10, 6), (24, 16, 24, 16)]
@@ -72,6 +76,27 @@ _CASES = textwrap.dedent(
                     a, b, mul_K=mk, mul_P=mp, accumulate_quant=False
                 )
                 out["fused-" + key] = binaryK_matmul_fma(a, b, fma_K=ak, fma_P=ap)
+                # the word tiles, in each of their modes, and their odd twins
+                for mode in WORD_MODES:
+                    wkey = f"{mode.name}-{key}"
+                    w = dict(rounding_mode=mode)
+                    out["word-split-" + wkey] = binaryK_matmul(a, b, **kw, **w)
+                    out["word-split-sat-" + wkey] = binaryK_matmul(
+                        a, b, **kw, saturation_mode=SaturationMode.SAT_FINITE, **w
+                    )
+                    out["word-mul-only-" + wkey] = binaryK_matmul(
+                        a, b, mul_K=mk, mul_P=mp, accumulate_quant=False, **w
+                    )
+                    out["word-fused-" + wkey] = binaryK_matmul_fma(a, b, fma_K=ak, fma_P=ap, **w)
+                    if ODD:
+                        o = dict(carrier_rounding=RoundMode.RO, **w)
+                        out["word-odd-split-" + wkey] = binaryK_matmul(a, b, **kw, **o)
+                        out["word-odd-mul-only-" + wkey] = binaryK_matmul(
+                            a, b, mul_K=mk, mul_P=mp, accumulate_quant=False, **o
+                        )
+                        out["word-odd-fused-" + wkey] = binaryK_matmul_fma(
+                            a, b, fma_K=ak, fma_P=ap, **o
+                        )
                 # the odd carrier step's tiles
                 odd = dict(carrier_rounding=RoundMode.RO)
                 if not ODD:
@@ -96,6 +121,15 @@ _CASES = textwrap.dedent(
             out[f"propagate-{dtype}-{s}"] = binaryK_matmul_fma(
                 a, b, fma_K=16, fma_P=8, saturation_mode=SaturationMode.SAT_PROPAGATE
             )
+            # ... and the same under a word tile's mode
+            out[f"word-unsigned-{dtype}-{s}"] = binaryK_matmul(
+                a.abs(), b.abs(), mul_K=8, mul_P=4, acc_K=16, acc_P=8, mul_is_signed=False,
+                acc_is_signed=False, rounding_mode=RoundMode.RU,
+            )
+            out[f"word-normals-{dtype}-{s}"] = binaryK_matmul(
+                a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=8,
+                subnormals_mode=SubnormalsMode.NORMALS, rounding_mode=RoundMode.RZ,
+            )
     g = torch.Generator().manual_seed(9)
     a = torch.randn(3, 33, 40, generator=g)
     b = torch.randn(40, 17, generator=g)
@@ -111,10 +145,18 @@ _CASES = textwrap.dedent(
     odd_fused = FusedMac(BinaryK(16, 11), carrier_rounding=RoundMode.RO)
     oconv = QConv2d(3, 5, 3, padding=1, formats=conv_formats(odd_split))
     ofconv = QConv2d(3, 5, 3, stride=2, formats=conv_formats(odd_fused))
+    wconv = QConv2d(3, 5, 3, padding=1, formats=conv_formats(
+        SplitMac(BinaryK(8, 4), BinaryK(16, 11), rounding=RoundMode.RZ)
+    ))  # fmt: skip
+    wfconv = QConv2d(3, 5, 3, stride=2, formats=conv_formats(
+        FusedMac(BinaryK(16, 11), rounding=RoundMode.RU)
+    ))  # fmt: skip
     x = torch.randn(2, 3, 11, 13, generator=g)
     with torch.no_grad():
         out["conv-split"] = conv(x)
         out["conv-fused"] = fconv(x)
+        out["word-conv-split"] = wconv(x)
+        out["word-conv-fused"] = wfconv(x)
         if ODD:
             out["odd-conv-split"] = oconv(x)
             out["odd-conv-fused"] = ofconv(x)

@@ -102,7 +102,7 @@ this document assigns to the Mac with a sync point.
 | M9 | AL's Mac round, and its Metal kernel if Linux builds one | the baseline done (`8bbfbf6`); the second half now (step 2 delivered, the commit adding this) | yes |
 | M10a | AN's step 1, beforehand: `torch._int_mm` on MPS and on the arm64 CPU (exactness, shapes, speed against today's fixed-point GEMM) | now | no |
 | M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | at SP-ANb (planned 2026-11-27) | yes |
-| M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | at SP-AS (planned 2026-11-27) | yes |
+| M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | now (SP-AS delivered for steps 1-2) | yes |
 | M12 | AT, the odd carrier's step on a single chain: the host change under Apple clang | at SP-AT (planned 2026-11-27) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
@@ -195,7 +195,7 @@ timing. Lint any Python you change, as CI does:
 | **SP-S** | S's counted ops on the CPU, CUDA and Meta, `common/event_counts.h`, and the MPS tests that hold counts to the CPU's | M8. M4 had to be merged before Linux started S, since S wraps the GEMM policies, the fixed-point ones included: merged (`e72a53b`) |
 | **SP-AL** | AL's steps 1 and 2 (compiled flash, batched query tiles), and step 4's ops if Linux builds them | M9 |
 | **SP-ANb** (planned) | the exact int8 route (`mptorch/quant/ops/_exact.py`) with its tests, CPU and CUDA, built on M10a's findings | M10b |
-| **SP-AS** (planned) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
+| **SP-AS** (delivered for steps 1-2, the commit adding M11's brief) | the word cast, the word tiles (NEON included, written on Linux and checked on x86), their sweeps and tests | M11 |
 | **SP-AT** (planned) | the odd carrier's host change, if AT's profile justifies one | M12 |
 
 Linux will say at each point which commit it is, and the user relays it.
@@ -1088,17 +1088,62 @@ modes run the scalar casts, which branch on the sign and the binade.
   prelude). Over it come vector tiles for the split, product-only and fused
   macs, NEON included, and optionally the elementwise quantizers' loop.
 
-**What Linux built:** (filled in at SP-AS).
+**What Linux built** (steps 1 and 2, the commit adding this text; step 3,
+the elementwise quantizers, follows in its own commit):
+- `common/cast_binaryK_word.h`: the five casts as straight-line copies of
+  the shipped casts' arms, one selected by mask, from the existing
+  `BinaryKParams` fields. It admits signed formats under SUBNORMALS with 1
+  to 22 stored mantissa bits (`word_cast_format`).
+  - RU and RD go through one direction-selected magnitude helper
+    (`absolute_directed`). Computing both helpers on every lane was more
+    than GCC would vectorize, and those tiles ran slower than the scalar
+    loop.
+  - The header is host only, and the Metal prelude never sees it.
+- **The tiles:**
+  - `cpu/gemm_word_tile.{h,cpp}` (default carrier) and
+    `cpu/gemm_word_odd_tile.{h,cpp}` (odd carrier) take
+    `cpu/gemm_rne_tile.cpp`'s structure: passes, a fixed-size 32^3 copy,
+    the NaN hand-back, the ISA chosen at load, `MPTORCH_CPU_SIMD`.
+  - Both have **NEON** arms.
+  - The odd tiles take the directed pair from the FP unit's rounding mode on
+    every ISA (FPCR on arm64, as `cpu/gemm_odd_tile.cpp`'s NEON path does).
+  - The kernel's own branch, `word_tile_kind`, beside the RNE one.
+- **Linux's gates:**
+  - `cpu_word_cast_sweep.cpp`: 0 mismatches over 2^32 words x 13 formats x
+    5 modes; the control mismatches in all 65 comparisons.
+  - `cpu_word_tile_sweep.cpp`: every word through both tile families at
+    AVX-512 and AVX2, 0 mismatches; the control bites.
+  - `tests/test_cpu_simd.py` with the five modes' cases passes.
+  - `binary_identity.py`: CUDA identical; only the five modes'
+    instantiations moved.
+  - The suite: 30,728 passed.
+- **Linux's results** (Ryzen at 4.7 GHz, 512^3, ps a step, scalar -> tiles,
+  1 thread / 16 threads):
+  - split RZ 11,550 -> 1,458 / 1,004 -> 178 (odd carrier 21,827 -> 1,626 /
+    1,798 -> 193);
+  - split RU and RD about 9,990 -> 2,050 / 910-1,040 -> 255;
+  - split RNA and RO 3,390-3,770 -> 980-1,030 / 460-500 -> 120-133;
+  - the fused macs 3-5x.
 
 **The Mac's part:**
 - Build; `tests/test_cpu_simd.py` (the new modes' cases), the carrier
   rounding and accumulator tests, and the suite.
-- `dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp` and the word tile sweep
-  under Apple clang, as section 4.3 builds the others, each with its
-  `control`, which must mismatch.
-- Timing: the GEMM under RU, RD and RZ (nearest and odd carriers) at 1 and
-  11 threads, alternated with `MPTORCH_CPU_SIMD=0`. Add the elementwise
-  quantizers if step 3 was built.
+- `dev/benchmarks/sweeps/cpu_word_cast_sweep.cpp` and
+  `cpu_word_tile_sweep.cpp` under Apple clang, as section 4.3 builds the
+  others (both files' headers give their build lines; the tile sweep
+  compiles `cpu/gemm_word_tile.cpp` and `cpu/gemm_word_odd_tile.cpp` in),
+  each with its `control`, which must mismatch. The NEON arms have never run
+  anywhere.
+- **Timing:** the GEMM under RU, RD, RZ, RNA and RO, with the nearest and
+  the odd carriers, at 1 and 11 threads, alternated with
+  `MPTORCH_CPU_SIMD=0`. The plan's timing script is simple to reproduce:
+  `binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=11,
+  rounding_mode=m)` at 512^3, `carrier_rounding=RoundMode.RO` for the odd
+  rows. Add the elementwise quantizers once step 3 lands.
+- **Vectorization:** check that the NEON tiles vectorize. Count vector
+  instructions in the `split_ru_neon`, `split_rz_neon` and similar functions
+  of the tile objects, as Linux did for AVX-512, where the RU/RD tiles first
+  came out scalar.
 - NEON layout choices, if the M3 Pro prefers one: measure, report and
   propose. The tile files are Linux's, so a NEON-only change goes to Linux
   as a hunk.
