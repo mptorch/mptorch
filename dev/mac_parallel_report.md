@@ -1794,3 +1794,103 @@ not propose it:
 M2 in `fc2caad`; 0.97x to 2.52x by blocks of 32 in float32). If the amax
 fusion is worth keeping as an idea, it belongs with the cross-backend work,
 with the numbers above.
+
+## M10a: `torch._int_mm` on the Mac (at `4d78016`)
+
+The handoff's probe (section 14.1), saved unchanged as the session's
+`m10a/probe.py`, under `uv run --no-sync python`. The machine is the M3 Pro
+on AC power, torch 2.15.0, torch's default 5 threads. No file changed but
+this report.
+
+### The probe's output
+
+```
+cpu exact: True torch.int32
+  cpu (1, 64, 64) ok
+  cpu (16, 64, 64) ok
+  cpu (17, 64, 64) ok
+  cpu (24, 64, 64) ok
+  cpu (64, 60, 64) ok
+  cpu (64, 64, 60) ok
+  cpu transposed weight (Linear layout): True
+mps exact: True torch.int32
+  mps (1, 64, 64) ok
+  mps (16, 64, 64) ok
+  mps (17, 64, 64) ok
+  mps (24, 64, 64) ok
+  mps (64, 60, 64) ok
+  mps (64, 64, 60) ok
+  mps transposed weight (Linear layout): True
+words equal, fixedpoint_matmul, wide (32, 14): True
+words equal, fixedpoint_matmul, (25, 14): True
+cpu 1 thr, fixedpoint_matmul, wide (32, 14): 740.1 ps/step
+cpu 1 thr, fixedpoint_matmul, (25, 14): 745.9 ps/step
+cpu 1 thr, torch._int_mm: 512.6 ps/step
+cpu 5 thr, fixedpoint_matmul, wide (32, 14): 169.9 ps/step
+cpu 5 thr, fixedpoint_matmul, (25, 14): 169.9 ps/step
+cpu 5 thr, torch._int_mm: 118.4 ps/step
+mps, fixedpoint_matmul, wide (32, 14): refused (custom_matmul_fixedpoint: the accumulate format has 31 magnitude bits, more than)
+mps, fixedpoint_matmul, (25, 14): 24.37 ps/step
+mps, torch._int_mm: 1.928 ps/step
+```
+
+### What it says
+
+- **MPS: the route can cover it.** `_int_mm` runs, is exact (the K = 65,536
+  check), takes every shape tried (M = 1, 16, 17, 24; K and N of 60; none of
+  CUDA's multiples), and takes the transposed weight. It runs at about 2 ps a
+  step (1.9-3.9 across rounds), against 24.4 for the fixed-point GEMM on MPS:
+  about 10x. The wide row refuses, as expected.
+- **The arm64 CPU: `_int_mm` is a slow fallback.** It is exact and takes
+  every shape, but costs 513 ps a step on one thread, against 3.7 on the
+  Ryzen, about 140x slower. That is only 1.45x faster than the fixed-point
+  GEMM (740-746 ps), and 1.43x on 5 threads. This build has no oneDNN
+  (`torch.backends.mkldnn.is_available()` is False); its BLAS is Accelerate.
+  So the route needs a platform gate, or another engine on arm64.
+
+### Another exact engine on arm64: torch's float matmul
+
+Any exact engine gives the route's words, and on this machine torch's float
+matmuls (Accelerate) are far faster than `_int_mm`. An 8-bit product is at
+most 2^14 in magnitude, so every partial sum is an integer of magnitude at
+most K x 2^14. That makes a float32 sum exact in any order for K <= 1,024
+(2^24), and a float64 one for K <= 2^39. The session's `m10a/float_route.py`
+and `m10a/bound.py`, 512^3, ps a step, the median of 7-9 calls:
+
+| engine | CPU 1 thread | CPU 5 | CPU 11 | MPS |
+|---|---|---|---|---|
+| `torch._int_mm` | 510 | 117 | 95 | 1.9-3.9 |
+| float32 matmul (K <= 1,024) | 1.29 | 1.28 | 1.28 | 2.0-2.4 |
+| int8 -> float32, matmul, -> int32 | 1.59 | 1.88 | 2.44 | |
+| float64 matmul | 4.99 | 4.95 | 4.94 | (no float64) |
+
+Every row's words equal `_int_mm`'s. One 26 ps reading of float64 at 5
+threads did not repeat in five later runs. At the bound, `bound.py` held
+float32 (CPU and MPS) and float64 (CPU) to an int64 reference at K = 1,024
+in three cases, all exact:
+- every product 2^14, so the sum is exactly 2^24;
+- large same-sign products;
+- random operands.
+
+A K = 65,536 case of equal products was exact too, but it is no test of
+float32 past the bound, since its sums are multiples of 2^14.
+
+So on the arm64 CPU, float64 is an exact engine for any K the route will see,
+about 150x the fixed-point GEMM on one thread and 100x `_int_mm`. float32
+gains another 4x for K <= 1,024. The fixed-point operands are already floats
+on their grid, so the route could scale them by 2^fl and multiply in float
+without any int8 conversion.
+
+### For Linux (AN-b's device gate)
+
+1. MPS: `_int_mm` qualifies (exact, every shape, about 10x the fixed-point
+   GEMM); so does float32 matmul under the K bound.
+2. arm64 CPU: not `_int_mm` (a scalar-speed fallback in this build). The
+   float64 matmul, or float32 under K <= 1,024, is exact and about 150-580x
+   the fixed-point GEMM. Whether the route takes a float engine everywhere,
+   or `_int_mm` on x86 and CUDA and float elsewhere, is Linux's call.
+3. The Ryzen's float matmuls were not measured here; the comparison there
+   decides whether one float engine could serve every backend. On CUDA a
+   float32 matmul is not exact when TF32 is allowed
+   (`torch.backends.cuda.matmul.allow_tf32`), so a float engine there would
+   need it off, or float64.
