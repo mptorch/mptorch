@@ -2698,3 +2698,38 @@ took 0.20-0.41 ms). Without `--all-sizes` both rows take the kernel below
 ### Open
 
 - Nothing waits on the Mac for M11 or M12.
+
+## M12 follow-up: the odd tile sweep's new pass on NEON (at `de279ae`)
+
+The sweep's new pass gives 0 mismatches on NEON, so every padded lane count
+of the odd narrow path now gives the scalar step's words in a sweep. A
+column-major bug in the padded path gives 77,560,575 mismatches on the first
+format here, the count Linux found on x86. The shipped hunk is the one I
+tested: the two tile files differ from it in comments only, and their objects
+are byte-identical to the ones M12 timed. No file changed but this report.
+
+Machine: the M3 Pro, on AC power, with no thermal or performance warning
+recorded. Built flag-on (`MPTORCH_ODD_ACCUMULATED=1 MPTORCH_COUNTING=1`) with
+Apple clang 21.0.0.
+
+| command | result |
+|---|---|
+| `cmp` of `gemm_odd_tile.o` and `gemm_word_tile.o` against the M12 hunk's | identical |
+| `pytest` on the tile, palette and carrier files (`test_cpu_simd.py`, `test_carrier_rounding.py`, `test_accumulators.py`, `test_reductions.py`, `test_number_formats.py`, `test_gemm_mixed_palette.py`, `test_cpu_tile_state.py`, `test_gemm_dispatch.py`, `test_fixedpoint_exact_route.py`) | 3,096 passed, 2,252 skipped |
+| `pytest tests/` | 28,432 passed, 17,155 skipped, 0 failed (6:28) |
+| `cpu_odd_tile_sweep` (built as in M12) | `isa neon`; 0 mismatches in each of the 10 formats (whole tiles: 172,032 of 196,608 blocks ran whole); `PASS: 10 formats checked, 0 mismatches` (15:43 on 11 threads, against 14:29 before the new pass) |
+| the same against a broken copy of `gemm_odd_tile.cpp` | 77,560,575, 78,316,534 and 87,525,712 mismatches on the first three formats, when it was stopped at 5 min |
+
+The broken copy maps each padded lane column-major: `ai[l] = (o % ti) * tk`
+and `bj[l] = o / ti` (written `n / tj` for `ti`) in `narrow_lanes_padded`.
+That is correct on rows and columns and wrong on 2-D tiles, so the old sweep,
+which cut only 1 x 1 to 3 x 1, could not see it.
+
+To keep the broken run's lines when the time limit stops it, I built that
+copy with stdout line-buffered (`-include` of a header with a static
+`setvbuf(stdout, nullptr, _IOLBF, 0)`). The sweep's own build is the header's
+line.
+
+### Open
+
+- Nothing waits on the Mac for M12.
