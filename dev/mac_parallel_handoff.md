@@ -104,7 +104,7 @@ this document assigns to the Mac with a sync point.
 | M10b | AN's step 1, the exact int8 route: its tests and arm64 timing on the commit | done (report `cc4b223`, on `53610bc`; its threshold suggestions taken up in `2d21c0b`) | yes |
 | M11 | AS, CPU vector tiles for RU, RD, RZ, RNA and RO: the NEON tiles, sweeps and timing | done (report `cc4b223` on `8ef5cdd`; step 3's loops, `daa9304`, in `adb0fea`) | yes |
 | M12 | AT, narrow CPU tiles (NEON cut-offs, sweeps, timing), and AN-b's new thresholds | done (report `adb0fea`; its hunk applied in `de279ae`, whose new sweep pass passed on NEON in `ebcf210`) | yes |
-| M13 | superfp's NaN as P3109 encodes it: the MPS source generators that now pass the sign, and the tests and sweep over the new top of an unsigned format | now (`d2b40a9`) | yes |
+| M13 | superfp's NaN as P3109 encodes it: the MPS source generators that now pass the sign, and the tests and sweep over the new top of an unsigned format | done (report `bb1471f`, on `d2b40a9`: the CPU's words on MPS, the sweep 0 mismatches over all 2^32 words, a tail written signed caught; no file changed) | yes |
 
 M2, M3 and M5 are independent of each other and of Linux; run them in any
 order after M1.
