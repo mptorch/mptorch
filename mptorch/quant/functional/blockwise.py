@@ -43,10 +43,9 @@ import torch.nn.functional as F
 from mptorch.number import BinaryK, BlockFormat, RoundMode, SaturationMode, SuperFP
 from mptorch.number.block import _minifloat, _minifloat_value
 
-from .mac import Quant
-from .matmul import qbmm
-from .ops._checks import _CARRIER, _call_carrier, _checked_carrier
-from .ops.block import (
+from ..mac import Quant
+from ..ops._checks import _CARRIER, _call_carrier, _checked_carrier
+from ..ops.block import (
     BlockPacked,
     _float32,
     _storage_view,
@@ -55,6 +54,7 @@ from .ops.block import (
     block_project,
     block_unpack,
 )
+from .matmul import qbmm
 from .reduce import qsum
 
 __all__ = [

@@ -12,7 +12,7 @@ Forward saves only what backward reads: the quantized input feeds the weight
 gradient alone and the quantized weight the input gradient alone, and the
 quantized bias is never read, so a frozen layer does not pin a quantized
 copy of its whole activation for the length of the backward pass. And the
-GEMM ``fwd_math`` hooks (``mptorch/quant/gemm.py``) add the bias into the
+GEMM ``fwd_math`` hooks (``mptorch/quant/factories/_hooks.py``) add the bias into the
 op's freshly allocated output in place, which saves an output-sized
 allocation per forward and must be value-identical to the out-of-place add.
 A wrong claim would surface as a ``None`` gradient, a stale saved tensor or

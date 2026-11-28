@@ -1,10 +1,11 @@
-"""Norm modules that round as a ``NormFormats`` says.
+"""Softmax and norm modules that round as a ``SoftmaxFormats`` or ``NormFormats`` says.
 
 Each class is its torch class with a ``formats`` attribute: ``None`` runs the
-torch module's own forward, and a :class:`~mptorch.quant.NormFormats` runs
-the matching ``mptorch.quant.norm`` op. Their parameters, buffers and
+torch module's own forward, and a :class:`~mptorch.quant.SoftmaxFormats` or
+:class:`~mptorch.quant.NormFormats` runs the matching
+``mptorch.quant.functional.norm`` op. Their parameters, buffers and
 ``state_dict`` are torch's. :func:`~mptorch.quant.convert_` turns torch's
-norm modules into these.
+softmax and norm modules into these.
 """
 
 from typing import Any
@@ -12,9 +13,24 @@ from typing import Any
 import torch
 from torch import nn
 
-# A module reference rather than names: `norm` imports this package for
-# `_opaque`, and the names are read when a forward runs.
-from .. import norm
+from ..functional.norm import qbatchnorm, qgroupnorm, qlayernorm, qrmsnorm, qsoftmax
+
+
+class QSoftmax(nn.Softmax):
+    """:class:`torch.nn.Softmax` that rounds as ``formats``, a
+    :class:`~mptorch.quant.SoftmaxFormats`, says (:func:`~mptorch.quant.qsoftmax`)."""
+
+    _mptorch_owned = True
+
+    def __init__(self, dim: int | None = None, formats: Any = None) -> None:
+        super().__init__(dim)
+        self.formats = formats
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """The softmax, rounded as ``formats`` says (torch's with ``None``)."""
+        if self.formats is None:
+            return super().forward(input)
+        return qsoftmax(input, self.dim, self.formats)
 
 
 class QLayerNorm(nn.LayerNorm):
@@ -31,7 +47,7 @@ class QLayerNorm(nn.LayerNorm):
         """The norm, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return norm.qlayernorm(
+        return qlayernorm(
             input, self.normalized_shape, self.weight, self.bias, self.eps, self.formats
         )
 
@@ -50,7 +66,7 @@ class QRMSNorm(nn.RMSNorm):
         """The norm, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(x)
-        return norm.qrmsnorm(x, self.normalized_shape, self.weight, self.eps, self.formats)
+        return qrmsnorm(x, self.normalized_shape, self.weight, self.eps, self.formats)
 
 
 class QGroupNorm(nn.GroupNorm):
@@ -67,9 +83,7 @@ class QGroupNorm(nn.GroupNorm):
         """The norm, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return norm.qgroupnorm(
-            input, self.num_groups, self.weight, self.bias, self.eps, self.formats
-        )
+        return qgroupnorm(input, self.num_groups, self.weight, self.bias, self.eps, self.formats)
 
 
 class _QBatchNorm:
@@ -101,7 +115,7 @@ class _QBatchNorm:
         else:
             training = bn.running_mean is None and bn.running_var is None
         keep = not bn.training or bn.track_running_stats
-        return norm.qbatchnorm(
+        return qbatchnorm(
             input,
             bn.running_mean if keep else None,
             bn.running_var if keep else None,

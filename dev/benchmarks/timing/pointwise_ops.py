@@ -1,4 +1,4 @@
-"""What ``mptorch.quant.pointwise``'s ops cost against torch's own.
+"""What ``mptorch.quant.functional.pointwise``'s ops cost against torch's own.
 
 Each op is timed on one tensor, forward and then forward with backward, in
 float32 and in bfloat16, in these variants:
@@ -77,8 +77,6 @@ from mptorch import BinaryK, RoundMode
 from mptorch.quant import (
     ActivationFormats,
     Quant,
-    pointwise,
-    pwl,
     qadd,
     qdiv,
     qexp,
@@ -89,6 +87,7 @@ from mptorch.quant import (
     qsqrt,
     silu_table,
 )
+from mptorch.quant.functional import pointwise, pwl
 
 TABLE = silu_table()
 

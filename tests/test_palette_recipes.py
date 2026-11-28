@@ -2,7 +2,7 @@
 Palettes in recipes: a ``GemmFormats`` whose ``fwd_mac`` holds a palette
 computes each output neuron (channel, column) in the entry of its map.
 
-``mptorch/quant/palettes.py`` holds the palette layers' containers, whose
+``mptorch/quant/instrument/palettes.py`` holds the palette layers' containers, whose
 forward reads the layer's map at call time, and ``set_palette_maps_`` /
 ``palette_maps``. These tests hold a converted palette layer to the
 hand-built model ``examples/mp_mlp_paper`` builds (``MPLinear``'s static

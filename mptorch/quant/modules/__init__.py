@@ -8,7 +8,6 @@ from .activation import (
     QReLU,
     QSigmoid,
     QSiLU,
-    QSoftmax,
     QTanh,
 )
 from .attention import MultiheadAttentionFormats, QAttentionFormats, QMultiheadAttention
@@ -17,13 +16,14 @@ from .embedding import QEmbedding
 from .format import QAffineFormats, QMatmulFormats
 from .linear import QLinear, QPackedLinear, freeze_packed_
 from .matmul import QMatmul
-from .normalization import (
+from .norm import (
     QBatchNorm1d,
     QBatchNorm2d,
     QBatchNorm3d,
     QGroupNorm,
     QLayerNorm,
     QRMSNorm,
+    QSoftmax,
 )
 from .quantizer import Quantizer
 

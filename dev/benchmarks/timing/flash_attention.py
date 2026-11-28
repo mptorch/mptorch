@@ -62,9 +62,9 @@ from mptorch.quant import (
     GemmFormats,
     Quant,
     SoftmaxFormats,
-    attention,
     qattention,
 )
+from mptorch.quant.functional import _flash
 
 LENGTHS = {"cuda": (512, 1024, 2048, 4096), "cpu": (512, 1024, 2048), "mps": (512, 1024, 2048)}
 
@@ -89,7 +89,7 @@ def _calls(device: str, recipe: str, compiled: bool):
     def make(af, loop=False):
         def call(q, k, v):
             if loop:
-                with mock.patch.object(attention, "_batchable", lambda formats: (False, False)):
+                with mock.patch.object(_flash, "_batchable", lambda formats: (False, False)):
                     return qattention(q, k, v, af, is_causal=True)
             return qattention(q, k, v, af, is_causal=True)
 

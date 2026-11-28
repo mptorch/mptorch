@@ -8,8 +8,8 @@ guides are: formats, quantizers, kernels and layers. The formats and the
 modes are importable from ``mptorch``, and the quantizers, kernels and
 layers from ``mptorch.quant``. There are two exceptions: the format checks
 are importable from ``mptorch.number``, and
-:func:`~mptorch.quant.matmul.as_matmul_formats` from
-``mptorch.quant.matmul``.
+:func:`~mptorch.quant.functional.matmul.as_matmul_formats` from
+``mptorch.quant.functional.matmul``.
 
 Number formats and modes
 ------------------------
@@ -220,7 +220,7 @@ call once, and the result is cached on the mac's value.
 Matrix products
 ~~~~~~~~~~~~~~~
 
-.. automodule:: mptorch.quant.matmul
+.. automodule:: mptorch.quant.functional.matmul
    :no-members:
 
 .. currentmodule:: mptorch.quant
@@ -231,7 +231,7 @@ Matrix products
 
 .. autofunction:: qbmm
 
-.. autofunction:: mptorch.quant.matmul.as_matmul_formats
+.. autofunction:: mptorch.quant.functional.matmul.as_matmul_formats
 
 .. autoclass:: QMatmulFormats
 

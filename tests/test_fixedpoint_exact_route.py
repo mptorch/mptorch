@@ -1,5 +1,5 @@
 """
-The exact integer route of the fixed-point GEMM (``mptorch/quant/_exact.py``).
+The exact integer route of the fixed-point GEMM (``mptorch/quant/factories/_exact.py``).
 
 A recipe's pass whose operands are values of fixed-point formats of at most 8
 bits, and whose mac holds every product and partial sum exactly, runs on a
@@ -26,7 +26,7 @@ cases run each engine, forced):
 import pytest
 import torch
 
-import mptorch.quant._exact as exact
+import mptorch.quant.factories._exact as exact
 from mptorch import FixedPoint, Overflow, RoundMode
 from mptorch.quant import (
     FusedMac,

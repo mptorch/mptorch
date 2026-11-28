@@ -25,13 +25,12 @@ import torch
 
 from mptorch.number import BlockFormat, Number
 
-# A module reference rather than names: `pointwise` imports `modules`, whose
-# QSoftmax imports `norm` and so this module, while `pointwise` is still loading.
-from . import pointwise
-from .mac import BlockMac, FusedMac, SplitMac, _as_quant, spec_for_mac
-from .modules._opaque import _opaque_backward
-from .ops._checks import _call_carrier, _checked_carrier
-from .ops._spec import _GemmSpec, _round_result, _run_gemm
+from .._labels import _mac_label, _quant_label
+from .._opaque import _opaque_backward
+from ..mac import BlockMac, FusedMac, SplitMac, _as_quant, spec_for_mac
+from ..ops._checks import _call_carrier, _checked_carrier
+from ..ops._spec import _GemmSpec, _round_result, _run_gemm
+from .pointwise import _checked_slot
 
 __all__ = ["ReductionFormats", "qsum", "qmean"]
 
@@ -67,22 +66,22 @@ def _checked_mac(mac: Any, name: str) -> FusedMac | SplitMac | None:
 
 def _checked_quant_slot(q: Any, carrier: torch.dtype | None, name: str) -> Any:
     """A rounding slot of a formats value, a format turned into ``Quant(fmt)``,
-    then checked as ``mptorch.quant.pointwise``'s slots are."""
+    then checked as ``functional/pointwise.py``'s slots are."""
     q = _as_quant(q, name)
-    pointwise._checked_slot(q, carrier, name)
+    _checked_slot(q, carrier, name)
     return q
 
 
 def _checked_keyword_slot(q: Any, carrier: torch.dtype | None, name: str) -> Any:
     """A rounding slot given to :func:`qsum` or :func:`qmean`: a ``Quant`` or a
-    callable, as ``mptorch.quant.pointwise``'s keyword slots, so that nothing is
+    callable, as ``functional/pointwise.py``'s keyword slots, so that nothing is
     built per call."""
     if isinstance(q, Number):
         raise TypeError(
             f"{name} is a format, {q!r}: pass Quant(fmt), which rounds to it, or put the format "
             "in a ReductionFormats, which turns it into one when it is built"
         )
-    pointwise._checked_slot(q, carrier, name)
+    _checked_slot(q, carrier, name)
     return q
 
 
@@ -210,7 +209,7 @@ class _QSum(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads):
-        with _opaque_backward():  # as in forward, except under compile (modules/_opaque.py)
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             return _reduce_backward(ctx, grads[0]), None, None, None, None, None
 
 
@@ -426,8 +425,6 @@ class ReductionFormats:
 
     def label(self) -> str:
         """A one-line summary, for reports."""
-        from .recipe import _mac_label, _quant_label  # imported here: recipe imports this module
-
         parts = [] if self.mac is None else [f"mac {_mac_label(self.mac)}"]
         parts += [
             f"{n} {_quant_label(q)}"

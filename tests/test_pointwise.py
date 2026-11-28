@@ -25,7 +25,7 @@ from torch._dynamo.testing import CompileCounterWithBackend
 
 from mptorch import BinaryK, FixedPoint, RoundMode, SuperFP
 from mptorch.quant import Quant
-from mptorch.quant.pointwise import (
+from mptorch.quant.functional.pointwise import (
     PointwiseFormats,
     _odd_binary32,
     _odd_sum,

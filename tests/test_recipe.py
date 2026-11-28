@@ -1,6 +1,6 @@
 """
-Recipes: ``GemmFormats``, ``Rule``, ``Recipe`` and the presets (``mptorch/quant/recipe.py``,
-``presets.py``).
+Recipes: ``GemmFormats``, ``Rule``, ``Recipe`` and the presets
+(``mptorch/quant/instrument/recipe.py``, ``mptorch/quant/presets.py``).
 
 ``GemmFormats`` builds the containers a layer reads, one mac per pass. Tier 3
 holds each container to the one the factories build by hand
@@ -199,7 +199,7 @@ def test_tier3_matmul_is_the_factorys(device):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("kind", ["affine", "conv", "matmul"])
 def test_the_output_rounding(device, kind):
-    """``output_quant`` rounds the forward result as ``gemm._with_output`` does."""
+    """``output_quant`` rounds the forward result as ``_hooks._with_output`` does."""
     gf = GemmFormats(fwd_mac=SplitMac(P8, P16), output_quant=Quant(P8))
     plain = GemmFormats(fwd_mac=SplitMac(P8, P16))
     step = {"affine": _linear_step, "conv": _conv_step, "matmul": _matmul_step}[kind]

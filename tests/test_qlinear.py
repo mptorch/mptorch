@@ -242,7 +242,7 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
 @pytest.mark.parametrize("input_shape", [(8, 32), (4, 3, 32)])
 def test_qlinear_gemm_formats_end_to_end(device, bias, input_shape):
     """
-    ``binaryK_gemm_formats`` (mptorch/quant/gemm.py) wires the custom GEMM
+    ``binaryK_gemm_formats`` (mptorch/quant/factories/linear.py) wires the custom GEMM
     into the ``fwd_math``, ``bwd_igrad_math`` and ``bwd_wgrad_math`` hooks:
     with a near-identity format the forward tracks a vanilla ``nn.Linear``,
     and the backward produces finite, correctly shaped gradients, including

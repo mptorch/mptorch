@@ -3,10 +3,11 @@
 Each class is its torch class with a ``formats`` attribute: ``None`` runs the
 torch module's own forward, ``inplace`` included, and an
 :class:`~mptorch.quant.ActivationFormats` runs the matching
-``mptorch.quant.pointwise`` op, out of place even when ``inplace`` is set (a
-rounded result is a new tensor, so the input is never written).
-:class:`QSoftmax` takes a :class:`~mptorch.quant.SoftmaxFormats` instead.
-:func:`~mptorch.quant.convert_` turns torch's activation modules into these.
+``mptorch.quant.functional.activation`` op, out of place even when
+``inplace`` is set (a rounded result is a new tensor, so the input is never
+written); :class:`QPWLActivation` evaluates a table. :class:`QSoftmax` is
+with the norms, in ``modules/norm.py``. :func:`~mptorch.quant.convert_` turns
+torch's activation modules into these.
 """
 
 from typing import Any
@@ -14,9 +15,8 @@ from typing import Any
 import torch
 from torch import nn
 
-# Module references rather than names: `pointwise` and `norm` import this package
-# for `_opaque`, and the names are read when a forward runs.
-from .. import norm, pointwise, pwl
+from ..functional.activation import qgelu, qhardsigmoid, qhardswish, qrelu, qsigmoid, qsilu, qtanh
+from ..functional.pwl import qpwl
 
 
 class QGELU(nn.GELU):
@@ -32,7 +32,7 @@ class QGELU(nn.GELU):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qgelu(input, self.formats, self.approximate)
+        return qgelu(input, self.formats, self.approximate)
 
 
 class QSiLU(nn.SiLU):
@@ -48,7 +48,7 @@ class QSiLU(nn.SiLU):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qsilu(input, self.formats)
+        return qsilu(input, self.formats)
 
 
 class QSigmoid(nn.Sigmoid):
@@ -65,7 +65,7 @@ class QSigmoid(nn.Sigmoid):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qsigmoid(input, self.formats)
+        return qsigmoid(input, self.formats)
 
 
 class QTanh(nn.Tanh):
@@ -81,7 +81,7 @@ class QTanh(nn.Tanh):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qtanh(input, self.formats)
+        return qtanh(input, self.formats)
 
 
 class QHardswish(nn.Hardswish):
@@ -98,7 +98,7 @@ class QHardswish(nn.Hardswish):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qhardswish(input, self.formats)
+        return qhardswish(input, self.formats)
 
 
 class QHardsigmoid(nn.Hardsigmoid):
@@ -115,7 +115,7 @@ class QHardsigmoid(nn.Hardsigmoid):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qhardsigmoid(input, self.formats)
+        return qhardsigmoid(input, self.formats)
 
 
 class QReLU(nn.ReLU):
@@ -131,7 +131,7 @@ class QReLU(nn.ReLU):
         """The activation, rounded as ``formats`` says (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qrelu(input, self.formats)
+        return qrelu(input, self.formats)
 
 
 class QPWLActivation(nn.Module):
@@ -161,7 +161,7 @@ class QPWLActivation(nn.Module):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """The table at ``input``, rounded as ``quant`` says."""
-        return pwl.qpwl(
+        return qpwl(
             input,
             self.table,
             quant=self.quant,
@@ -172,20 +172,3 @@ class QPWLActivation(nn.Module):
 
     def extra_repr(self) -> str:
         return self.table.label()
-
-
-class QSoftmax(nn.Softmax):
-    """:class:`torch.nn.Softmax` that rounds as ``formats``, a
-    :class:`~mptorch.quant.SoftmaxFormats`, says (:func:`~mptorch.quant.qsoftmax`)."""
-
-    _mptorch_owned = True
-
-    def __init__(self, dim: int | None = None, formats: Any = None) -> None:
-        super().__init__(dim)
-        self.formats = formats
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """The softmax, rounded as ``formats`` says (torch's with ``None``)."""
-        if self.formats is None:
-            return super().forward(input)
-        return norm.qsoftmax(input, self.dim, self.formats)

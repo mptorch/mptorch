@@ -23,8 +23,8 @@ from torch import nn
 
 from mptorch.number import Number
 
+from .._opaque import _opaque_backward
 from ..mac import Quant
-from ._opaque import _opaque_backward
 
 
 class _StraightThrough(torch.autograd.Function):

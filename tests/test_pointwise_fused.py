@@ -1,12 +1,12 @@
 """The fused pointwise and table ops: one carrier step and one cast, in one pass.
 
 ``binaryK_pointwise``, ``superfp_pointwise`` and ``fixedpoint_pointwise``
-compute what ``mptorch.quant.pointwise`` states for ``qadd``, ``qsub``,
+compute what ``mptorch.quant.functional.pointwise`` states for ``qadd``, ``qsub``,
 ``qmul``, ``qdiv`` and ``qsqrt`` with a ``Quant`` slot: torch's operation in
 the carrier, the elementwise quantizer, the store in the operands' dtype.
 They are held here to that two-pass spelling, written with torch's
 operations and the quantizer ops rather than through
-``mptorch.quant.pointwise``, word for word (NaN where NaN): every op, number
+``mptorch.quant.functional.pointwise``, word for word (NaN where NaN): every op, number
 operands on either side, every round mode, the four dtypes, broadcast,
 strided and empty layouts, and stochastic rounding under one seed, with the
 generator left where the quantizer leaves it.
@@ -14,10 +14,10 @@ generator left where the quantizer leaves it.
 Under ``carrier_rounding=RO`` the step is the exact result rounded to odd: it
 is held to ``_carrier_odd``'s primitives (which ``test_carrier_rounding``
 holds to a ``Fraction`` reference) followed by the quantizer, and in binary32
-also to ``mptorch.quant.pointwise``'s own odd step, computed in float64.
+also to ``mptorch.quant.functional.pointwise``'s own odd step, computed in float64.
 
 ``binaryK_pwl``, ``superfp_pwl`` and ``fixedpoint_pwl`` evaluate a
-``PWLTable`` as ``mptorch.quant.pwl._evaluate`` does with torch's operations,
+``PWLTable`` as ``mptorch.quant.functional.pwl._evaluate`` does with torch's operations,
 then cast: they are held to that evaluation followed by the quantizer, for
 the three tails it takes, the 1/sqrt table's reduction, inputs outside the
 range, at its knots and ends, and the specials.
@@ -36,13 +36,13 @@ from mptorch.quant import (
     NormFormats,
     PWLTable,
     Quant,
-    pwl,
     qlayernorm,
     qpwl,
     qsilu,
     silu_table,
 )
-from mptorch.quant.pointwise import _odd_step, qadd, qdiv, qmul, qsqrt, qsub
+from mptorch.quant.functional import pwl
+from mptorch.quant.functional.pointwise import _odd_step, qadd, qdiv, qmul, qsqrt, qsub
 
 from .markers import cuda_devices, requires_mps, requires_odd
 
@@ -133,7 +133,7 @@ def _carrier(dtype: torch.dtype) -> torch.dtype:
 
 
 def _two_pass(op: int, a, b, number, spec, device) -> torch.Tensor:
-    """mptorch.quant.pointwise's statement: torch's operation in the carrier
+    """mptorch.quant.functional.pointwise's statement: torch's operation in the carrier
     (a number divisor or dividend as a 0-dim tensor of the carrier, as it
     does; the binary32 root through float64 on the CPU, where torch's own is
     not correctly rounded; the binary64 root correctly rounded, element by
@@ -280,7 +280,7 @@ _PHASE_OPS = {ADD: "add", SUB: "sub", MUL: "mul", DIV: "div", SQRT: "sqrt"}
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16], ids=str)
 @pytest.mark.parametrize("op", list(_PHASE_OPS), ids=list(_PHASE_OPS.values()))
 def test_binary32_round_to_odd_is_the_float64_odd_step(device, dtype, op):
-    """In binary32 the odd step mptorch.quant.pointwise computes in float64
+    """In binary32 the odd step mptorch.quant.functional.pointwise computes in float64
     (an exact sum and product, a quotient and root that binary64 rounds on
     the exact side of every binary32 value) is the exact result rounded to
     odd: the C++ primitives give it, before the cast."""
@@ -347,7 +347,7 @@ def test_a_gradient_is_refused_under_grad_mode():
         _call(a=a)
 
 
-# --- mptorch.quant.pointwise runs them ---------------------------------------------
+# --- mptorch.quant.functional.pointwise runs them ---------------------------------------------
 
 
 class _Ops(TorchDispatchMode):

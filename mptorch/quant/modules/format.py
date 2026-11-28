@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 from torch import nn
 
 if TYPE_CHECKING:
+    from ..instrument.recipe import GemmFormats
     from ..mac import BlockQuant
-    from ..recipe import GemmFormats
     from ..rotation import Hadamard
 
 
@@ -125,8 +125,8 @@ class QAffineFormats(nn.Module):
     #: rotates a decoded weight back with. A class attribute, as above.
     _rotation: "Hadamard | None" = None  # noqa: UP037
     # A forward hook that leaves a wide fixed-point result in float64, which
-    # `gemm._with_output` runs and rounds when the container has an output
-    # rounding (`gemm._spec_matmul`); `None` on every other container.
+    # `_hooks._with_output` runs and rounds when the container has an output
+    # rounding (`_hooks._spec_matmul`); `None` on every other container.
     _wide_fwd: Callable | None = None
 
     def __init__(
@@ -226,8 +226,8 @@ class QMatmulFormats(nn.Module):
     #: The rotation of a ``GemmFormats`` with one, as for :class:`QAffineFormats`.
     _rotation: "Hadamard | None" = None  # noqa: UP037
     # A forward hook that leaves a wide fixed-point result in float64, which
-    # `gemm._with_output` runs and rounds when the container has an output
-    # rounding (`gemm._spec_matmul`); `None` on every other container.
+    # `_hooks._with_output` runs and rounds when the container has an output
+    # rounding (`_hooks._spec_matmul`); `None` on every other container.
     _wide_fwd: Callable | None = None
 
     def __init__(

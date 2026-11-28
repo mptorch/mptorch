@@ -52,16 +52,16 @@ import torch
 from mptorch.number import FixedPoint, Overflow
 from mptorch.number.fixedpoint import _fixedpoint_gemm
 
-from .mac import FusedMac, Quant, SplitMac, _resolved
-from .ops._checks import (
+from ..mac import FusedMac, Quant, SplitMac, _resolved
+from ..ops._checks import (
     _BELOW_BINARY64,
     _NARROW_STORAGE,
     _call_carrier,
     _check_stored,
     _report_findings,
 )
-from .ops._operands import _gemm_nd, _matmul_nd
-from .ops._spec import _GemmSpec, _run_gemm
+from ..ops._operands import _gemm_nd, _matmul_nd
+from ..ops._spec import _GemmSpec, _run_gemm
 
 #: Whether calls take the route at all; the tests and timings compare both.
 _ENABLED = True
@@ -370,7 +370,7 @@ def run_exact(
 
 
 def exact_runner(route: ExactRoute | None) -> Any:
-    """The runner a pass binds its spec to (as `gemm._spec_matmul` does): a
+    """The runner a pass binds its spec to (as `_hooks._spec_matmul` does): a
     2D or 3D runner like `_run_gemm`, taking the route when there is one."""
     return _run_gemm if route is None else partial(run_exact, route)
 

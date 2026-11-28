@@ -3,7 +3,7 @@
 A ``TorchFunctionMode`` that intercepts a model's calls (to simulate them in
 other arithmetic, to profile them) must see a layer's call and none of the
 torch calls the layer makes inside, or it would handle those a second time.
-Every Function in ``mptorch.quant.modules`` and ``mptorch.quant.pointwise``
+Every Function in ``mptorch.quant.modules`` and ``mptorch.quant.functional``
 therefore runs its forward and its backward with torch function modes
 disabled, and so does a pointwise op's own code around its Function. These
 tests hold the Functions to that: under a recording mode, nothing inside them is recorded,

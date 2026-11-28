@@ -73,8 +73,8 @@ from mptorch.quant import (
     register,
     simulate,
 )
-from mptorch.quant.convert import _REGISTRY
-from mptorch.quant.simulate import _HANDLERS, OWNED, PLAIN, SIMULATED, WHOLE
+from mptorch.quant.instrument._handlers import _HANDLERS, OWNED, PLAIN, SIMULATED, WHOLE
+from mptorch.quant.instrument.conversion import _REGISTRY
 from tests.markers import available_devices
 from tests.models import Conv1D, GPT2Attention, LlamaAttention, LlamaRMSNorm, MiniGPT2, MiniLlama
 from tests.models import attention_modules as _attention_modules

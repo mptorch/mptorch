@@ -22,9 +22,10 @@ import copy
 import dataclasses
 from typing import Any
 
-from .attention import AttentionFormats, FlashFormats
-from .events import _Prefixed
-from .norm import (
+from ..events import _Prefixed
+from ..functional.activation import ActivationFormats
+from ..functional.attention import AttentionFormats, FlashFormats
+from ..functional.norm import (
     _NORM_MACS,
     _NORM_QUANTS,
     _SOFTMAX_MACS,
@@ -32,9 +33,9 @@ from .norm import (
     NormFormats,
     SoftmaxFormats,
 )
-from .pointwise import ActivationFormats, PointwiseFormats
+from ..functional.pointwise import PointwiseFormats
+from ..functional.reduce import ReductionFormats
 from .recipe import _counting, _counting_quant
-from .reduce import ReductionFormats
 
 # Each kind's quantizer slots, and its macs with their index in ``_specs``.
 _SLOTS: dict[type, tuple[tuple[str, ...], tuple[str, ...]]] = {

@@ -19,7 +19,7 @@ The format types are frozen dataclasses that compute their derived values
 (such as a default bias) in `__post_init__`. Being frozen makes them hashable,
 so the code that turns a format into kernel arguments can cache its result
 keyed on the format. Doing that work on every call would cost 2.3-6.4 us, and
-avoiding it is why `mptorch.quant.gemm`'s factories do it once per layer.
+avoiding it is why the layer factories (`mptorch.quant.factories`) do it once per layer.
 Because a frozen object cannot change after it is built, its hash always
 agrees with the values derived from it.
 """

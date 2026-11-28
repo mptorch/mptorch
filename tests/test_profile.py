@@ -1,7 +1,7 @@
 """
 ``profile``: a model's multiply-accumulates and elements, by the formats each computes in.
 
-``mptorch/quant/profile.py`` counts what a ``simulate`` sees during one
+``mptorch/quant/instrument/profiling.py`` counts what a ``simulate`` sees during one
 forward pass, and the converted layers from their formats: each product as
 the GEMM the kernels run, each sum of a softmax, a norm or a reduction as a
 GEMM with ones, each elementwise call as its elements. These tests count the
@@ -44,7 +44,7 @@ from mptorch.quant import (
     profile,
     register,
 )
-from mptorch.quant.convert import _REGISTRY
+from mptorch.quant.instrument.conversion import _REGISTRY
 from tests.models import MiniGPT2, MiniLlama
 
 P8 = BinaryK(8, 4)

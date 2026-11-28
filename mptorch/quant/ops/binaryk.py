@@ -2,7 +2,7 @@
 
 Each GEMM wrapper resolves its formats with a spec builder
 (`_binaryK_spec` and its variants), which `mptorch.quant.mac` and
-`mptorch.quant.gemm` call too, so that a format object, a layer factory and a
+`mptorch.quant.factories` call too, so that a format object, a layer factory and a
 flat call resolve to the same `_GemmSpec`. The builders of the
 `*_accumulated` and round-to-odd variants follow, at the end.
 """
@@ -500,7 +500,7 @@ def binaryK_matmul(
 
     This function resolves the format on every call. A caller that keeps one
     format across many calls should use the factories of
-    `mptorch.quant.gemm`, which resolve it once per layer.
+    `mptorch.quant.factories`, which resolve it once per layer.
     :func:`mptorch.quant.qmatmul` is the differentiable entry point.
 
     Args:

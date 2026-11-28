@@ -617,6 +617,12 @@ class BlockMac:
         spec_for_block_mac(self)  # raise now any error the arithmetic would raise later
 
 
+def cast_quant(slot: BlockFormat | BlockQuant | None) -> BlockQuant:
+    """Return a ``BlockMac`` slot as the ``BlockQuant`` that ``BlockMac`` converted it to."""
+    assert slot is not None  # BlockMac.__post_init__ sets an unset b to a
+    return _as_block_quant(slot, "a BlockMac slot")
+
+
 @lru_cache(maxsize=256)
 def spec_for_block_mac(mac: BlockMac) -> _BlockGemmSpec:
     """Resolve a ``BlockMac`` to the block GEMM it names, cached on the mac's value."""

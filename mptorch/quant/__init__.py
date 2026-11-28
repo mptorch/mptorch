@@ -9,8 +9,32 @@ configure them, and the conversion of a whole model from a recipe
 """
 
 from . import presets
-from .attention import AttentionFormats, FlashFormats, qattention
-from .blockwise import (
+from .events import EVENTS, ROLES, EventCounts, EventReport, EventRow
+from .factories.conv import conv_formats
+from .factories.linear import (
+    binaryK_gemm_formats,
+    binaryK_gemm_formats_fma,
+    binaryK_superfp_gemm_formats,
+    block_gemm_formats,
+    fixedpoint_gemm_formats,
+    fixedpoint_gemm_formats_fma,
+    superfp_binaryK_gemm_formats,
+    superfp_gemm_formats,
+    superfp_gemm_formats_fma,
+)
+from .factories.matmul import block_matmul_formats, matmul_formats
+from .functional.activation import (
+    ActivationFormats,
+    qgelu,
+    qhardsigmoid,
+    qhardswish,
+    qrelu,
+    qsigmoid,
+    qsilu,
+    qtanh,
+)
+from .functional.attention import AttentionFormats, FlashFormats, qattention
+from .functional.blockwise import (
     block_dot,
     block_exp,
     block_map,
@@ -18,24 +42,43 @@ from .blockwise import (
     block_scaled_add,
     convert_to_block_max_abs_finite,
 )
-from .conv import conv_formats
-from .convert import ConvertReport, ConvertRow, convert, convert_, register, unconvert_
-from .events import EVENTS, ROLES, EventCounts, EventReport, EventRow
-from .gemm import (
-    binaryK_gemm_formats,
-    binaryK_gemm_formats_fma,
-    binaryK_superfp_gemm_formats,
-    block_gemm_formats,
-    block_matmul_formats,
-    fixedpoint_gemm_formats,
-    fixedpoint_gemm_formats_fma,
-    matmul_formats,
-    superfp_binaryK_gemm_formats,
-    superfp_gemm_formats,
-    superfp_gemm_formats_fma,
+from .functional.embedding import qembedding
+from .functional.matmul import qbmm, qmatmul, qmm
+from .functional.norm import (
+    NormFormats,
+    SoftmaxFormats,
+    qbatchnorm,
+    qgroupnorm,
+    qlayernorm,
+    qrmsnorm,
+    qsoftmax,
 )
+from .functional.pointwise import (
+    PointwiseFormats,
+    qadd,
+    qdiv,
+    qexp,
+    qmul,
+    qpow,
+    qrsqrt,
+    qsqrt,
+    qsub,
+)
+from .functional.pwl import FISR, PWLTable, gelu_table, qpwl, silu_table
+from .functional.reduce import ReductionFormats, qmean, qsum
+from .instrument.conversion import (
+    ConvertReport,
+    ConvertRow,
+    convert,
+    convert_,
+    register,
+    unconvert_,
+)
+from .instrument.palettes import palette_maps, set_palette_maps_
+from .instrument.profiling import ElementRecord, Profile, ProfileRecord, UncountedRecord, profile
+from .instrument.recipe import GemmFormats, Recipe, Rule
+from .instrument.simulation import SimulatedModule, SimulateReport, SimulateRow, simulate
 from .mac import BlockMac, BlockQuant, FusedMac, Palette, Quant, SplitMac
-from .matmul import qbmm, qmatmul, qmm
 from .modules import (
     QGELU,
     MultiheadAttentionFormats,
@@ -67,15 +110,6 @@ from .modules import (
     Quantizer,
     freeze_packed_,
 )
-from .norm import (
-    NormFormats,
-    SoftmaxFormats,
-    qbatchnorm,
-    qgroupnorm,
-    qlayernorm,
-    qrmsnorm,
-    qsoftmax,
-)
 from .ops import (
     BlockPacked,
     binaryK_matmul,
@@ -103,34 +137,8 @@ from .ops import (
     superfp_quantize,
     superfp_quantize_,
 )
-from .palettes import palette_maps, set_palette_maps_
-from .pointwise import (
-    ActivationFormats,
-    PointwiseFormats,
-    qadd,
-    qdiv,
-    qembedding,
-    qexp,
-    qgelu,
-    qhardsigmoid,
-    qhardswish,
-    qmul,
-    qpow,
-    qrelu,
-    qrsqrt,
-    qsigmoid,
-    qsilu,
-    qsqrt,
-    qsub,
-    qtanh,
-)
-from .profile import ElementRecord, Profile, ProfileRecord, UncountedRecord, profile
-from .pwl import FISR, PWLTable, gelu_table, qpwl, silu_table
-from .recipe import GemmFormats, Recipe, Rule
-from .reduce import ReductionFormats, qmean, qsum
 from .rotation import Hadamard, hadamard_rotate
 from .scaled import ScaledQuant
-from .simulate import SimulatedModule, SimulateReport, SimulateRow, simulate
 
 __all__ = [
     # elementwise quantization

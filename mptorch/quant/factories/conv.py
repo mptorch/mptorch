@@ -31,13 +31,14 @@ from collections.abc import Callable
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from mptorch.number import Number
 
-from .mac import FusedMac, Mac, SplitMac, spec_for_mac
-from .modules.format import QAffineFormats
-from .ops._conv import _FWD, _IGRAD, _WGRAD, _ConvOp
-from .ops._spec import _GemmSpec, _wide_refusal
+from ..mac import FusedMac, Mac, SplitMac, spec_for_mac
+from ..modules.format import QAffineFormats
+from ..ops._conv import _FWD, _IGRAD, _WGRAD, _ConvOp
+from ..ops._spec import _GemmSpec, _wide_refusal
 
 __all__ = ["conv_formats"]
 
@@ -157,7 +158,7 @@ def _conv_forward(
         # added out of place instead, so that the result is promoted.
         view = q_bias.view(-1, *([1] * nd))
         out = out.add_(view) if q_bias.dtype == out.dtype else out + view
-    # a view would stop an in-place op after the layer (see gemm._unviewed)
+    # a view would stop an in-place op after the layer (see _hooks._unviewed)
     return out.squeeze(0).detach() if unbatched else out
 
 
@@ -230,7 +231,7 @@ def _conv_formats(
 
 def _refusing(run: _ConvOp, where: str) -> Callable[..., torch.Tensor]:
     """A pass's conv op, refusing a wide fixed-point result as
-    :func:`mptorch.quant.gemm._spec_matmul` refuses a GEMM's; the op itself
+    ``_hooks._spec_matmul`` refuses a GEMM's; the op itself
     for every other spec."""
     spec = run.spec
     if not spec.wide:
@@ -396,3 +397,27 @@ def conv_formats(
             else _missing_map("weight gradient", "wgrad_prec_idx")
         ),
     )
+
+
+def _plain_conv(
+    q_input: torch.Tensor,
+    q_weight: torch.Tensor,
+    q_bias: torch.Tensor | None,
+    *,
+    stride,
+    padding,
+    dilation,
+    groups: int,
+    nd: int,
+) -> torch.Tensor:
+    """The plain convolution ``CustomArithConvNd`` runs when it has no
+    ``fwd_math`` hook, with the arguments of a convolution hook.
+
+    It runs inside the Function's forward, with gradients off. So on an ARM
+    CPU, a 3x3 depthwise convolution whose layer call is recorded for backward
+    runs PyTorch's inference-only Winograd kernel here, where the Function's
+    own call, like ``nn.Conv2d``'s, runs another, and the sums can round
+    differently.
+    """
+    conv = {1: F.conv1d, 2: F.conv2d, 3: F.conv3d}[nd]
+    return conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)

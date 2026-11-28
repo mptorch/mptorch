@@ -140,7 +140,7 @@ def _matmul_operands(
     # selects each element's random stream by its index into the dense
     # [batch, M, N] output: `(b*M + row)*N + col` batched and `row'*N + col`
     # folded, with `row' = b*M + row`, are the same index. So the fold is safe
-    # in every rounding mode. This is the QLinear case, which `gemm.py` folds
+    # in every rounding mode. This is the QLinear case, which `factories/_hooks.py` folds
     # the same way.
     if fold and a3.dim() == 3 and b3.dim() == 2 and not trans_a and a3.is_contiguous():
         a3 = a3.reshape(-1, a3.shape[-1])
@@ -153,7 +153,7 @@ def _gemm_nd(
 ) -> torch.Tensor:
     """:func:`_run_gemm` with ``torch.matmul``'s operand rules.
 
-    The flat wrappers call this; the layer hooks in `mptorch.quant.gemm` call
+    The flat wrappers call this; the layer hooks of `mptorch.quant.factories` call
     :func:`_run_gemm` directly, on operands they have already flattened.
     """
     return _matmul_nd(partial(_run_gemm, spec), a, b, trans_a, trans_b)

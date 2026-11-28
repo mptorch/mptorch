@@ -17,7 +17,7 @@ from torch.nn import functional as F
 
 # A module reference rather than names: `attention` imports this package's
 # Functions, and its names are read when a layer is built or runs.
-from .. import attention as _attention
+from ..functional import attention as _attention
 from .format import QAffineFormats, QMatmulFormats
 
 

@@ -34,6 +34,7 @@ from typing import Any
 
 import torch
 
+from ._opaque import _opaque_backward
 from .ops._checks import _call_carrier, _checked_carrier, _narrowed
 
 _SEED_LIMIT = 2**31
@@ -233,8 +234,6 @@ class _Rotation(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads):
-        from .modules._opaque import _opaque_backward  # imported here: modules imports this
-
         with _opaque_backward():
             return hadamard_rotate(grads[0], ctx.rotation, ctx.dim, inverse=True), None, None
 

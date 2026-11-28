@@ -27,7 +27,7 @@ Modes: ``ops`` times each row at n^3 (2048 on CUDA, 1024 on MPS, 512 on the
 CPU by default), ~1 min on CUDA, ~3 min on one CPU thread; ``layer`` times a
 ``QLinear(1024, 1024)`` step on 4096 rows, ~1 min on CUDA. Each round runs
 every row once, in an order reversed every other round, and each row keeps
-its minimum. ``exact`` times the exact integer route (``mptorch/quant/_exact.py``:
+its minimum. ``exact`` times the exact integer route (``mptorch/quant/factories/_exact.py``:
 Q0.7 operands, whose every product and sum (25, 14) and (32, 14) hold, on
 ``torch._int_mm``) against the kernel on the same operands, at n^3, and at
 ``--sizes`` too; a size below the route's threshold takes the kernel either
@@ -116,7 +116,7 @@ from typing import Any
 
 import torch
 
-import mptorch.quant._exact as exact_route
+import mptorch.quant.factories._exact as exact_route
 from mptorch import FixedPoint, RoundMode
 from mptorch.quant import (
     QLinear,

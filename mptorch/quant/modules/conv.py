@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.grad as grad
 
-from ._opaque import _opaque_backward
+from .._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 from .linear import _from_float

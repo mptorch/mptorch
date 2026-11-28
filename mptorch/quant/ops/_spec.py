@@ -15,7 +15,7 @@ and storage checks, so that a scalar repeated across the palette is checked
 once.
 
 A GEMM call with its formats resolved is a `_GemmSpec`, which
-`mptorch.quant.gemm`'s factories build once per layer, and `_run_gemm` and
+the factories of `mptorch.quant.factories` build once per layer, and `_run_gemm` and
 `_run_gemm_mixed` call its op on operands of rank 2 or 3.
 
 An elementwise quantizer call with its format resolved is a `_QuantSpec`,
@@ -125,7 +125,7 @@ class _GemmSpec(NamedTuple):
     check once it knows the operands' dtype.
 
     Resolving is separate from calling so that a caller with fixed formats
-    can resolve once and call many times: `mptorch.quant.gemm`'s factories
+    can resolve once and call many times: the factories of `mptorch.quant.factories`
     build one spec per layer and bind it into the layer's math hooks, and
     `mptorch.quant.mac` caches one per frozen format value. Working out every
     default and rerunning every check on each call would cost 2.3-6.4 us per
@@ -148,7 +148,7 @@ class _GemmSpec(NamedTuple):
     # the fixed-point GEMM's, when its accumulate format has more significant
     # bits than the dtype holds (`number.fixedpoint._fixedpoint_gemm_wide`).
     # A call keeps such a result in float64, a named carrier included, and a
-    # layer rounds it once with its output rounding (`gemm._spec_matmul`).
+    # layer rounds it once with its output rounding (`_hooks._spec_matmul`).
     # `wide_label` names the accumulate format, for the refusal.
     wide: frozenset[torch.dtype] = frozenset()
     wide_label: str = ""
@@ -329,7 +329,7 @@ class _QuantSpec(NamedTuple):
     every call, and they are raised or issued on each call, for the carrier
     and the dtype of that call.
 
-    The last three fields serve a pointwise op (``mptorch.quant.pointwise``),
+    The last three fields serve a pointwise op (``mptorch.quant.functional.pointwise``),
     which rounds a result it has just computed (``_round_result``):
     ``plain_op`` and ``fresh_op`` are the out-of-place and in-place ops,
     whatever ``in_place`` says (the in-place op returns nothing), and

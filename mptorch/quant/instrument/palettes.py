@@ -32,13 +32,13 @@ from typing import Any
 import torch
 from torch import nn
 
-from .conv import _conv_forward
-from .gemm import _linear_forward, _output_rounding
-from .mac import FusedMac, Quant, SplitMac, spec_for_mac
-from .modules.format import QAffineFormats, QMatmulFormats
-from .ops._conv import _ConvOp
-from .ops._operands import _gemm_mixed_nd, _gemm_nd
-from .ops._spec import _run_gemm, _run_gemm_mixed
+from ..factories._hooks import _linear_forward, _output_rounding
+from ..factories.conv import _conv_forward
+from ..mac import FusedMac, Quant, SplitMac, spec_for_mac
+from ..modules.format import QAffineFormats, QMatmulFormats
+from ..ops._conv import _ConvOp
+from ..ops._operands import _gemm_mixed_nd, _gemm_nd
+from ..ops._spec import _run_gemm, _run_gemm_mixed
 
 __all__ = ["set_palette_maps_", "palette_maps"]
 
@@ -249,7 +249,8 @@ def _simulate_slots(sim: Any) -> dict[str, tuple[_PaletteMap, int | None, torch.
 
 
 def _slots(target: Any) -> dict[str, tuple[_PaletteMap, int | None, torch.device]]:
-    from .simulate import simulate  # imported here: simulate imports the recipe, which imports this
+    # imported here: simulation imports the recipe, which imports this module
+    from .simulation import simulate
 
     if isinstance(target, simulate):
         return _simulate_slots(target)

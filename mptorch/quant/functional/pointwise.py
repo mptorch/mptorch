@@ -1,14 +1,16 @@
-"""Pointwise ops and activations that round their results to a simulated format.
+"""Pointwise arithmetic that rounds its result to a simulated format.
 
 Each op computes in a carrier, binary32 or binary64, and then rounds once
 (``docs/source/kernels/pointwise.rst`` is the user's account):
 
 * ``qadd``, ``qsub``, ``qmul``, ``qdiv``: two tensors of one float dtype, or a
   tensor and a Python number, broadcast as torch broadcasts them;
-* ``qsqrt``, ``qrsqrt``, ``qexp`` and ``qpow`` (a number exponent);
-* the activations ``qgelu``, ``qsilu``, ``qsigmoid``, ``qtanh``,
-  ``qhardswish``, ``qhardsigmoid`` and ``qrelu``;
-* ``qembedding``, a gather, whose rows are rounded.
+* ``qsqrt``, ``qrsqrt``, ``qexp`` and ``qpow`` (a number exponent).
+
+The activations (``mptorch.quant.functional.activation``) and ``qembedding``
+(``mptorch.quant.functional.embedding``) round as these do, and take their
+slot checks and carrier from this module, as ``pwl``, ``norm`` and ``reduce``
+do.
 
 What a step rounds to is its *slot*: a :class:`~mptorch.quant.Quant`, another
 callable, or ``None``. A step whose slot is ``None`` is torch's own
@@ -26,7 +28,7 @@ within its bounds (:func:`_odd_reason`).
 With a ``Quant`` slot of a binaryK, superfp or fixed-point format, on the CPU
 and CUDA, ``qadd``, ``qsub``, ``qmul``, ``qdiv`` and ``qsqrt`` run the step and
 the rounding as one fused op (``_fused_op``, ``csrc/common/pointwise.h``),
-which gives the two passes' words; ``mptorch.quant.pwl`` does the same for a
+which gives the two passes' words; ``functional/pwl.py`` does the same for a
 table.
 
 Each op is an autograd Function. Its backward is the derivative of the
@@ -45,21 +47,20 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 
 from mptorch.number import BinaryK, FixedPoint, Number, RoundMode, SuperFP
 from mptorch.number.base import _report_per_call
 
-from .events import _uncounted
-from .mac import Quant, _as_quant
-from .modules._opaque import _opaque_backward
-from .ops._checks import _call_carrier, _checked_carrier
-from .ops._odd import _odd_findings
-from .ops._spec import _round_result, _stored
+from .._labels import _quant_label
+from .._opaque import _opaque_backward
+from ..events import _uncounted
+from ..mac import Quant, _as_quant
+from ..ops._checks import _call_carrier, _checked_carrier
+from ..ops._odd import _odd_findings
+from ..ops._spec import _round_result, _stored
 
 __all__ = [
     "PointwiseFormats",
-    "ActivationFormats",
     "qadd",
     "qsub",
     "qmul",
@@ -68,14 +69,6 @@ __all__ = [
     "qrsqrt",
     "qexp",
     "qpow",
-    "qgelu",
-    "qsilu",
-    "qsigmoid",
-    "qtanh",
-    "qhardswish",
-    "qhardsigmoid",
-    "qrelu",
-    "qembedding",
 ]
 
 _RNE, _RO = RoundMode.RNE, RoundMode.RO
@@ -122,8 +115,6 @@ def _checked_slot(q: Any, carrier: torch.dtype | None, name: str) -> None:
 
 
 def _label(q: Any) -> str:
-    from .recipe import _quant_label  # imported here: recipe imports this module
-
     return _quant_label(q)
 
 
@@ -213,104 +204,6 @@ class PointwiseFormats:
             parts.append(f"carrier {str(self.carrier).removeprefix('torch.')}")
         if self.carrier_rounding is _RO:
             parts.append("RO")
-        return ", ".join(parts) or "torch"
-
-
-@dataclass(frozen=True, kw_only=True)
-class ActivationFormats:
-    """The formats of an activation: its gate's rounding, its result's and its gradient's.
-
-    It is the value of a recipe's ``activation`` kind, and of the ``formats``
-    of :class:`~mptorch.quant.QGELU` and its siblings. A slot left ``None``
-    does not round; with every slot ``None`` an activation is torch's.
-
-    Args:
-        inner: rounds the gate of the three gated activations, computed in
-            the carrier: GELU's ``erf(x / sqrt(2))`` (or, approximated,
-            ``tanh(sqrt(2/pi) * (x + 0.044715 * x**3))``), SiLU's
-            ``sigmoid(x)`` and hardswish's ``hardsigmoid(x)``. The result is
-            then ``0.5 * x * (1 + gate)`` or ``x * gate`` in the carrier.
-            Sigmoid, tanh, hardsigmoid and ReLU have no gate and ignore it.
-            A format means ``Quant(fmt)``. Default: ``None``, torch's function
-            in the carrier
-        out: rounds the result. A format means ``Quant(fmt)``.
-            Default: ``None``
-        grad: rounds the input's gradient: torch's derivative of the
-            unrounded activation, computed in the carrier, times the incoming
-            gradient. A format means ``Quant(fmt)``. Default: ``None``
-        carrier (torch.dtype, optional): as for :class:`PointwiseFormats`.
-            Default: ``None``
-        table (PWLTable, optional): evaluate this piecewise-linear table in
-            the carrier in place of the activation's function
-            (:class:`~mptorch.quant.PWLTable`), ``out`` rounding the result.
-            The gradient stays the activation's own, the derivative of the
-            function the table approximates. Default: ``None``
-
-    Raises:
-        TypeError, ValueError: as for :class:`PointwiseFormats`, and for a
-            ``table`` that is not a ``PWLTable``, a table of 1/sqrt, or a table
-            together with ``inner`` (a table has no gate).
-    """
-
-    inner: Any = None
-    out: Any = None
-    grad: Any = None
-    carrier: torch.dtype | None = None
-    table: Any = None
-
-    def __post_init__(self) -> None:
-        carrier = _checked_carrier(self.carrier)
-        for name in ("inner", "out", "grad"):
-            slot = _as_quant(getattr(self, name), name)
-            _checked_slot(slot, carrier, name)
-            object.__setattr__(self, name, slot)
-        if self.table is not None:
-            from .pwl import PWLTable  # imported here: pwl imports this module
-
-            if not isinstance(self.table, PWLTable):
-                raise TypeError(
-                    "ActivationFormats' table is a PWLTable or None, "
-                    f"got {type(self.table).__name__}"
-                )
-            if self.table.reduction is not None:
-                raise ValueError(
-                    "this is a table of 1/sqrt, which a NormFormats takes as its inverse: an "
-                    "activation's table has no reduction"
-                )
-            if self.inner is not None:
-                raise ValueError(
-                    "ActivationFormats has both a table and an inner rounding: a table replaces "
-                    "the whole function, which then has no gate to round -- set one of them"
-                )
-
-    @classmethod
-    def uniform(
-        cls, quant: Any, *, grad: Any = _SAME, carrier: torch.dtype | None = None
-    ) -> ActivationFormats:
-        """One rounding for the gate, the result and the gradient; ``grad``
-        replaces the gradient's (``None`` leaves it unrounded)."""
-        return cls(inner=quant, out=quant, grad=quant if grad is _SAME else grad, carrier=carrier)
-
-    @property
-    def _rounds(self) -> bool:
-        return (
-            self.inner is not None
-            or self.out is not None
-            or self.grad is not None
-            or self.table is not None
-        )
-
-    def label(self) -> str:
-        """A one-line summary, for reports."""
-        slots = {"inner": self.inner, "out": self.out, "grad": self.grad}
-        if self.inner is not None and self.inner == self.out == self.grad:
-            parts = [f"quant {_label(self.inner)}"]
-        else:
-            parts = [f"{n} {_label(q)}" for n, q in slots.items() if q is not None]
-        if self.table is not None:
-            parts.insert(0, self.table.label())
-        if self.carrier is not None:
-            parts.append(f"carrier {str(self.carrier).removeprefix('torch.')}")
         return ", ".join(parts) or "torch"
 
 
@@ -1100,365 +993,4 @@ for _f in (qsqrt, qrsqrt, qexp, qpow):
         _SLOTS_DOC.replace("the gradient of each tensor operand", "the input's gradient").replace(
             "operands of two dtypes or of no float dtype", "an operand that is not a float tensor"
         ),
-    )
-
-
-# --- the activations -------------------------------------------------------------
-
-# GELU's constants, as ATen's GeluKernel names them
-_SQRT1_2 = math.sqrt(0.5)
-_BETA = math.sqrt(2.0) * (2.0 / math.sqrt(math.pi)) * 0.5
-_KAPPA = 0.044715
-
-_GATED = ("gelu", "silu", "hardswish")
-
-
-def _act_plain(act: str, x: torch.Tensor, approximate: str) -> torch.Tensor:
-    if act == "gelu":
-        return F.gelu(x, approximate=approximate)
-    if act == "silu":
-        return F.silu(x)
-    if act == "sigmoid":
-        return torch.sigmoid(x)
-    if act == "tanh":
-        return torch.tanh(x)
-    if act == "hardswish":
-        return F.hardswish(x)
-    if act == "hardsigmoid":
-        return F.hardsigmoid(x)
-    return torch.relu(x)
-
-
-def _gate(act: str, x: torch.Tensor, approximate: str) -> torch.Tensor:
-    if act == "gelu":
-        if approximate == "tanh":
-            return torch.tanh(_BETA * (x + _KAPPA * (x * x * x)))
-        return torch.erf(x * _SQRT1_2)
-    if act == "silu":
-        return torch.sigmoid(x)
-    return F.hardsigmoid(x)
-
-
-def _combine(act: str, x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
-    if act == "gelu":
-        return x * 0.5 * (1 + gate)
-    return x * gate
-
-
-def _act_grad(act: str, g: torch.Tensor, x: torch.Tensor, approximate: str) -> torch.Tensor:
-    """torch's backward op for ``act``, which is the gradient autograd gives."""
-    aten = torch.ops.aten
-    if act == "gelu":
-        return aten.gelu_backward(g, x, approximate=approximate)
-    if act == "silu":
-        return aten.silu_backward(g, x)
-    if act == "sigmoid":
-        return aten.sigmoid_backward(g, torch.sigmoid(x))
-    if act == "tanh":
-        return aten.tanh_backward(g, torch.tanh(x))
-    if act == "hardswish":
-        return aten.hardswish_backward(g, x)
-    if act == "hardsigmoid":
-        return aten.hardsigmoid_backward(g, x)
-    return aten.threshold_backward(g, x, 0)
-
-
-def _act_forward(ctx, act: str, x: torch.Tensor, f: ActivationFormats, approximate: str):
-    ctx.save_for_backward(x)
-    ctx.formats, ctx.approximate = f, approximate
-    if f.table is not None:
-        from . import pwl  # imported here: pwl imports this module
-
-        if f.table.name is not None and f.table.name != act:
-            raise ValueError(
-                f"q{act} was given a table of {f.table.name}: an activation evaluates a table of "
-                "its own function, or of one of yours (a table with no name)"
-            )
-        return pwl._rounded(f.table, x, f.out, f.carrier, x.dtype)
-    if f.inner is None and f.out is None:
-        return _act_plain(act, x, approximate)
-    dtype = x.dtype
-    xc = x.to(_carrier_dtype(f.carrier, dtype))
-    if f.inner is not None and act in _GATED:
-        gate = _round_result(f.inner, _gate(act, xc, approximate), xc.dtype)
-        t = _combine(act, xc, gate)
-    else:
-        t = _act_plain(act, xc, approximate)
-    return _stored(t, dtype) if f.out is None else _round_result(f.out, t, dtype)
-
-
-def _act_backward(ctx, act: str, g: torch.Tensor):
-    (x,) = ctx.saved_tensors
-    f: ActivationFormats = ctx.formats
-    if f.grad is None:
-        return _act_grad(act, g, x, ctx.approximate), None, None
-    c = _carrier_dtype(f.carrier, g.dtype)
-    gx = _act_grad(act, g.to(c), x.to(c), ctx.approximate)
-    return _round_result(f.grad, gx, g.dtype), None, None
-
-
-class _QGELU(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "gelu", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "gelu", grads[0])
-
-
-class _QSiLU(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "silu", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "silu", grads[0])
-
-
-class _QSigmoid(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "sigmoid", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "sigmoid", grads[0])
-
-
-class _QTanh(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "tanh", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "tanh", grads[0])
-
-
-class _QHardswish(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "hardswish", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "hardswish", grads[0])
-
-
-class _QHardsigmoid(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "hardsigmoid", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "hardsigmoid", grads[0])
-
-
-class _QReLU(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, formats, approximate):
-        with torch._C.DisableTorchFunction():
-            return _act_forward(ctx, "relu", x, formats, approximate)
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            return _act_backward(ctx, "relu", grads[0])
-
-
-_ACTIVATIONS = {
-    "gelu": _QGELU,
-    "silu": _QSiLU,
-    "sigmoid": _QSigmoid,
-    "tanh": _QTanh,
-    "hardswish": _QHardswish,
-    "hardsigmoid": _QHardsigmoid,
-    "relu": _QReLU,
-}
-
-
-def _activation(
-    act: str, x: torch.Tensor, formats: ActivationFormats | None, approximate: str = "none"
-) -> torch.Tensor:
-    if formats is not None and not isinstance(formats, ActivationFormats):
-        raise TypeError(
-            f"q{act}'s formats is an ActivationFormats or None, got {type(formats).__name__}"
-        )
-    if formats is None or not formats._rounds:
-        with torch._C.DisableTorchFunction():  # an op, not the calls it makes
-            return _act_plain(act, x, approximate)
-    return _ACTIVATIONS[act].apply(x, formats, approximate)
-
-
-_ACT_DOC = """
-    Args:
-        x (Tensor): a float tensor.
-        formats (ActivationFormats, optional): the roundings: ``inner`` (the
-            gate of GELU, SiLU and hardswish), ``out`` and ``grad``.
-            Default: ``None``, torch's function
-"""
-
-
-def qgelu(
-    x: torch.Tensor, formats: ActivationFormats | None = None, approximate: str = "none"
-) -> torch.Tensor:
-    """``F.gelu(x, approximate=approximate)``, rounded as ``formats`` says.
-
-    Computed in the carrier: torch's ``F.gelu``, or, when ``formats.inner``
-    rounds the gate, ``0.5 * x * (1 + gate)`` over the rounded gate
-    (``erf(x / sqrt(2))``, or ``tanh(sqrt(2/pi) * (x + 0.044715 * x**3))``
-    under ``approximate="tanh"``). ``formats.out`` then rounds the result,
-    and the gradient is torch's (``gelu_backward``) in the carrier, rounded
-    by ``formats.grad``.
-    """
-    if approximate not in ("none", "tanh"):
-        raise ValueError(f"approximate is 'none' or 'tanh', got {approximate!r}")
-    return _activation("gelu", x, formats, approximate)
-
-
-def qsilu(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``F.silu(x)``, rounded as ``formats`` says: torch's ``F.silu`` in the
-    carrier, or ``x * sigmoid(x)`` over the rounded gate when
-    ``formats.inner`` is set; the gradient is ``silu_backward``'s."""
-    return _activation("silu", x, formats)
-
-
-def qsigmoid(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``torch.sigmoid(x)``, computed in the carrier and rounded by
-    ``formats.out``; the gradient is ``sigmoid_backward``'s."""
-    return _activation("sigmoid", x, formats)
-
-
-def qtanh(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``torch.tanh(x)``, computed in the carrier and rounded by
-    ``formats.out``; the gradient is ``tanh_backward``'s."""
-    return _activation("tanh", x, formats)
-
-
-def qhardswish(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``F.hardswish(x)``, rounded as ``formats`` says: torch's
-    ``F.hardswish`` in the carrier, or ``x * hardsigmoid(x)`` over the
-    rounded gate when ``formats.inner`` is set; the gradient is
-    ``hardswish_backward``'s."""
-    return _activation("hardswish", x, formats)
-
-
-def qhardsigmoid(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``F.hardsigmoid(x)``, computed in the carrier and rounded by
-    ``formats.out``; the gradient is ``hardsigmoid_backward``'s."""
-    return _activation("hardsigmoid", x, formats)
-
-
-def qrelu(x: torch.Tensor, formats: ActivationFormats | None = None) -> torch.Tensor:
-    """``torch.relu(x)``, rounded by ``formats.out``. ReLU is exact, so that
-    is the format's rounding of each positive element; the gradient is
-    ``threshold_backward``'s, rounded by ``formats.grad``."""
-    return _activation("relu", x, formats)
-
-
-for _f in (qgelu, qsilu, qsigmoid, qtanh, qhardswish, qhardsigmoid, qrelu):
-    _with_section(_f, _ACT_DOC)
-
-
-# --- the embedding ---------------------------------------------------------------
-
-
-def _padding(padding_idx: int | None, num_weights: int) -> int:
-    """``padding_idx`` as ``F.embedding`` hands it to the op: from the end
-    when negative, and -1 for none."""
-    if padding_idx is None:
-        return -1
-    if padding_idx < 0:
-        return num_weights + padding_idx
-    return padding_idx
-
-
-class _QEmbedding(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, weight, formats, padding_idx, max_norm, norm_type, by_freq, sparse):
-        with torch._C.DisableTorchFunction():
-            rows = F.embedding(input, weight, padding_idx, max_norm, norm_type, by_freq, sparse)
-            ctx.save_for_backward(input)
-            n = weight.shape[0]
-            ctx.embedding = (formats, n, _padding(padding_idx, n), by_freq, sparse)
-            q = formats.quant
-            if q is None:
-                return rows
-            return _round_result(
-                q, rows.to(_carrier_dtype(formats.carrier, rows.dtype)), rows.dtype
-            )
-
-    @staticmethod
-    def backward(ctx, *grads):
-        with _opaque_backward():
-            g = grads[0]
-            (input,) = ctx.saved_tensors
-            formats, n, padding_idx, by_freq, sparse = ctx.embedding
-            q = formats.grad_quant
-            if q is None:
-                gw = torch.ops.aten.embedding_backward(g, input, n, padding_idx, by_freq, sparse)
-            else:
-                gc = g.to(_carrier_dtype(formats.carrier, g.dtype))
-                gw = torch.ops.aten.embedding_backward(gc, input, n, padding_idx, by_freq, sparse)
-                gw = _round_result(q, gw, g.dtype)
-            return None, gw, None, None, None, None, None, None
-
-
-def qembedding(
-    input: torch.Tensor,
-    weight: torch.Tensor,
-    formats: PointwiseFormats | None = None,
-    padding_idx: int | None = None,
-    max_norm: float | None = None,
-    norm_type: float = 2.0,
-    scale_grad_by_freq: bool = False,
-    sparse: bool = False,
-) -> torch.Tensor:
-    """``F.embedding``, its rows rounded by ``formats.quant`` and its weight's
-    gradient by ``formats.grad_quant``.
-
-    The gather is exact, so the rows are the format's rounding of the
-    weight's. The weight's gradient is torch's (``embedding_backward``),
-    summed over repeated indices in the carrier, then rounded once. The other
-    arguments are ``F.embedding``'s.
-
-    Raises:
-        ValueError: for ``carrier_rounding=RoundMode.RO`` (a gather has no
-            carrier step to round), or a sparse gradient with
-            ``grad_quant`` set.
-    """
-    if formats is not None and not isinstance(formats, PointwiseFormats):
-        raise TypeError(f"qembedding's formats is a PointwiseFormats or None, got {formats!r}")
-    if formats is None or (formats.quant is None and formats.grad_quant is None):
-        with torch._C.DisableTorchFunction():
-            return F.embedding(
-                input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
-            )
-    if formats.carrier_rounding is _RO:
-        raise ValueError(
-            "carrier_rounding=RoundMode.RO: an embedding gathers its rows, which leaves no "
-            "carrier step to round to odd -- use RoundMode.RNE"
-        )
-    if sparse and formats.grad_quant is not None:
-        raise ValueError(
-            "qembedding: a sparse gradient cannot be rounded by grad_quant -- pass sparse=False, "
-            "or leave grad_quant unset"
-        )
-    return _QEmbedding.apply(
-        input, weight, formats, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
     )

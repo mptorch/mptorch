@@ -5,7 +5,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from .. import pointwise  # a module reference: `pointwise` imports this package
+from ..functional.embedding import qembedding
 
 
 class QEmbedding(nn.Embedding):
@@ -27,7 +27,7 @@ class QEmbedding(nn.Embedding):
         (torch's with ``None``)."""
         if self.formats is None:
             return super().forward(input)
-        return pointwise.qembedding(
+        return qembedding(
             input,
             self.weight,
             self.formats,

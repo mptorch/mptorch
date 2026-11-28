@@ -7,8 +7,8 @@ GEMMs, and ``fixedpoint_matmul`` and ``fixedpoint_matmul_fma``), and the block
 format ops (``block_pack``, ``block_unpack``, ``block_quantize``,
 ``block_project`` and ``block_matmul``). The tiers above build on these: the format objects of
 :mod:`mptorch.quant.mac`, the differentiable matrix products of
-:mod:`mptorch.quant.matmul`, and the layer factories of
-:mod:`mptorch.quant.gemm` and :mod:`mptorch.quant.conv`. Every public name is
+:mod:`mptorch.quant.functional.matmul`, and the layer factories of
+:mod:`mptorch.quant.factories`. Every public name is
 also importable from :mod:`mptorch.quant`.
 """
 

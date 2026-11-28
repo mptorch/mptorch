@@ -23,12 +23,12 @@ from torch import nn
 
 from mptorch.number.block import _block_label
 
+from .._opaque import _opaque_backward
 from ..mac import BlockQuant
 from ..ops import BlockPacked, block_unpack
 from ..ops._checks import _CARRIER, _call_carrier
 from ..ops.block import _block_format_ints
 from ..rotation import Hadamard, _RotatedQuant, hadamard_rotate
-from ._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 

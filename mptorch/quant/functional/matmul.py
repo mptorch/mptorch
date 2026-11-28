@@ -37,10 +37,10 @@ import torch
 
 from mptorch.number import BlockFormat, Number
 
-from .gemm import block_matmul_formats, matmul_formats
-from .mac import BlockMac, FusedMac, Mac, SplitMac
-from .modules.format import QMatmulFormats
-from .modules.matmul import CustomArithMatmul
+from ..factories.matmul import block_matmul_formats, matmul_formats
+from ..mac import BlockMac, FusedMac, Mac, SplitMac
+from ..modules.format import QMatmulFormats
+from ..modules.matmul import CustomArithMatmul
 
 __all__ = ["qmm", "qbmm", "qmatmul", "as_matmul_formats"]
 

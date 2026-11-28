@@ -19,7 +19,7 @@ again.
 
 import torch
 
-from ._opaque import _opaque_backward
+from .._opaque import _opaque_backward
 from ._saved import load, quantize_operand, restore, save
 
 
@@ -201,7 +201,7 @@ class QMatmul(torch.nn.Module):
     Args:
         formats (None, Number, SplitMac, FusedMac, BlockMac or QMatmulFormats):
             any value :func:`mptorch.quant.qmatmul` accepts, converted once,
-            here, by :func:`mptorch.quant.matmul.as_matmul_formats`.
+            here, by :func:`mptorch.quant.functional.matmul.as_matmul_formats`.
             Default: ``None`` (plain ``torch.matmul``)
 
     Shape:
@@ -226,7 +226,7 @@ class QMatmul(torch.nn.Module):
         super().__init__()
         # The conversion is defined next to qmatmul, and imported here rather
         # than at module level because that module imports this one.
-        from ..matmul import as_matmul_formats
+        from ..functional.matmul import as_matmul_formats
 
         self.formats = as_matmul_formats(formats)
 

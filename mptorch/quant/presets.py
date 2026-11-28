@@ -29,12 +29,13 @@ from mptorch.number import (
     SaturationMode,
 )
 
-from .attention import AttentionFormats
+from .functional.activation import ActivationFormats
+from .functional.attention import AttentionFormats
+from .functional.norm import NormFormats, SoftmaxFormats
+from .functional.pointwise import PointwiseFormats
+from .functional.reduce import ReductionFormats
+from .instrument.recipe import _KINDS, GemmFormats, Recipe
 from .mac import BlockMac, FusedMac, Quant, SplitMac
-from .norm import NormFormats, SoftmaxFormats
-from .pointwise import ActivationFormats, PointwiseFormats
-from .recipe import _KINDS, GemmFormats, Recipe
-from .reduce import ReductionFormats
 from .rotation import Hadamard
 from .scaled import ScaledQuant
 

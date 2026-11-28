@@ -145,6 +145,7 @@ examples/testing/
 .csv
 # MNIST download made by docs/snippets/tutorial/*.py
 docs/snippets/data/
+data/
 
 # outputs of examples/mp_mlp_paper/script_mp.py
 examples/mp_mlp_paper/data/

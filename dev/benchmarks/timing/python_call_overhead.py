@@ -8,7 +8,7 @@ stored format against a float16 or bfloat16 result -- is left to the call,
 where a float32 operand pays a tuple index and one dict membership test), and a
 `QAffineFormats` fixes all of it for the lifetime of the layer -- so 444d83a
 split the resolution out (`_binaryK_spec` and friends) and had
-`mptorch.quant.gemm`'s factories do it once, at construction, instead of on
+the factories of `mptorch.quant.factories` do it once, at construction, instead of on
 every forward and backward pass.
 
 This measures the three points that bracket that change, on a 1x1x1 GEMM so
@@ -65,7 +65,8 @@ from mptorch.quant import (
     SplitMac,
     conv_formats,
 )
-from mptorch.quant.gemm import _gemm_formats, binaryK_gemm_formats, block_gemm_formats
+from mptorch.quant.factories._hooks import _gemm_formats
+from mptorch.quant.factories.linear import binaryK_gemm_formats, block_gemm_formats
 from mptorch.quant.mac import FusedMac, spec_for_mac
 from mptorch.quant.modules._saved import quantize_operand
 from mptorch.quant.ops import (

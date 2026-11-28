@@ -87,7 +87,7 @@ from mptorch.quant import (
     superfp_matmul_fma,
     superfp_quantize,
 )
-from mptorch.quant.gemm import binaryK_gemm_formats
+from mptorch.quant.factories.linear import binaryK_gemm_formats
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops.binaryk import (
     _binaryK_fma_mixed_spec,

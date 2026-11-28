@@ -1,7 +1,7 @@
 """Softmax and the norms, each step rounded as their formats say.
 
 ``qsoftmax``, ``qlayernorm``, ``qrmsnorm``, ``qgroupnorm`` and ``qbatchnorm``
-compute in a carrier, as ``mptorch.quant.pointwise``'s ops do: binary32 for
+compute in a carrier, as ``functional/pointwise.py``'s ops do: binary32 for
 float32, float16 and bfloat16 tensors, which are widened first, and binary64
 for float64 ones or under ``carrier=torch.float64``. Each step whose slot is
 set is rounded once there; the others are the carrier's own. Their sums are
@@ -29,13 +29,13 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-# A module reference rather than names: `pointwise` imports `modules`, whose
-# QSoftmax imports this module, while `pointwise` is still loading.
-from . import pointwise
-from .mac import FusedMac, SplitMac, spec_for_mac
-from .modules._opaque import _opaque_backward
-from .ops._checks import _checked_carrier
-from .ops._spec import _GemmSpec, _round_result, _stored
+from .._labels import _mac_label, _quant_label
+from .._opaque import _opaque_backward
+from ..mac import FusedMac, SplitMac, spec_for_mac
+from ..ops._checks import _checked_carrier
+from ..ops._spec import _GemmSpec, _round_result, _stored
+from .pointwise import _carrier_dtype
+from .pwl import FISR, PWLTable, _fisr, _rounded
 from .reduce import _checked_mac, _checked_quant_slot, _reduced, _sum
 
 __all__ = [
@@ -103,8 +103,6 @@ def _resolve(
 
 
 def _label(formats: Any, macs: Sequence[str], quants: Sequence[str]) -> str:
-    from .recipe import _mac_label, _quant_label  # imported here: recipe imports this module
-
     values = {n: getattr(formats, n) for n in (*macs, *quants)}
     set_macs = {values[n] for n in macs if values[n] is not None}
     set_quants = {values[n] for n in quants if values[n] is not None}
@@ -320,8 +318,6 @@ class NormFormats:
     )
 
     def __post_init__(self) -> None:
-        from .pwl import FISR, PWLTable  # imported here: pwl imports pointwise, as this does
-
         _resolve(
             self, _NORM_MACS, _NORM_QUANTS, _NORM_INNER, "out", ("bwd_acc", "bwd_mul", "bwd_out")
         )
@@ -466,11 +462,9 @@ def _inverse(f: NormFormats, v: torch.Tensor) -> torch.Tensor:
     inv = f.inverse
     if inv is None:
         return _r(f.rsqrt, torch.rsqrt(v))
-    from . import pwl  # imported here: pwl imports pointwise, as this does
-
-    if isinstance(inv, pwl.FISR):
-        return pwl._fisr(v, inv.steps, f.rsqrt)
-    return pwl._rounded(inv, v, f.rsqrt, None, v.dtype)
+    if isinstance(inv, FISR):
+        return _fisr(v, inv.steps, f.rsqrt)
+    return _rounded(inv, v, f.rsqrt, None, v.dtype)
 
 
 def _kappa(deviation: str) -> float:
@@ -605,7 +599,7 @@ def _param_grad(
 
 def _softmax_forward(x: torch.Tensor, dim: int, f: SoftmaxFormats) -> torch.Tensor:
     dtype = x.dtype
-    xc = x.to(pointwise._carrier_dtype(f.carrier, dtype))
+    xc = x.to(_carrier_dtype(f.carrier, dtype))
     if not f._inner:
         return _finish(f.div, torch.softmax(xc, dim), dtype)
     d = _r(f.sub, xc - xc.amax(dim, keepdim=True))
@@ -614,7 +608,7 @@ def _softmax_forward(x: torch.Tensor, dim: int, f: SoftmaxFormats) -> torch.Tens
 
 
 def _softmax_grad(x: torch.Tensor, dim: int, f: SoftmaxFormats, g: torch.Tensor) -> torch.Tensor:
-    gc = g.to(pointwise._carrier_dtype(f.carrier, g.dtype))
+    gc = g.to(_carrier_dtype(f.carrier, g.dtype))
     y = torch.softmax(x.to(gc.dtype), dim)  # the unrounded function's
     s = _total(f._specs[1], _r(f.bwd_mul, gc * y), (dim,))
     return _finish(f.bwd_out, y * _r(f.bwd_sub, gc - s), g.dtype)
@@ -629,7 +623,7 @@ def _layer_dims(x: torch.Tensor, shape: Sequence[int]) -> tuple[int, ...]:
 
 def _layer_norm_forward(x, weight, bias, shape, eps, f: NormFormats, rms: bool):
     dtype = x.dtype
-    c = pointwise._carrier_dtype(f.carrier, dtype)
+    c = _carrier_dtype(f.carrier, dtype)
     xc = x.to(c)
     if not f._inner:
         w = None if weight is None else weight.to(c)
@@ -642,7 +636,7 @@ def _layer_norm_forward(x, weight, bias, shape, eps, f: NormFormats, rms: bool):
 
 
 def _layer_norm_grads(x, weight, bias, g, needs, shape, eps, f: NormFormats, rms: bool):
-    c = pointwise._carrier_dtype(f.carrier, g.dtype)
+    c = _carrier_dtype(f.carrier, g.dtype)
     xc, gc = x.to(c), g.to(c)
     dims = _layer_dims(x, shape)
     if f.deviation == "std":
@@ -670,7 +664,7 @@ def _group_view(x: torch.Tensor, groups: int) -> torch.Tensor:
 
 def _group_norm_forward(x, weight, bias, groups, eps, f: NormFormats):
     dtype = x.dtype
-    c = pointwise._carrier_dtype(f.carrier, dtype)
+    c = _carrier_dtype(f.carrier, dtype)
     xc = x.to(c)
     if not f._inner:
         w = None if weight is None else weight.to(c)
@@ -682,7 +676,7 @@ def _group_norm_forward(x, weight, bias, groups, eps, f: NormFormats):
 
 
 def _group_norm_grads(x, weight, bias, g, needs, groups, eps, f: NormFormats):
-    c = pointwise._carrier_dtype(f.carrier, g.dtype)
+    c = _carrier_dtype(f.carrier, g.dtype)
     xc, gc = x.to(c), g.to(c)
     view = _channel_view(x)
     if f.deviation == "std":
@@ -711,7 +705,7 @@ def _batch_dims(x: torch.Tensor) -> tuple[int, ...]:
 
 def _batch_norm_forward(x, weight, bias, rm, rv, training, momentum, eps, f: NormFormats):
     dtype = x.dtype
-    c = pointwise._carrier_dtype(f.carrier, dtype)
+    c = _carrier_dtype(f.carrier, dtype)
     xc = x.to(c)
     view = _channel_view(x)
     if not f._inner:
@@ -757,7 +751,7 @@ def _update_running(rm, rv, mean, var, n: int, momentum: float) -> None:
 
 
 def _batch_norm_grads(x, weight, bias, g, needs, rm, rv, training, momentum, eps, f, stats):
-    c = pointwise._carrier_dtype(f.carrier, g.dtype)
+    c = _carrier_dtype(f.carrier, g.dtype)
     xc, gc = x.to(c), g.to(c)
     view = _channel_view(x)
     dims = _batch_dims(x)
@@ -820,7 +814,7 @@ class _ClosedForm(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads):
-        with _opaque_backward():  # as in forward, except under compile (modules/_opaque.py)
+        with _opaque_backward():  # as in forward, except under compile (_opaque.py)
             x, weight, bias, *stats = ctx.saved_tensors
             g, op, rest = grads[0], ctx.op, ctx.rest
             needs = ctx.needs_input_grad[1:4]
@@ -1074,7 +1068,7 @@ def _layer_plain(x, shape, weight, bias, eps, f: NormFormats, rms: bool) -> Call
         return lambda: F.layer_norm(x, shape, weight, bias, eps)
 
     def plain():
-        c = pointwise._carrier_dtype(f.carrier, x.dtype)
+        c = _carrier_dtype(f.carrier, x.dtype)
         dims = _layer_dims(x, shape)
         w = None if weight is None else weight.to(c)
         b = None if bias is None else bias.to(c)
@@ -1089,7 +1083,7 @@ def _group_plain(x, groups, weight, bias, eps, f: NormFormats) -> Callable:
         return lambda: F.group_norm(x, groups, weight, bias, eps)
 
     def plain():
-        c = pointwise._carrier_dtype(f.carrier, x.dtype)
+        c = _carrier_dtype(f.carrier, x.dtype)
         t = _variant_plain(_group_view(x.to(c), groups), None, None, (2,), eps, f.deviation, False)
         w = None if weight is None else weight.to(c)
         b = None if bias is None else bias.to(c)

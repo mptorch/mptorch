@@ -45,20 +45,17 @@ from torch._subclasses.fake_tensor import (
 )
 from torch.nn.modules.utils import _ntuple
 
+from .._labels import _mac_label
+from ..events import EventReport, _SiteTally
+from ..factories.conv import _leading_padding
+from ..functional._flash import _keeps_scores, _skipped, _tiles
+from ..functional.reduce import ReductionFormats
+from ..mac import BlockMac, FusedMac, SplitMac, cast_quant
+from ..modules.attention import QMultiheadAttention
+from ..modules.matmul import QMatmul
+from ..modules.norm import QGroupNorm, QLayerNorm, QRMSNorm, QSoftmax, _QBatchNorm
 from ._counting import _counting_formats
-from .conv import _leading_padding
-from .convert import _REGISTRY
-from .events import EventReport, _SiteTally
-from .gemm import cast_quant
-from .mac import BlockMac, FusedMac, SplitMac
-from .modules.activation import QSoftmax
-from .modules.attention import QMultiheadAttention
-from .modules.matmul import QMatmul
-from .modules.normalization import QGroupNorm, QLayerNorm, QRMSNorm, _QBatchNorm
-from .palettes import _PaletteMap, set_palette_maps_
-from .recipe import GemmFormats, Recipe, _mac_label
-from .reduce import ReductionFormats
-from .simulate import (
+from ._handlers import (
     _MHA_DEFAULTS,
     _MHA_NAMES,
     _NAMES,
@@ -70,12 +67,13 @@ from .simulate import (
     SIMULATED,
     WHOLE,
     _bind,
-    _Interceptor,
     _owner,
     _projection,
-    _State,
-    simulate,
 )
+from .conversion import _REGISTRY
+from .palettes import _PaletteMap, set_palette_maps_
+from .recipe import GemmFormats, Recipe
+from .simulation import _Interceptor, _State, simulate
 
 __all__ = ["profile", "Profile", "ProfileRecord", "ElementRecord", "UncountedRecord"]
 
@@ -530,8 +528,6 @@ def _flash_core(c: _Counter, name, call, BH, L, S, E, Ev, af, grads, causal) -> 
     (unless flash keeps them), dV, dP, dQ and dK, and per query tile the sum
     of ``dO * O``. The running updates (``rescale``, ``combine``, ``lse``)
     are one element record per pass."""
-    from .attention import _keeps_scores, _skipped, _tiles
-
     fl = af.flash
     shapes: dict[tuple[int, int], int] = {}
     for rows in _tiles(L, fl.block_q):

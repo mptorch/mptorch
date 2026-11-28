@@ -32,7 +32,7 @@ from mptorch.quant import (
     silu_table,
     simulate,
 )
-from mptorch.quant.pwl import _evaluate, _fit_grid, _grid_error, _minimax_entries
+from mptorch.quant.functional.pwl import _evaluate, _fit_grid, _grid_error, _minimax_entries
 from tests.markers import accelerator_devices, available_devices
 
 

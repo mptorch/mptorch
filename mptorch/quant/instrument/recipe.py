@@ -47,14 +47,11 @@ import torch.nn.functional as F
 from torch import nn
 
 from mptorch.number import BinaryK, BlockFormat, FixedPoint, Number, RoundMode, SuperFP
-from mptorch.number import presets as number_presets
-from mptorch.number.block import _block_label, _part_label
 
-from ._exact import exact_route, exact_runner, exact_runner_nd
-from .attention import AttentionFormats
-from .conv import _conv_formats
-from .events import _CountedCall, _CountingQuant, _SiteTally
-from .gemm import (
+from .._labels import _fmt_label, _mac_label, _quant_label, _slot_label
+from ..events import _CountedCall, _CountingQuant, _SiteTally
+from ..factories._exact import exact_route, exact_runner, exact_runner_nd
+from ..factories._hooks import (
     _block_linear_fwd,
     _block_linear_igrad,
     _block_linear_wgrad,
@@ -67,37 +64,37 @@ from .gemm import (
     _matmul_agrad,
     _matmul_bgrad,
     _matmul_fwd,
-    _plain_conv,
     _spec_matmul,
     _with_output,
-    block_matmul_formats,
-    cast_quant,
 )
-from .mac import (
+from ..factories.conv import _conv_formats, _plain_conv
+from ..factories.matmul import block_matmul_formats
+from ..functional.activation import ActivationFormats
+from ..functional.attention import AttentionFormats
+from ..functional.norm import NormFormats, SoftmaxFormats
+from ..functional.pointwise import PointwiseFormats
+from ..functional.reduce import ReductionFormats
+from ..mac import (
     BlockMac,
-    BlockQuant,
     FusedMac,
     Palette,
     Quant,
     SplitMac,
     _as_quant,
+    cast_quant,
     spec_for_block_mac,
     spec_for_mac,
 )
-from .modules.format import QAffineFormats, QMatmulFormats
-from .modules.linear import CustomArithLinear
-from .modules.matmul import CustomArithMatmul
-from .norm import NormFormats, SoftmaxFormats
-from .ops._counted import _counted_parts, _counting_built
-from .ops._spec import _GemmSpec
+from ..modules.format import QAffineFormats, QMatmulFormats
+from ..modules.linear import CustomArithLinear
+from ..modules.matmul import CustomArithMatmul
+from ..ops._counted import _counted_parts, _counting_built
+from ..ops._spec import _GemmSpec
+from ..rotation import Hadamard, _RotatedGrad, _RotatedQuant
 from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
-from .pointwise import ActivationFormats, PointwiseFormats
-from .reduce import ReductionFormats
-from .rotation import Hadamard, _RotatedGrad, _RotatedQuant
-from .scaled import ScaledQuant
 
 if TYPE_CHECKING:
-    from .convert import ConvertReport
+    from .conversion import ConvertReport
 
 __all__ = ["GemmFormats", "Rule", "Recipe"]
 
@@ -203,7 +200,7 @@ def _linear_pass(
     """One Linear pass's hook: none without a mac (PyTorch's own product),
     ``block_hook`` over a ``BlockMac``'s GEMM and its two operands' quantizers,
     and ``hook`` over any other mac's resolved GEMM, which refuses a wide
-    fixed-point result as a ``where`` pass (``gemm._spec_matmul``). ``count``
+    fixed-point result as a ``where`` pass (``_hooks._spec_matmul``). ``count``
     makes the GEMM's counting spec. ``operands`` are the quantizers of the
     GEMM's two operands, in its order, from which a fixed-point GEMM whose
     every step is exact takes the integer route (`_exact`); a counted pass
@@ -703,50 +700,6 @@ class GemmFormats:
         return ", ".join(parts)
 
 
-def _fmt_label(fmt: Any) -> str:
-    """A format's short label: a preset's name (``MXFP8_E4M3``, ``E4M3``) if
-    it is one, and ``carrier`` for ``None``, a sum left in the carrier."""
-    if fmt is None:
-        return "carrier"
-    if isinstance(fmt, BlockFormat):
-        for name in ("MXFP8_E4M3", "MXFP8_E5M2", "MXFP6_E2M3", "MXFP6_E3M2", "MXFP4_E2M1", "NVFP4"):
-            if fmt == getattr(number_presets, name):
-                return name
-        return _block_label(fmt)
-    return _part_label(fmt)
-
-
-def _mac_label(mac: Any) -> str:
-    """A mac's short label: each slot's format, or ``carrier`` for none, and
-    a palette slot's entries in brackets."""
-    if mac is None:
-        return "torch"
-    if isinstance(mac, SplitMac):
-        return f"SplitMac({_slot_label(mac.mul)}, {_slot_label(mac.acc)})"
-    if isinstance(mac, FusedMac):
-        return f"FusedMac({_slot_label(mac.fma)})"
-    a, b = cast_quant(mac.a).fmt, cast_quant(mac.b).fmt
-    return f"BlockMac({_fmt_label(a)}, {_fmt_label(b)})"
-
-
-def _slot_label(slot: Any) -> str:
-    """A mac slot's label: its one format, or a palette's entries."""
-    if slot is None:
-        return _fmt_label(None)
-    if len(slot) == 1:
-        return _fmt_label(slot[0])
-    return "[" + ", ".join(_fmt_label(f) for f in slot) + "]"
-
-
-def _quant_label(q: Any) -> str:
-    """A quantizer's short label: a format object's, or the callable's name."""
-    if isinstance(q, tuple):  # a palette layer's output roundings, one per entry
-        return "[" + ", ".join(_quant_label(e) for e in q) + "]"
-    if isinstance(q, Quant | ScaledQuant | BlockQuant):
-        return f"{type(q).__name__}({_fmt_label(q.fmt)}, {q.rounding.name})"
-    return getattr(q, "__name__", type(q).__name__)
-
-
 # --- rules and recipes ---------------------------------------------------------
 
 # The formats each kind past the GEMMs takes.
@@ -994,6 +947,6 @@ class Recipe:
     def plan(self, model: nn.Module, **kwargs: Any) -> "ConvertReport":  # noqa: UP037
         """What :func:`mptorch.quant.convert_` would do to ``model``, without
         doing it. It takes ``convert_``'s keyword arguments."""
-        from .convert import _plan  # imported here: convert imports this module
+        from .conversion import _plan  # imported here: conversion imports this module
 
         return _plan(model, self, **kwargs)

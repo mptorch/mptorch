@@ -1,6 +1,6 @@
 """The private builders behind a layer's per-pass arithmetic and its output
-rounding: ``gemm._gemm_formats`` and ``conv._conv_formats``, which give each
-of a layer's three GEMMs its own mac, and ``gemm._with_output``, which rounds
+rounding: ``_hooks._gemm_formats`` and ``conv._conv_formats``, which give each
+of a layer's three GEMMs its own mac, and ``_hooks._with_output``, which rounds
 the forward's result after the bias.
 
 Tier 3 throughout. A layer whose passes run three macs is held, pass by pass,
@@ -33,8 +33,8 @@ from mptorch.quant import (
     conv_formats,
     matmul_formats,
 )
-from mptorch.quant.conv import _conv_formats
-from mptorch.quant.gemm import _gemm_formats, _plain_conv, _with_output
+from mptorch.quant.factories._hooks import _gemm_formats, _with_output
+from mptorch.quant.factories.conv import _conv_formats, _plain_conv
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops._spec import _run_gemm
 from tests.markers import available_devices

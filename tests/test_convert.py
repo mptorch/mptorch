@@ -1,7 +1,7 @@
 """
 Converting a model: ``convert_``, ``convert``, ``unconvert_``, ``register`` and ``from_float``.
 
-``mptorch/quant/convert.py`` switches each registered layer's class in place
+``mptorch/quant/instrument/conversion.py`` switches each registered layer's class in place
 and gives it a container built from the recipe's formats. The claims checked
 here:
 
@@ -54,7 +54,7 @@ from mptorch.quant import (
     register,
     unconvert_,
 )
-from mptorch.quant.convert import _REGISTRY
+from mptorch.quant.instrument.conversion import _REGISTRY
 from tests.markers import available_devices
 
 P8 = BinaryK(8, 4)

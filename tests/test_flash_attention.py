@@ -456,13 +456,13 @@ def test_profile_counts_the_tiles_flash_runs():
 def _paths(monkeypatch, q, k, v, af, g, **kw):
     """Flash's output and gradients on the path its formats take, then on
     the loop."""
-    from mptorch.quant import attention
+    from mptorch.quant.functional import _flash
 
     runs = []
     for loop in (False, True):
         with monkeypatch.context() as m:
             if loop:
-                m.setattr(attention, "_batchable", lambda formats: (False, False))
+                m.setattr(_flash, "_batchable", lambda formats: (False, False))
             out = qattention(q, k, v, af, **kw)
             runs.append((out, *_grads(out, (q, k, v), g)))
     return runs
@@ -539,7 +539,7 @@ def test_what_the_batched_path_takes():
     only with the forward."""
     from mptorch import MXFP8_E4M3
     from mptorch.quant import BlockQuant
-    from mptorch.quant.attention import _batchable
+    from mptorch.quant.functional._flash import _batchable
 
     both, forward_only, neither = (True, True), (True, False), (False, False)
     assert _batchable(_formats()) == both

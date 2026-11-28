@@ -36,9 +36,11 @@ from typing import Any
 
 import torch
 
-from . import pointwise
-from .ops._checks import _checked_carrier
-from .ops._spec import _round_result, _stored
+from .._opaque import _opaque_backward
+from ..mac import Quant
+from ..ops._checks import _checked_carrier
+from ..ops._spec import _round_result, _stored
+from .pointwise import _FUSED_DEVICES, _carrier_dtype, _checked_slot, _report_fused
 
 __all__ = ["FISR", "PWLTable", "gelu_table", "qpwl", "silu_table"]
 
@@ -469,18 +471,18 @@ def _rounded(
     binaryK, superfp or fixed-point format on a device that has the op's
     kernels (as for ``pointwise._fused_op``) and the tails are ones it
     evaluates; otherwise ``_evaluate`` and the slot."""
-    c = pointwise._carrier_dtype(carrier, x.dtype)
+    c = _carrier_dtype(carrier, x.dtype)
     code = _tails_code(table.tails)
-    spec = slot._spec if isinstance(slot, pointwise.Quant) else None
+    spec = slot._spec if isinstance(slot, Quant) else None
     fused = None
-    if code is not None and spec is not None and x.device.type in pointwise._FUSED_DEVICES:
+    if code is not None and spec is not None and x.device.type in _FUSED_DEVICES:
         fused = _FUSED_PWL.get(spec.name)
     if fused is None:
         y = _evaluate(table, x.to(c))
         return _stored(y, dtype) if slot is None else _round_result(slot, y, dtype)
     assert spec is not None  # a fused op was found for it
     wide = c is torch.float64
-    pointwise._report_fused(spec, wide, dtype)
+    _report_fused(spec, wide, dtype)
     xc = x.double() if wide and x.dtype is not torch.float64 else x
     entries = table._entries(x.device, c)
     rsqrt = table.reduction == "rsqrt"
@@ -581,12 +583,10 @@ class _QPWL(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads):
-        from .modules._opaque import _opaque_backward  # imported here: modules imports this
-
         with _opaque_backward():
             (x,) = ctx.saved_tensors
             g = grads[0]
-            c = pointwise._carrier_dtype(ctx.carrier, g.dtype)
+            c = _carrier_dtype(ctx.carrier, g.dtype)
             gx = _derivative(ctx.table, ctx.derivative, g.to(c), x.to(c))
             q = ctx.grad_quant
             return (
@@ -648,7 +648,7 @@ def qpwl(
             )
         _checked_carrier(carrier)
         for name, slot in (("quant", quant), ("grad_quant", grad_quant)):
-            pointwise._checked_slot(slot, carrier, name)
+            _checked_slot(slot, carrier, name)
         return _QPWL.apply(x, table, quant, grad_quant, derivative, carrier)
 
 

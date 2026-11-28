@@ -34,31 +34,24 @@ from typing import Any, NamedTuple, cast
 from torch import nn
 from torch.nn.utils import parametrize
 
-from .attention import AttentionFormats
-from .modules.activation import (
-    QGELU,
-    QHardsigmoid,
-    QHardswish,
-    QReLU,
-    QSigmoid,
-    QSiLU,
-    QSoftmax,
-    QTanh,
-)
-from .modules.attention import MultiheadAttentionFormats, QMultiheadAttention
-from .modules.conv import QConv1d, QConv2d, QConv3d
-from .modules.embedding import QEmbedding
-from .modules.linear import QLinear, QPackedLinear, _switch_class
-from .modules.normalization import (
+from ..functional.activation import ActivationFormats
+from ..functional.attention import AttentionFormats
+from ..functional.norm import NormFormats, SoftmaxFormats
+from ..functional.pointwise import PointwiseFormats
+from ..modules.activation import QGELU, QHardsigmoid, QHardswish, QReLU, QSigmoid, QSiLU, QTanh
+from ..modules.attention import MultiheadAttentionFormats, QMultiheadAttention
+from ..modules.conv import QConv1d, QConv2d, QConv3d
+from ..modules.embedding import QEmbedding
+from ..modules.linear import QLinear, QPackedLinear, _switch_class
+from ..modules.norm import (
     QBatchNorm1d,
     QBatchNorm2d,
     QBatchNorm3d,
     QGroupNorm,
     QLayerNorm,
     QRMSNorm,
+    QSoftmax,
 )
-from .norm import NormFormats, SoftmaxFormats
-from .pointwise import ActivationFormats, PointwiseFormats
 from .recipe import _GEMM_KINDS, _KINDS, GemmFormats, Recipe, Rule
 
 __all__ = ["register", "convert_", "convert", "unconvert_", "ConvertReport", "ConvertRow"]
