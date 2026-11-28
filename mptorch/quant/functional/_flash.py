@@ -26,10 +26,10 @@ from ..mac import BlockMac, BlockQuant, FusedMac, Quant, SplitMac
 from ..modules.format import QMatmulFormats
 from ..modules.matmul import CustomArithMatmul
 from ..ops._spec import _round_result, _stored
-from ..rotation import _Rotation
 from ..scaled import ScaledQuant
 from .norm import _r, _total
 from .pointwise import _carrier_dtype, qmul
+from .rotation import _Rotation
 
 if TYPE_CHECKING:
     from .attention import AttentionFormats

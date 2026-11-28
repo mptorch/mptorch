@@ -34,9 +34,9 @@ from .functional.attention import AttentionFormats
 from .functional.norm import NormFormats, SoftmaxFormats
 from .functional.pointwise import PointwiseFormats
 from .functional.reduce import ReductionFormats
+from .functional.rotation import Hadamard
 from .instrument.recipe import _KINDS, GemmFormats, Recipe
 from .mac import BlockMac, FusedMac, Quant, SplitMac
-from .rotation import Hadamard
 from .scaled import ScaledQuant
 
 __all__ = ["uniform", "fp8", "mx"]

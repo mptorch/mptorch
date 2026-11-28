@@ -56,9 +56,9 @@ from mptorch.number import RoundMode
 
 from .. import events
 from ..events import _CountingQuant
+from ..functional.rotation import _RotatedQuant
 from ..mac import BlockQuant, Quant
 from ..ops import BlockPacked
-from ..rotation import _RotatedQuant
 from ..scaled import ScaledQuant
 from .quantizer import Quantizer
 

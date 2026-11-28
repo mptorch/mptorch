@@ -44,8 +44,8 @@ from mptorch.quant import (
     set_palette_maps_,
     simulate,
 )
+from mptorch.quant.functional.rotation import _RotatedQuant, _signs
 from mptorch.quant.modules._saved import _ROTATION_ONLY, _known
-from mptorch.quant.rotation import _RotatedQuant, _signs
 from tests.markers import accelerator_devices, available_devices, float64_devices
 from tests.models import MiniLlama
 

@@ -74,6 +74,7 @@ from ..functional.attention import AttentionFormats
 from ..functional.norm import NormFormats, SoftmaxFormats
 from ..functional.pointwise import PointwiseFormats
 from ..functional.reduce import ReductionFormats
+from ..functional.rotation import Hadamard, _RotatedGrad, _RotatedQuant
 from ..mac import (
     BlockMac,
     FusedMac,
@@ -90,7 +91,6 @@ from ..modules.linear import CustomArithLinear
 from ..modules.matmul import CustomArithMatmul
 from ..ops._counted import _counted_parts, _counting_built
 from ..ops._spec import _GemmSpec
-from ..rotation import Hadamard, _RotatedGrad, _RotatedQuant
 from .palettes import _Palette, _palette_length, _PaletteAffineFormats, _PaletteMatmulFormats
 
 if TYPE_CHECKING:

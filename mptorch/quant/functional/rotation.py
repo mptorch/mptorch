@@ -34,8 +34,8 @@ from typing import Any
 
 import torch
 
-from ._opaque import _opaque_backward
-from .ops._checks import _call_carrier, _checked_carrier, _narrowed
+from .._opaque import _opaque_backward
+from ..ops._checks import _call_carrier, _checked_carrier, _narrowed
 
 _SEED_LIMIT = 2**31
 

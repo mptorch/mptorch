@@ -66,6 +66,7 @@ from .functional.pointwise import (
 )
 from .functional.pwl import FISR, PWLTable, gelu_table, qpwl, silu_table
 from .functional.reduce import ReductionFormats, qmean, qsum
+from .functional.rotation import Hadamard, hadamard_rotate
 from .instrument.conversion import (
     ConvertReport,
     ConvertRow,
@@ -137,7 +138,6 @@ from .ops import (
     superfp_quantize,
     superfp_quantize_,
 )
-from .rotation import Hadamard, hadamard_rotate
 from .scaled import ScaledQuant
 
 __all__ = [

@@ -17,6 +17,8 @@ import one another in an order a re-exporting ``__init__`` would break.
 #   reduce       qsum, qmean, ReductionFormats
 #   norm         qsoftmax, qlayernorm, qrmsnorm, qgroupnorm, qbatchnorm, SoftmaxFormats, NormFormats
 #   matmul       qmm, qbmm, qmatmul, and as_matmul_formats (the one name imported from its module)
+#   rotation     hadamard_rotate and its value Hadamard, and the wrappers that rotate a product's
+#                operand slots and gradients (GemmFormats.rotation)
 #   attention    qattention, AttentionFormats, FlashFormats, and the nn.MultiheadAttention port
 #   _flash       attention's flash path: FlashAttention-2's order, the loop and the batched path
 #   blockwise    IEEE P3109's block operations on packed tensors, and two reductions

@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 from torch import nn
 
 if TYPE_CHECKING:
+    from ..functional.rotation import Hadamard
     from ..instrument.recipe import GemmFormats
     from ..mac import BlockQuant
-    from ..rotation import Hadamard
 
 
 class QAffineFormats(nn.Module):
