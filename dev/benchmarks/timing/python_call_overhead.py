@@ -43,7 +43,18 @@ CUDA host timing is the noisier of the two -- the launches are asynchronous
 and the queue is not -- so read the CPU table for the size of the effect and
 the CUDA one for its sign.
 
-Run: python3 dev/benchmarks/timing/python_call_overhead.py [--device cuda]
+On the CPU, torch runs even these tiny ops on its whole thread pool (8
+threads on the Ryzen 7940HS), and starting and joining it is much of a
+training step at these sizes. Which of two speeds a process lands in varies
+from run to run, for torch's own layers as much as for mptorch's: on
+2026-11-28, `QConv2d`'s step took 0.157-0.271 ms and `nn.Linear`'s
+0.064-0.154 over five runs. The default thread count is what a user's step
+costs. On one thread (`--threads 1`, or `OMP_NUM_THREADS=1`) the rows
+repeat within a few percent (`QConv2d` 0.127-0.137 ms over seven runs), so
+an A/B of a Python-side change runs with it. The header says how many
+threads ran.
+
+Run: python3 dev/benchmarks/timing/python_call_overhead.py [--device cuda] [--threads 1]
 """
 
 import argparse
@@ -194,13 +205,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--iters", type=int, default=20000)
+    ap.add_argument("--threads", type=int, default=None)
     args = ap.parse_args()
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
 
     a = torch.randn(1, 1, device=args.device)
     b = torch.randn(1, 1, device=args.device)
     run = functools.partial(bench, device=args.device, iters=args.iters)
 
-    print(f"{args.device}, 1x1x1 GEMM, us/call (min of 5 rounds of {args.iters})\n")
+    print(
+        f"{args.device}, {torch.get_num_threads()} threads, 1x1x1 GEMM, "
+        f"us/call (min of 5 rounds of {args.iters})\n"
+    )
     print(
         f"{'op':<14}{'torch.ops':>11}{'resolved once':>15}{'per call':>11}"
         f"{'memoized':>11}{'saved':>9}"
