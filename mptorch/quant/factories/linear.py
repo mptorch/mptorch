@@ -1,7 +1,7 @@
 """Factories that make a ``QLinear``'s matrix products run in quantized GEMMs.
 
 Each factory returns a :class:`~mptorch.quant.QAffineFormats` whose three
-math hooks call a quantized GEMM op (``_hooks.py`` says how
+math hooks call a quantized GEMM op (``factories/_hooks.py`` says how
 ``CustomArithLinear`` calls them):
 
 * the eight factories of the simulated formats (:func:`binaryK_gemm_formats`,

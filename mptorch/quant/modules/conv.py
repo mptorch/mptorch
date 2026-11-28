@@ -29,7 +29,7 @@ from .linear import _from_float
 #: input usually does too, as the output a ReLU keeps for its own backward or
 #: as the data batch (``_saved`` keeps a raw operand only where it stays alive
 #: anyway). It is a module constant for ``torch.compile``'s sake, as in
-#: ``linear.py``.
+#: ``modules/linear.py``.
 _CONV_RECOMPUTE_DEFAULT = (True, True)
 
 

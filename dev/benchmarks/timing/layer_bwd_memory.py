@@ -3,14 +3,15 @@ Peak memory and step time for a quantized layer's forward+backward, split by
 which gradients the layer is actually asked for.
 
 Written to measure three changes that 9e6ea34 made to the layers' autograd
-Functions and to the gemm.py fwd hooks (the tree before them is 64982e6).
+Functions and to the GEMM factories' forward hooks (then in gemm.py, now
+mptorch/quant/factories/_hooks.py; the tree before them is 64982e6).
 Before them:
 
   grads   backward quantized grad_output for *both* gradient paths regardless
           of which ones were needed;
   saved   forward saved q_input, q_weight and q_bias unconditionally, though
           q_bias is never read and each of the other two feeds exactly one path;
-  bias    the bias add in the gemm.py fwd hooks allocated a second output.
+  bias    the bias add in those forward hooks allocated a second output.
 
 Three requires_grad patterns, because they are what those changes turn on:
 

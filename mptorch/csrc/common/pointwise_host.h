@@ -167,8 +167,8 @@ namespace mptorch::pointwise
 
   // The number operand in the carrier T: converted to nearest, as torch
   // converts a number, and under RO first rounded to the operands' dtype
-  // scalar_t, as mptorch.quant.pointwise rounds one (torch.full in that
-  // dtype), so that both operands have that dtype's precision.
+  // scalar_t, as mptorch.quant.functional.pointwise rounds one (torch.full
+  // in that dtype), so that both operands have that dtype's precision.
   template <class T, class scalar_t>
   T number_in_carrier(std::optional<double> scalar, bool odd)
   {

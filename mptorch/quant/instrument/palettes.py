@@ -249,7 +249,7 @@ def _simulate_slots(sim: Any) -> dict[str, tuple[_PaletteMap, int | None, torch.
 
 
 def _slots(target: Any) -> dict[str, tuple[_PaletteMap, int | None, torch.device]]:
-    # imported here: simulation imports the recipe, which imports this module
+    # imported here: simulation imports this module
     from .simulation import simulate
 
     if isinstance(target, simulate):

@@ -139,7 +139,7 @@ namespace mptorch::block
   {
     const CarrierBounds cb = carrier_bounds(wide);
     TORCH_CHECK(static_cast<int>(fmt.size()) == BLOCK_FMT_COUNT, op, ": fmt must have ",
-                BLOCK_FMT_COUNT, " entries (mptorch/quant/block.py's _block_format_ints), got ",
+                BLOCK_FMT_COUNT, " entries (mptorch/quant/ops/block.py's _block_format_ints), got ",
                 fmt.size());
     Fmt f;
     for (int i = 0; i < BLOCK_FMT_COUNT; ++i)

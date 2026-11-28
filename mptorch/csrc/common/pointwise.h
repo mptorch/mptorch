@@ -11,11 +11,11 @@
 // (binary32 for float32, float16 and bfloat16 tensors, binary64 for float64
 // ones), cast is the elementwise quantizer's cast of the format in its round
 // mode, from the same parameters, and storage is the one conversion back to
-// the operands' dtype. That is mptorch.quant.pointwise's statement for qadd,
-// qsub, qmul, qdiv and qsqrt with a Quant slot, which it otherwise computes
-// as torch's operation in the carrier followed by the quantizer, and these
-// ops give the same bits: the same operations, the result contiguous in the
-// broadcast shape, and under stochastic rounding the same random word for
+// the operands' dtype. That is mptorch.quant.functional.pointwise's statement
+// for qadd, qsub, qmul, qdiv and qsqrt with a Quant slot, which it otherwise
+// computes as torch's operation in the carrier followed by the quantizer, and
+// these ops give the same bits: the same operations, the result contiguous in
+// the broadcast shape, and under stochastic rounding the same random word for
 // element j, keyed on j as the quantizers key it (cpu/utils.h's
 // quant_kernel_sr, cuda/utils.cuh's quant_kernel_all_sr). The exception is
 // a float64 root on the CPU, which torch computes within an ulp and these
@@ -26,8 +26,8 @@
 // carrier_odd_div_sqrt.h), so that the cast rounds the exact value for the
 // formats carrier_odd.h's bounds admit. A number operand is converted to
 // the carrier as torch converts one (to nearest), and under RO it is first
-// rounded to the operands' dtype, as mptorch.quant.pointwise does, so that
-// both operands have its precision.
+// rounded to the operands' dtype, as mptorch.quant.functional.pointwise does,
+// so that both operands have its precision.
 //
 // The layout. The host broadcasts the operands to the result's shape (stride
 // 0 where an operand is broadcast), merges adjacent dimensions that every
@@ -171,7 +171,7 @@ namespace mptorch::pointwise
 
   // The step of op `op` on x and y (SQRT ignores y): to nearest, or rounded
   // to odd. Under RO a difference is the sum with y negated, which flips the
-  // sign of a NaN y as mptorch.quant.pointwise's own odd step does.
+  // sign of a NaN y as mptorch.quant.functional.pointwise's own odd step does.
   template <class T>
   CUDA_HOST_DEVICE_INLINE T step(int32_t op, bool odd, T x, T y)
   {
@@ -230,9 +230,9 @@ namespace mptorch::pointwise
   // ---- tables ------------------------------------------------------------
   //
   // The fused table ops (binaryK_pwl, superfp_pwl, fixedpoint_pwl) evaluate a
-  // mptorch.quant.PWLTable in the carrier, operation for operation as
-  // mptorch/quant/pwl.py's _interpolate and _rsqrt_reduced compute it with
-  // torch's operations, then cast as the arithmetic ops do:
+  // mptorch.quant.PWLTable in the carrier, operation for operation as the
+  // _interpolate and _rsqrt_reduced of mptorch/quant/functional/pwl.py
+  // compute it with torch's operations, then cast as the arithmetic ops do:
   //
   //   xi = x, or x clamped to [lo, hi] under TAILS_CLAMP;
   //   u = (xi - lo) * scale, with scale = segments / (hi - lo) computed in
@@ -307,8 +307,8 @@ namespace mptorch::pointwise
 #endif
 
   // 2^p for an integer p, from the word ((p + bias) shifted into the
-  // exponent field), as pwl.py's _power_of_two: an infinity or a sign bit
-  // where p is out of the normal range, as there.
+  // exponent field), as functional/pwl.py's _power_of_two: an infinity or a
+  // sign bit where p is out of the normal range, as there.
   CUDA_HOST_DEVICE_INLINE float power_of_two(int32_t p, float)
   {
     return float_of(static_cast<uint32_t>(p + 127) << 23);
@@ -320,7 +320,7 @@ namespace mptorch::pointwise
   }
 #endif
 
-  // The unbiased exponent of v's exponent field, as pwl.py's _exponent.
+  // v's unbiased exponent, from its word, as functional/pwl.py's _exponent.
   CUDA_HOST_DEVICE_INLINE int32_t exponent_of(float v)
   {
     return static_cast<int32_t>((word_of(v) >> 23) & 0xFFu) - 127;

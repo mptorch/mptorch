@@ -1,11 +1,11 @@
 """Factories that make a ``QMatmul``'s products run in quantized GEMMs.
 
 :func:`matmul_formats` and :func:`block_matmul_formats` each return a
-:class:`~mptorch.quant.QMatmulFormats` whose hooks (``_hooks.py``) follow
-``torch.matmul``'s operand rules. Like ``linear.py``'s factories they
-resolve their formats once and set only the math hooks, leaving the operand
-quantizers to the caller, except where a block format needs an operand
-packed once (:func:`block_matmul_formats`).
+:class:`~mptorch.quant.QMatmulFormats` whose hooks (``factories/_hooks.py``)
+follow ``torch.matmul``'s operand rules. Like ``factories/linear.py``'s
+factories they resolve their formats once and set only the math hooks,
+leaving the operand quantizers to the caller, except where a block format
+needs an operand packed once (:func:`block_matmul_formats`).
 """
 
 from functools import partial

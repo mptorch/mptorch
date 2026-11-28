@@ -7,6 +7,22 @@ untracked and local to Linux, and the Mac's copy of it is older than most of
 what follows. Phase letters (AI, AK, S, ...) are that plan's names; this
 document says what each one means wherever it uses one.
 
+**Paths since 2026-11-28.** `mptorch.quant` is in tiers since `d105f8b`
+(`rotation.py` moved into `functional/` after it), and the project's Python
+is 3.14 since `65e01fa` (`uv sync` installs it). The sections below keep the
+paths of their rounds; the files they name are now:
+
+| before | now, under `mptorch/quant/` |
+|---|---|
+| `gemm.py` | `factories/linear.py` (the `*_gemm_formats` factories), `factories/_hooks.py` (the hook builders: `_spec_matmul`, `_with_output`), `factories/matmul.py` (`matmul_formats`, `block_matmul_formats`) |
+| `conv.py`, `_exact.py` | `factories/conv.py`, `factories/_exact.py` |
+| `pointwise.py` | `functional/pointwise.py` (the arithmetic, `_FUSED_DEVICES`), `functional/activation.py`, `functional/embedding.py` |
+| `pwl.py`, `reduce.py`, `norm.py`, `matmul.py`, `blockwise.py`, `rotation.py` | the same names under `functional/` |
+| `attention.py` | `functional/attention.py`, and its flash path `functional/_flash.py` |
+| `recipe.py`, `palettes.py`, `_counting.py` | the same names under `instrument/` |
+| `convert.py`, `simulate.py`, `profile.py` | `instrument/conversion.py`, `instrument/simulation.py` (its handlers in `instrument/_handlers.py`), `instrument/profiling.py` |
+| `modules/_opaque.py`, `modules/normalization.py` | `_opaque.py`, `modules/norm.py` |
+
 ## 0. Round 2 (2026-11-26): what to run now
 
 The first round's four commits are merged (`fc2caad`, `4d5e60a`, `482a291`,

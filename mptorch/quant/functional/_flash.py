@@ -9,7 +9,7 @@ path, which runs every query tile a key tile reaches in one call wherever
 ``_batchable`` allows it. ``_FlashAttention`` is the autograd Function that
 chooses between them. ``_repeated`` (the repeated keys and values of grouped
 queries) and ``_bias`` (a mask as an additive bias) serve the eager path of
-``attention.py`` too. ``docs/source/kernels/attention.rst`` is the user's
+``functional/attention.py`` too. ``docs/source/kernels/attention.rst`` is the user's
 account.
 """
 

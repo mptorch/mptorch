@@ -58,7 +58,8 @@ from mptorch.quant import (
 )
 from tests.markers import HAS_ODD, available_devices, float64_devices, requires_odd
 
-# gfloat 0.5's round_float inverts a bool with ~, which Python 3.13 deprecates
+# gfloat 0.5's round_float inverts a bool with ~, which Python deprecates (3.16
+# removes it)
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:gfloat")
 
 R = RoundMode

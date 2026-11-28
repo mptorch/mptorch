@@ -18,7 +18,7 @@ gradient hooks restore them on the result. A ``QMatmul``'s container is a
 Each hook comes from a builder of its own, one per pass and per kind of
 GEMM (``_linear_fwd``, ``_block_linear_igrad``, ``_matmul_bgrad`` and the
 others), over a GEMM resolved once into a ``_GemmSpec``. The factories of
-``linear.py`` and ``matmul.py`` compose them, and so does
+``factories/linear.py`` and ``factories/matmul.py`` compose them, and so does
 :class:`mptorch.quant.GemmFormats`, which may run each pass in different
 arithmetic or leave a pass to PyTorch.
 """
@@ -176,7 +176,7 @@ def _with_output[FormatsT: (QAffineFormats, QMatmulFormats)](
     """Make ``formats`` round each forward result with ``out``, after the bias is added.
 
     The forward runs ``formats.fwd_math``, or ``plain`` when there is none
-    (``F.linear``, :func:`_plain_conv` or ``torch.matmul``, the call the
+    (``F.linear``, ``conv._plain_conv`` or ``torch.matmul``, the call the
     layer's autograd Function would make), and then ``out`` rounds its result.
     The rounding happens inside the Function's forward, which the backward
     pass does not differentiate, so its gradient passes straight through. A

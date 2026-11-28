@@ -68,7 +68,7 @@ def _reduce(grad: torch.Tensor, shape: tuple[int, ...], was_1d: bool, dim: int) 
 #: since softmax keeps it, but ``V`` could not: it is a Linear's output that
 #: nothing else keeps (``_saved`` keeps a raw operand only where it is known
 #: to stay alive anyway). It is a module constant for ``torch.compile``'s
-#: sake, as in ``linear.py``.
+#: sake, as in ``modules/linear.py``.
 _MATMUL_RECOMPUTE_DEFAULT = (False, False)
 
 
