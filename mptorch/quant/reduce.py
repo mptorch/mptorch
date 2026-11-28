@@ -409,7 +409,7 @@ class ReductionFormats:
         object.__setattr__(self, "_spec", None if mac is None else spec_for_mac(mac))
 
     @classmethod
-    def uniform(cls, mac: Any, quant: Any, *, grad: Any = _SAME) -> "ReductionFormats":
+    def uniform(cls, mac: Any, quant: Any, *, grad: Any = _SAME) -> ReductionFormats:
         """One mac for the sum, and one rounding for the quotient and the
         gradient; ``grad`` replaces the gradient's (``None`` leaves it
         unrounded)."""

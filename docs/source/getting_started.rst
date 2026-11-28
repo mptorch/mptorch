@@ -9,7 +9,7 @@ compiles them against the PyTorch it is installed with. It needs:
 
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_, which
   installs everything else, Python and PyTorch included. MPTorch supports
-  Python 3.12 or later and PyTorch 2.1 or later.
+  Python 3.14 or later, with any PyTorch release that has wheels for it.
 - A C++20 compiler: GCC 10 or later on Linux, Apple clang on macOS.
 - For the CUDA kernels only: an NVIDIA GPU, visible when MPTorch is built,
   and the CUDA toolkit, version 12.0 or later.

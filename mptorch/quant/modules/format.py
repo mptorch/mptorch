@@ -112,22 +112,22 @@ class QAffineFormats(nn.Module):
     #: :meth:`mptorch.quant.QLinear.freeze_packed_` knows which format to
     #: pack the weight in. It is a class attribute, so that other formats
     #: carry nothing.
-    _block_weight: "BlockQuant | None" = None
+    _block_weight: "BlockQuant | None" = None  # noqa: UP037
 
     #: The :class:`mptorch.quant.GemmFormats` that built this container, which
     #: :func:`mptorch.quant.profile` reports a layer's formats by, or ``None``
     #: for a container built otherwise. A class attribute, as above.
-    _source: "GemmFormats | None" = None
+    _source: "GemmFormats | None" = None  # noqa: UP037
 
     #: The :class:`mptorch.quant.Hadamard` rotation of a ``GemmFormats`` with
     #: a ``rotation``, which wraps this container's operand slots and gradient
     #: hooks, and which :meth:`mptorch.quant.QPackedLinear.unfreeze_packed_`
     #: rotates a decoded weight back with. A class attribute, as above.
-    _rotation: "Hadamard | None" = None
+    _rotation: "Hadamard | None" = None  # noqa: UP037
     # A forward hook that leaves a wide fixed-point result in float64, which
     # `gemm._with_output` runs and rounds when the container has an output
     # rounding (`gemm._spec_matmul`); `None` on every other container.
-    _wide_fwd: "Callable | None" = None
+    _wide_fwd: Callable | None = None
 
     def __init__(
         self,
@@ -221,14 +221,14 @@ class QMatmulFormats(nn.Module):
 
     #: The :class:`mptorch.quant.GemmFormats` that built this container, as
     #: for :class:`QAffineFormats`.
-    _source: "GemmFormats | None" = None
+    _source: "GemmFormats | None" = None  # noqa: UP037
 
     #: The rotation of a ``GemmFormats`` with one, as for :class:`QAffineFormats`.
-    _rotation: "Hadamard | None" = None
+    _rotation: "Hadamard | None" = None  # noqa: UP037
     # A forward hook that leaves a wide fixed-point result in float64, which
     # `gemm._with_output` runs and rounds when the container has an output
     # rounding (`gemm._spec_matmul`); `None` on every other container.
-    _wide_fwd: "Callable | None" = None
+    _wide_fwd: Callable | None = None
 
     def __init__(
         self,

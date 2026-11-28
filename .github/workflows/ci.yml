@@ -2,10 +2,9 @@ name: Build and test
 
 on: [push]
 
-# uv downloads its own Python 3.12, the oldest the project supports, in place
-# of .python-version's. The project's commands then run in .venv, through uv.
-env:
-  UV_PYTHON: '3.12'
+# uv downloads the Python that .python-version names, which is also the
+# oldest the project supports (requires-python), and the project's commands
+# then run in .venv, through uv.
 
 jobs:
   lint:

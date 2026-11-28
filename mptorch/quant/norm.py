@@ -194,7 +194,7 @@ class SoftmaxFormats:
     @classmethod
     def uniform(
         cls, mac: Any, quant: Any, *, grad: Any = _SAME, carrier: torch.dtype | None = None
-    ) -> "SoftmaxFormats":
+    ) -> SoftmaxFormats:
         """``mac`` for both sums and ``quant`` for every other step; ``grad``
         replaces the backward's roundings (``None`` leaves the backward
         unrounded, its sum included)."""
@@ -354,7 +354,7 @@ class NormFormats:
     @classmethod
     def uniform(
         cls, mac: Any, quant: Any, *, grad: Any = _SAME, carrier: torch.dtype | None = None
-    ) -> "NormFormats":
+    ) -> NormFormats:
         """``mac`` for every sum and ``quant`` for every other step; ``grad``
         replaces the backward's roundings (``None`` leaves the backward
         unrounded, its sums included)."""

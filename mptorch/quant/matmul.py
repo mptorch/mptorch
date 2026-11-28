@@ -46,7 +46,7 @@ __all__ = ["qmm", "qbmm", "qmatmul", "as_matmul_formats"]
 
 
 @lru_cache(maxsize=128)
-def _formats_for(spelling: "Number | Mac | BlockMac", prec_idx: Any = None) -> QMatmulFormats:
+def _formats_for(spelling: Number | Mac | BlockMac, prec_idx: Any = None) -> QMatmulFormats:
     """Return the ``QMatmulFormats`` for a format object and ``prec_idx``, built once.
 
     Cached for the same reason ``spec_for_mac`` is: a call such as

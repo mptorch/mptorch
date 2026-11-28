@@ -10,7 +10,7 @@
 // `git archive 4164cee mptorch/csrc | tar -x -C DIR`, and the working tree.
 // Alternate the two binaries, several rounds, and take each one's minimum:
 //
-//   T=.venv/lib/python3.13/site-packages/torch/include
+//   T=.venv/lib/python3.14/site-packages/torch/include
 //   for tree in DIR/mptorch/csrc mptorch/csrc; do
 //     nvcc -O3 -std=c++20 -arch=sm_89 --expt-relaxed-constexpr -I $tree \
 //          -I $T -I $T/torch/csrc/api/include dev/benchmarks/timing/gemm_sr_ab.cu \

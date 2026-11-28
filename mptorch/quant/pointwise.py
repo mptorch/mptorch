@@ -184,7 +184,7 @@ class PointwiseFormats:
         grad_quant: Any = _SAME,
         carrier: torch.dtype | None = None,
         carrier_rounding: RoundMode = _RNE,
-    ) -> "PointwiseFormats":
+    ) -> PointwiseFormats:
         """One rounding for the result and the gradients; ``grad_quant``
         replaces the gradients' (``None`` leaves them unrounded)."""
         return cls(
@@ -286,7 +286,7 @@ class ActivationFormats:
     @classmethod
     def uniform(
         cls, quant: Any, *, grad: Any = _SAME, carrier: torch.dtype | None = None
-    ) -> "ActivationFormats":
+    ) -> ActivationFormats:
         """One rounding for the gate, the result and the gradient; ``grad``
         replaces the gradient's (``None`` leaves it unrounded)."""
         return cls(inner=quant, out=quant, grad=quant if grad is _SAME else grad, carrier=carrier)
@@ -879,9 +879,9 @@ def qdiv(
 
 def _with_section(f: Callable, section: str) -> None:
     """Append ``section`` (an ``Args:`` block written at the module's
-    indentation) to ``f``'s docstring. Both are normalized first, since
-    Python 3.13 strips a docstring's indentation and earlier versions keep
-    it."""
+    indentation) to ``f``'s docstring. Both are normalized first: the
+    compiler strips a docstring's indentation but keeps its trailing blank
+    line, and the section is written at the module's indentation."""
     f.__doc__ = inspect.cleandoc(f.__doc__ or "") + "\n\n" + textwrap.dedent(section).strip("\n")
 
 

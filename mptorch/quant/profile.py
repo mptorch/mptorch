@@ -722,7 +722,7 @@ def _batch_norm(c, name, call, x, out, training, weight, bias, formats) -> None:
 # --- the calls a simulate sees ---------------------------------------------------------
 
 
-def _route_of(state: "_CountingState", decision: tuple) -> Any:
+def _route_of(state: _CountingState, decision: tuple) -> Any:
     """The formats a call was simulated with, or ``None`` for PyTorch's."""
     scope, kind, site, action = decision
     if action != SIMULATED:

@@ -373,8 +373,8 @@ def _reference(fused, a, b, prec_idx, mul, acc, rm, *, quant=True):
 
     A split step is ``Q_acc(acc + Q_mul(a * b))`` in float64, which torch's
     elementwise ``*`` and ``+`` are; a fused step is ``Q_acc(fma(a, b, acc))``,
-    which Python 3.12 has no function for, so it is the correctly-rounded
-    conversion of the exact Fraction sum. Each palette slot is computed over
+    here the correctly-rounded conversion of the exact Fraction sum, which
+    shares nothing with ``math.fma``. Each palette slot is computed over
     the whole output and the slot the map names is kept.
     """
     a = a.cpu()

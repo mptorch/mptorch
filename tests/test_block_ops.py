@@ -416,7 +416,7 @@ def _nearest_pow2_code(m: Fraction, bias: int, top: int) -> int:
     return min(max(k + bias, 0), top)
 
 
-def _nearest_scale_code(r: Fraction, scale: "BinaryK | SuperFP") -> int:
+def _nearest_scale_code(r: Fraction, scale: BinaryK | SuperFP) -> int:
     """The magnitude code of the scale value nearest ``r``, a tie to the even
     code, at most the code below the NaN."""
     mf = _minifloat(scale)

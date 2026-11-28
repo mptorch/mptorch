@@ -1191,7 +1191,7 @@ class simulate:
                 h.remove()
             self._hooks.clear()
 
-    def __enter__(self) -> "simulate":
+    def __enter__(self) -> simulate:
         _outside_compile("entered")
         self._install()
         try:
@@ -1233,7 +1233,7 @@ class simulate:
             raise RuntimeError("this simulate counts no events: make it with events=True")
         return _event_report(self._state.tallies)
 
-    def wrap(self) -> "SimulatedModule":
+    def wrap(self) -> SimulatedModule:
         """The model as a module that simulates every call to it: the one to
         compile, as ``torch.compile(sim.wrap(), fullgraph=True)``.
 

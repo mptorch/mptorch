@@ -1696,12 +1696,12 @@ def _square_tile_hint(fmt: BlockFormat) -> str:
     return f"dataclasses.replace(fmt, block_rows={fmt.block_size})"
 
 
-def _packed_operand(q: BlockQuant, x: "torch.Tensor | BlockPacked", axis: int) -> BlockPacked:
+def _packed_operand(q: BlockQuant, x: torch.Tensor | BlockPacked, axis: int) -> BlockPacked:
     """Return ``x`` packed along ``axis`` by ``q``, or ``x`` itself if it is already packed."""
     return x if isinstance(x, BlockPacked) else q.pack_fresh(x, axis)
 
 
-def _reused(x: "torch.Tensor | BlockPacked", q: BlockQuant, where: str) -> BlockPacked | None:
+def _reused(x: torch.Tensor | BlockPacked, q: BlockQuant, where: str) -> BlockPacked | None:
     """Return the packing the forward pass made, for a backward pass to read
     along its other axis, or ``None`` if the float operand was saved instead
     (the caller then packs it again).
@@ -1832,16 +1832,16 @@ def _block_matmul_bgrad(mac: BlockMac) -> Callable:
     return bwd_bgrad
 
 
-def cast_quant(slot: "BlockFormat | BlockQuant | None") -> BlockQuant:
+def cast_quant(slot: BlockFormat | BlockQuant | None) -> BlockQuant:
     """Return a ``BlockMac`` slot as the ``BlockQuant`` that ``BlockMac`` converted it to."""
     assert slot is not None  # BlockMac.__post_init__ sets an unset b to a
     return _as_block_quant(slot, "a BlockMac slot")
 
 
 def block_gemm_formats(
-    input: "BlockFormat | BlockQuant",
-    weight: "BlockFormat | BlockQuant",
-    grad: "BlockFormat | BlockQuant | None" = None,
+    input: BlockFormat | BlockQuant,
+    weight: BlockFormat | BlockQuant,
+    grad: BlockFormat | BlockQuant | None = None,
     *,
     acc: BinaryK | None = None,
     fused: bool = False,
@@ -1932,7 +1932,7 @@ def block_gemm_formats(
         >>> layer(torch.randn(8, 64)).sum().backward()
     """
 
-    def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+    def operand(slot: BlockFormat | BlockQuant, name: str) -> BlockQuant:
         q = _as_block_quant(slot, name)
         # the factory's carrier also applies to packing, unless the operand names its own
         if carrier is torch.float64 and q.carrier is None:

@@ -102,7 +102,7 @@ class MultiheadAttentionFormats:
         )
         return "; ".join(parts)
 
-    def container(self) -> "QAttentionFormats":
+    def container(self) -> QAttentionFormats:
         """A new container for one layer."""
         return QAttentionFormats(
             None if self.in_proj is None else self.in_proj.affine(),

@@ -112,7 +112,7 @@ def _fma1(x: float, y: float, z: float) -> float:
     """x*y + z with one rounding to float64.
 
     Exact in rationals: a ``Fraction``'s conversion to float rounds to
-    nearest even once (``math.fma`` is Python 3.13's, newer than CI's). A
+    nearest even once, a reference that shares nothing with ``math.fma``. A
     non-finite operand takes IEEE's rules, which float arithmetic has, and a
     finite result past binary64's range is an infinity.
     """

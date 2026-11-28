@@ -193,10 +193,10 @@ class AttentionFormats:
         >>> af = AttentionFormats.uniform(SplitMac(p8, BinaryK(16, 11)), Quant(p8))
     """
 
-    qk: "GemmFormats | None" = None
-    scores: "pointwise.PointwiseFormats | None" = None
-    softmax: "norm.SoftmaxFormats | None" = None
-    pv: "GemmFormats | None" = None
+    qk: "GemmFormats | None" = None  # noqa: UP037
+    scores: pointwise.PointwiseFormats | None = None
+    softmax: norm.SoftmaxFormats | None = None
+    pv: "GemmFormats | None" = None  # noqa: UP037
     flash: FlashFormats | None = None
     # The two products' containers, built once here so that a call (functional,
     # or simulate's, perhaps while Dynamo traces) builds none: a container built
@@ -246,7 +246,7 @@ class AttentionFormats:
     @classmethod
     def uniform(
         cls, mac: Any, quant: Any = None, *, grad_mac: Any = _SAME, grad_quant: Any = _SAME
-    ) -> "AttentionFormats":
+    ) -> AttentionFormats:
         """Both products as ``GemmFormats.uniform(mac, quant, ...)``, and the
         softmax as ``SoftmaxFormats.uniform(mac, quant, ...)`` in ``mac``'s
         carrier; the scores and the result are left unrounded.

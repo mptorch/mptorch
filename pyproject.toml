@@ -3,7 +3,7 @@ name = "mptorch"
 version = "0.4.0"
 license = {text = "GPL-3.0"}
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 # setuptools and ninja are listed here as well as in [build-system]: uv builds
 # MPTorch inside .venv (no-build-isolation-package, below), and it installs a
 # project's own dependencies before building it, so these are what puts the
@@ -130,7 +130,7 @@ cache-keys = [
 filterwarnings = ["ignore::mptorch.number.FormatRangeWarning"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 extend-exclude = ["temp", "backup", "build"]
 
@@ -144,4 +144,4 @@ select = [
 ]
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.14"

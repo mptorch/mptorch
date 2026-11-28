@@ -183,7 +183,7 @@ class Palette:
 
     formats: tuple[GemmFormat, ...]
 
-    def __init__(self, formats: "Number | Sequence[Number] | Palette"):
+    def __init__(self, formats: Number | Sequence[Number] | Palette):
         if isinstance(formats, Palette):
             formats = formats.formats
         elif isinstance(formats, Number):
@@ -229,7 +229,7 @@ class Palette:
         return self.formats[i]
 
 
-def _as_palette(slot: "Number | Sequence[Number] | Palette | None") -> Palette | None:
+def _as_palette(slot: Number | Sequence[Number] | Palette | None) -> Palette | None:
     """Convert a format slot to a ``Palette``. ``None``, which means the step
     is not rounded to a format, stays ``None``."""
     return None if slot is None else Palette(slot)
@@ -526,7 +526,7 @@ def _as_quant(slot: object, name: str) -> Any:
     return slot
 
 
-def _as_block_quant(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+def _as_block_quant(slot: BlockFormat | BlockQuant, name: str) -> BlockQuant:
     """Convert a block operand slot to a ``BlockQuant``; a bare format gets ``RoundMode.RNE``."""
     if isinstance(slot, BlockQuant):
         return slot
@@ -589,8 +589,8 @@ class BlockMac:
         torch.Size([4, 8])
     """
 
-    a: "BlockFormat | BlockQuant"
-    b: "BlockFormat | BlockQuant | None" = None
+    a: BlockFormat | BlockQuant
+    b: BlockFormat | BlockQuant | None = None
     acc: BinaryK | None = None
     _: KW_ONLY
     fused: bool = False
@@ -602,7 +602,7 @@ class BlockMac:
     tensor_scale_epilogue: bool = False
 
     def __post_init__(self) -> None:
-        def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+        def operand(slot: BlockFormat | BlockQuant, name: str) -> BlockQuant:
             q = _as_block_quant(slot, name)
             # the mac's carrier=torch.float64 applies to packing too, unless the
             # operand's BlockQuant names a carrier of its own
@@ -636,7 +636,7 @@ def spec_for_block_mac(mac: BlockMac) -> _BlockGemmSpec:
 
 
 def _checked_accumulation(
-    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...], has_product: bool
+    mac: SplitMac | FusedMac, slots: tuple[Palette | None, ...], has_product: bool
 ) -> None:
     """Validate a mac's ``accumulate_algorithm``, ``block_size`` and ``outer``.
 
@@ -674,9 +674,7 @@ def _checked_accumulation(
         )
 
 
-def _checked_carrier_rounding(
-    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...]
-) -> None:
+def _checked_carrier_rounding(mac: SplitMac | FusedMac, slots: tuple[Palette | None, ...]) -> None:
     """Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.
 
     ``RO`` selects the ``custom_matmul_*_odd`` and ``custom_conv_*_odd`` ops,
@@ -706,7 +704,7 @@ def _checked_carrier_rounding(
         )
 
 
-def _checked_fixedpoint(mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...]) -> bool:
+def _checked_fixedpoint(mac: SplitMac | FusedMac, slots: tuple[Palette | None, ...]) -> bool:
     """Validate a mac against the fixed-point GEMM's scope, and say whether it is one.
 
     A mac is fixed point when any slot holds a :class:`~mptorch.FixedPoint`.
@@ -897,8 +895,8 @@ class SplitMac:
         torch.Size([4, 3])
     """
 
-    mul: "Number | Sequence[Number] | Palette"
-    acc: "Number | Sequence[Number] | Palette | None" = None
+    mul: Number | Sequence[Number] | Palette
+    acc: Number | Sequence[Number] | Palette | None = None
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
@@ -988,7 +986,7 @@ class FusedMac:
         >>> carrier_fma = FusedMac(None)   # each step rounded only by the carrier's FMA
     """
 
-    fma: "Number | Sequence[Number] | Palette | None"
+    fma: Number | Sequence[Number] | Palette | None
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE

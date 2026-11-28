@@ -315,7 +315,7 @@ def _counting(tally: Any, pass_: str) -> _Count:
     if tally is None:
         return None
 
-    def count(mac: Any, spec: "_GemmSpec | None") -> "_GemmSpec | None":
+    def count(mac: Any, spec: _GemmSpec | None) -> _GemmSpec | None:
         parts = None if spec is None else _counted_parts(spec)
         if parts is None:
             tally.gap(pass_, "mac", _uncounted_reason(mac))
@@ -460,7 +460,7 @@ class GemmFormats:
     @classmethod
     def uniform(
         cls, mac: Any, quant: Any = None, *, grad_mac: Any = _SAME, grad_quant: Any = _SAME
-    ) -> "GemmFormats":
+    ) -> GemmFormats:
         """Every pass in ``mac``, and every operand and gradient rounded by ``quant``.
 
         ``grad_mac`` and ``grad_quant`` give the two gradient passes their own
@@ -491,7 +491,7 @@ class GemmFormats:
         return any(isinstance(getattr(self, name), BlockMac) for name in _MAC_SLOTS)
 
     def _affine_slots(
-        self, formats: QAffineFormats, tally: "_SiteTally | None" = None
+        self, formats: QAffineFormats, tally: _SiteTally | None = None
     ) -> QAffineFormats:
         formats.input_quant = _counting_quant(self.input_quant, tally, "input_quant")
         formats.weight_quant = _counting_quant(self.weight_quant, tally, "weight_quant")
@@ -901,7 +901,7 @@ class Recipe:
     __slots__ = ("rules",)
     rules: tuple[Rule, ...]
 
-    def __init__(self, rules: "tuple[Rule, ...] | list[Rule]" = (), /, **kinds: Any):
+    def __init__(self, rules: tuple[Rule, ...] | list[Rule] = (), /, **kinds: Any):
         rules = tuple(rules)
         for rule in rules:
             if not isinstance(rule, Rule):
@@ -922,12 +922,12 @@ class Recipe:
     def __repr__(self) -> str:
         return f"Recipe({list(self.rules)!r})"
 
-    def override(self, where: Where, *, site: Any = None, **kinds: Any) -> "Recipe":
+    def override(self, where: Where, *, site: Any = None, **kinds: Any) -> Recipe:
         """A new recipe with one more rule, which wins over the earlier ones
         for the kinds it names (see :class:`Rule` for ``where`` and ``site``)."""
         return Recipe((*self.rules, Rule(where, kinds, site)))
 
-    def attention_parts(self, where: Where, formats: AttentionFormats) -> "Recipe":
+    def attention_parts(self, where: Where, formats: AttentionFormats) -> Recipe:
         """A new recipe that gives ``formats`` to the attention at ``where``,
         however the model spells it.
 
@@ -991,7 +991,7 @@ class Recipe:
                 return value
         return None
 
-    def plan(self, model: nn.Module, **kwargs: Any) -> "ConvertReport":
+    def plan(self, model: nn.Module, **kwargs: Any) -> "ConvertReport":  # noqa: UP037
         """What :func:`mptorch.quant.convert_` would do to ``model``, without
         doing it. It takes ``convert_``'s keyword arguments."""
         from .convert import _plan  # imported here: convert imports this module

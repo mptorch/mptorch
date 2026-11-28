@@ -49,7 +49,7 @@ class Layout:
     with the zero's. A ``FixedPoint`` has no exponent field: its magnitude
     code ``c`` is the integer ``c`` times its step, ``2^-fl``."""
 
-    def __init__(self, f: "BinaryK | SuperFP | FixedPoint"):
+    def __init__(self, f: BinaryK | SuperFP | FixedPoint):
         self.signed = f.is_signed
         self.fl = None  # FixedPoint only
         if isinstance(f, FixedPoint):

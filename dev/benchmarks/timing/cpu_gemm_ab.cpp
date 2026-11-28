@@ -10,7 +10,7 @@
 // Compile with the extension's own host flags (build/temp.*/build.ninja's
 // cflags and post_cflags), or the comparison is of something else:
 //
-//   T=.venv/lib/python3.13/site-packages/torch
+//   T=.venv/lib/python3.14/site-packages/torch
 //   for tree in DIR/mptorch/csrc mptorch/csrc; do
 //     g++ -O3 -std=c++20 -fopenmp -fPIC -DNDEBUG -fno-omit-frame-pointer \
 //         -mno-omit-leaf-frame-pointer --param inline-unit-growth=400 \

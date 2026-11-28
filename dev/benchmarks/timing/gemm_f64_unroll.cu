@@ -11,7 +11,7 @@
 // kernel's registers and stack frame:
 //   for U in 1 2 4; do
 //     nvcc -O3 -std=c++20 -arch=sm_89 -DMPTORCH_GEMM_F64_UNROLL=$U \
-//          -I mptorch/csrc -I .venv/lib/python3.13/site-packages/torch/include \
+//          -I mptorch/csrc -I .venv/lib/python3.14/site-packages/torch/include \
 //          dev/benchmarks/timing/gemm_f64_unroll.cu -o /tmp/f64_unroll_$U && /tmp/f64_unroll_$U
 //   done
 

@@ -344,8 +344,8 @@ class BlockFormat(Number):
         <ScaleRounding.SELECTIVE: 3>
     """
 
-    elem: "BinaryK | SuperFP | FixedPoint"
-    scale: "BinaryK | SuperFP | None"
+    elem: BinaryK | SuperFP | FixedPoint
+    scale: BinaryK | SuperFP | None
     block_size: int
     _: KW_ONLY
     block_rows: int = 1
@@ -611,7 +611,7 @@ def _bias(f: BinaryK) -> int:
     return f.bias
 
 
-def _minifloat(f: "BinaryK | SuperFP | FixedPoint") -> _Minifloat:
+def _minifloat(f: BinaryK | SuperFP | FixedPoint) -> _Minifloat:
     """Return the code layout of ``f``.
 
     For a ``BinaryK`` it is P3109's field widths in sign-magnitude form; for
@@ -700,7 +700,7 @@ def _significant_bits(value: Fraction) -> int:
 
 
 def _block_part_error(
-    role: str, f: "BinaryK | SuperFP | FixedPoint", carrier: torch.dtype
+    role: str, f: BinaryK | SuperFP | FixedPoint, carrier: torch.dtype
 ) -> str | None:
     """Return why a block format cannot use ``f`` as its element or cast scale
     in ``carrier``, or ``None``.
@@ -746,7 +746,7 @@ def _block_part_error(
     return f"a BlockFormat's {role} must be a format that fits entirely in {name}, but {found}"
 
 
-def _part_label(f: "BinaryK | SuperFP | FixedPoint | None") -> str:
+def _part_label(f: BinaryK | SuperFP | FixedPoint | None) -> str:
     """A short label for an element or scale format, for messages: its preset
     name (``E4M3``) if it is one, and otherwise its constructor call."""
     from . import presets  # imported here, since `presets` imports this module

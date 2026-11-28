@@ -89,7 +89,7 @@ __all__ = [
 
 @lru_cache(maxsize=256)
 def _code_fields(
-    f: "BinaryK | SuperFP | FixedPoint",
+    f: BinaryK | SuperFP | FixedPoint,
 ) -> tuple[int, int, int, int, int, int, int]:
     """Describe one code's family and layout as the descriptor lists them:
     ``(family, signed, exp_bits, man_bits, bias, subnormals, normal_binades)``.
@@ -354,7 +354,7 @@ class BlockPacked:
         return self.shape[self.axis]
 
     @property
-    def mT(self) -> "BlockPacked":
+    def mT(self) -> BlockPacked:
         """The logical transpose of the last two dimensions, without a copy."""
         n = len(self.shape)
         if n < 2 or self.axis < n - 2:
@@ -375,7 +375,7 @@ class BlockPacked:
             self.carrier,
         )
 
-    def to(self, device: torch.device | str) -> "BlockPacked":
+    def to(self, device: torch.device | str) -> BlockPacked:
         """The same codes on ``device``."""
         return BlockPacked(
             self.data.to(device),

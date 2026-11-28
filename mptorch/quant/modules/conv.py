@@ -408,7 +408,7 @@ class QConv1d(nn.Conv1d):
             self.formats = formats
 
     @classmethod
-    def from_float(cls, conv: nn.Conv1d, formats: QAffineFormats | None = None) -> "QConv1d":
+    def from_float(cls, conv: nn.Conv1d, formats: QAffineFormats | None = None) -> QConv1d:
         """A ``QConv1d`` over ``conv``'s own parameters, with ``formats``, as
         :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
 
@@ -524,7 +524,7 @@ class QConv2d(nn.Conv2d):
             self.formats = formats
 
     @classmethod
-    def from_float(cls, conv: nn.Conv2d, formats: QAffineFormats | None = None) -> "QConv2d":
+    def from_float(cls, conv: nn.Conv2d, formats: QAffineFormats | None = None) -> QConv2d:
         """A ``QConv2d`` over ``conv``'s own parameters, with ``formats``, as
         :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
 
@@ -640,7 +640,7 @@ class QConv3d(nn.Conv3d):
             self.formats = formats
 
     @classmethod
-    def from_float(cls, conv: nn.Conv3d, formats: QAffineFormats | None = None) -> "QConv3d":
+    def from_float(cls, conv: nn.Conv3d, formats: QAffineFormats | None = None) -> QConv3d:
         """A ``QConv3d`` over ``conv``'s own parameters, with ``formats``, as
         :meth:`mptorch.quant.QLinear.from_float` makes a ``QLinear``.
 

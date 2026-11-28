@@ -106,10 +106,10 @@ class _Palette:
             )
             self.first = _output_rounding(quants[0])
 
-    def __deepcopy__(self, memo: dict) -> "_Palette":
+    def __deepcopy__(self, memo: dict) -> _Palette:
         return self
 
-    def __copy__(self) -> "_Palette":
+    def __copy__(self) -> _Palette:
         return self
 
     def forward(self, prec_idx: torch.Tensor | None, *args: Any, **kwargs: Any) -> torch.Tensor:

@@ -20,7 +20,7 @@ hook that drops to binary32 would still run and return plausible numbers at
 * **Tier 3 (manual baseline):** a ``SplitMac`` and a ``FusedMac`` in wide
   formats, recomputed step by step from the elementwise quantizer, forward and
   gradients. The fused step's exact ``a * b + c`` comes from
-  ``fractions.Fraction``, since Python 3.12 has no ``math.fma``.
+  ``fractions.Fraction``, a reference that shares nothing with ``math.fma``.
 
 A fourth section puts formats exactly on the edges of binary64's bounds and
 checks their values against ``tests/test_binaryk_p3109.py``'s ``_project``, a

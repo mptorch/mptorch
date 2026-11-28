@@ -60,7 +60,7 @@ for name, recompute in (("nn.Conv2d", "nn"), ("QConv2d, copies kept", False), ("
     out.sum().backward()
     grads[name] = [p.grad for p in model.parameters()]
     print(f"{name:21s} holds {held / activation:.2f} activations for backward")
-same = all(map(torch.equal, grads["QConv2d"], grads["QConv2d, copies kept"]))
+same = all(map(torch.equal, grads["QConv2d"], grads["QConv2d, copies kept"], strict=True))
 print("the two QConv2d stacks' gradients, under SR, are identical:", same)
 
 

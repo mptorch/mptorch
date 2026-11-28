@@ -125,7 +125,7 @@ def _capture(x: torch.Tensor, every: bool) -> _State:
 
 
 def quantize_operand(
-    x: "torch.Tensor | BlockPacked",
+    x: torch.Tensor | BlockPacked,
     q: Callable | None,
     flag: bool | None,
     default: bool,

@@ -250,7 +250,7 @@ class QLinear(nn.Linear):
         return CustomArithLinear.apply(input, self.weight, self.bias, self.formats)
 
     @classmethod
-    def from_float(cls, linear: nn.Linear, formats: QAffineFormats | None = None) -> "QLinear":
+    def from_float(cls, linear: nn.Linear, formats: QAffineFormats | None = None) -> QLinear:
         """A ``QLinear`` over ``linear``'s own parameters, with ``formats``.
 
         The new layer holds the same ``weight`` and ``bias`` Parameters (no
@@ -265,7 +265,7 @@ class QLinear(nn.Linear):
         """
         return _from_float(linear, cls, nn.Linear, formats)
 
-    def freeze_packed_(self, *, pack: bool = True) -> "QPackedLinear":
+    def freeze_packed_(self, *, pack: bool = True) -> QPackedLinear:
         """Replace the float weight by its block codes, in place.
 
         The layer becomes a :class:`QPackedLinear`: its ``weight`` is
@@ -461,7 +461,7 @@ def _zeroed_codes(weight: torch.Tensor, q: BlockQuant) -> BlockPacked:
     return BlockPacked(codes, scale_codes, fmt, tuple(weight.shape), 1, 1.0, weight.dtype, carrier)
 
 
-def _rotation_state(rotation: "Hadamard | None") -> dict[str, Any] | None:
+def _rotation_state(rotation: Hadamard | None) -> dict[str, Any] | None:
     """A rotation as the plain values a frozen layer's extra state holds."""
     if rotation is None:
         return None

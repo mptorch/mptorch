@@ -23,9 +23,7 @@ concurrency:
   group: documentation-${{ github.ref }}
   cancel-in-progress: true
 
-# uv downloads its own Python 3.12, as in ci.yml.
-env:
-  UV_PYTHON: '3.12'
+# uv downloads the Python that .python-version names, as in ci.yml.
 
 jobs:
   docs:

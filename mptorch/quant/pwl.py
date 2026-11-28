@@ -307,7 +307,7 @@ class PWLTable:
         tails: Any = "extend",
         name: str | None = None,
         derivative: Callable | None = None,
-    ) -> "PWLTable":
+    ) -> PWLTable:
         """A table of ``fn`` on ``segments`` uniform segments of ``[lo, hi]``.
 
         Args:
@@ -352,7 +352,7 @@ class PWLTable:
         error: str = "relative",
         grid: int = 64,
         entry_quant: Callable | None = None,
-    ) -> "PWLTable":
+    ) -> PWLTable:
         """A table of ``1 / sqrt(m)`` over ``[1, 4)``, which a
         :class:`~mptorch.quant.NormFormats`' ``inverse`` evaluates for any
         positive normal ``v`` by ``v = m * 4**k``, both factors exact."""
